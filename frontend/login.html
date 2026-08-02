@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In - Safety First</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .btn-primary {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(251, 191, 36, 0.3);
+        }
+        .btn-primary:hover:not(:disabled) {
+            box-shadow: 0 7px 20px rgba(251, 191, 36, 0.4);
+            transform: translateY(-2px);
+        }
+        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    </style>
+</head>
+<body class="bg-slate-900 min-h-screen flex items-center justify-center px-4">
+
+    <div class="w-full max-w-md">
+        <div class="flex items-center justify-center mb-8">
+            <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center mr-2">
+                <i class="fas fa-hard-hat text-slate-900 text-xl"></i>
+            </div>
+            <span class="text-2xl font-bold text-white">Safety <span class="text-amber-500">First</span></span>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-2xl p-8">
+            <h1 class="text-2xl font-bold text-slate-800 mb-1">Welcome back</h1>
+            <p class="text-gray-500 mb-6">Sign in to access the live monitoring dashboard</p>
+
+            <div id="googleButton" class="mb-4"></div>
+            <div id="googleDivider" class="hidden items-center gap-3 my-5">
+                <div class="h-px bg-gray-200 flex-1"></div>
+                <span class="text-xs text-gray-400 uppercase">or</span>
+                <div class="h-px bg-gray-200 flex-1"></div>
+            </div>
+
+            <div id="formError" class="hidden mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"></div>
+
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="email" required autocomplete="email"
+                           class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                    <input type="password" id="password" required autocomplete="current-password"
+                           class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none">
+                </div>
+                <button type="submit" id="submitBtn"
+                        class="btn-primary w-full text-slate-900 font-bold py-3 rounded-lg">
+                    Sign In
+                </button>
+            </form>
+
+            <p class="text-center text-sm text-gray-500 mt-6">
+                Don't have an account?
+                <a href="signup.html" class="text-amber-600 font-semibold hover:text-amber-700">Sign up</a>
+            </p>
+        </div>
+
+        <p class="text-center text-sm text-gray-400 mt-6">
+            <a href="index.html" class="hover:text-amber-400"><i class="fas fa-arrow-left mr-1"></i>Back to home</a>
+        </p>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        Auth.redirectIfLoggedIn('visit-site.html');
+
+        const formError = document.getElementById('formError');
+        function showError(message) {
+            formError.textContent = message;
+            formError.classList.remove('hidden');
+        }
+        function clearError() {
+            formError.classList.add('hidden');
+        }
+
+        async function handleGoogleCredentialResponse(response) {
+            clearError();
+            try {
+                const res = await fetch(`${window.API_BASE_URL}/api/auth/google`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ credential: response.credential }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    showError(data.message || 'Google sign-in failed');
+                    return;
+                }
+                Auth.setSession(data.token, data.user);
+                window.location.href = 'visit-site.html';
+            } catch (err) {
+                showError('Could not reach the server. Is the API running?');
+            }
+        }
+
+        window.onload = function () {
+            if (window.GOOGLE_CLIENT_ID && window.google) {
+                google.accounts.id.initialize({
+                    client_id: window.GOOGLE_CLIENT_ID,
+                    callback: handleGoogleCredentialResponse,
+                });
+                google.accounts.id.renderButton(document.getElementById('googleButton'), {
+                    theme: 'outline', size: 'large', width: 328, text: 'signin_with',
+                });
+                document.getElementById('googleDivider').classList.remove('hidden');
+                document.getElementById('googleDivider').classList.add('flex');
+            }
+        };
+
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            clearError();
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Signing in...';
+
+            try {
+                const res = await fetch(`${window.API_BASE_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        email: document.getElementById('email').value.trim(),
+                        password: document.getElementById('password').value,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    showError(data.message || 'Invalid email or password');
+                    return;
+                }
+                Auth.setSession(data.token, data.user);
+                window.location.href = 'visit-site.html';
+            } catch (err) {
+                showError('Could not reach the server. Is the API running?');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Sign In';
+            }
+        });
+    </script>
+</body>
+</html>

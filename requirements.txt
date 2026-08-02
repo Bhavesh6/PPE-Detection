@@ -1,0 +1,11 @@
+flask>=2.3
+flask-cors
+flask-sqlalchemy
+flask-jwt-extended
+google-auth
+requests
+gunicorn
+numpy>=1.26.0
+opencv-python-headless
+ultralytics
+python-dotenv

@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safety First - Construction PPE Monitoring</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .gradient-text {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .btn-primary {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(251, 191, 36, 0.3);
+        }
+        
+        .btn-primary:hover {
+            box-shadow: 0 7px 20px rgba(251, 191, 36, 0.4);
+            transform: translateY(-3px);
+        }
+
+        .nav-link {
+            position: relative;
+        }
+
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: -4px;
+            left: 0;
+            background-color: #f59e0b;
+            transition: width 0.3s ease;
+        }
+
+        .nav-link:hover::after {
+            width: 100%;
+        }
+
+        .feature-card {
+            transition: all 0.4s ease;
+            border-radius: 12px;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .stat-card {
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .testimonial-card {
+            transition: all 0.4s ease;
+        }
+        
+        .testimonial-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+        }
+        
+        /* Page Loading Animation */
+        .page-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #0f172a;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease, visibility 0.5s ease;
+        }
+        
+        .loader-hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+        
+        .loader-logo {
+            width: 120px;
+            height: 120px;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .loader-circle {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 4px solid transparent;
+            border-top-color: #f59e0b;
+            border-radius: 50%;
+            animation: loadCircle 2s linear infinite;
+        }
+        
+        .loader-circle:nth-child(2) {
+            width: 80%;
+            height: 80%;
+            border-top-color: #3b82f6;
+            animation-duration: 1.5s;
+            animation-direction: reverse;
+        }
+        
+        .loader-icon {
+            font-size: 2.5rem;
+            color: #f59e0b;
+            animation: textPulse 1.5s ease infinite alternate;
+        }
+        
+        @keyframes loadCircle {
+            0% {
+                transform: rotate(0deg) scale(1);
+                border-top-color: #f59e0b;
+                border-width: 4px;
+            }
+            50% {
+                transform: rotate(180deg) scale(1.2);
+                border-top-color: #3b82f6;
+                border-width: 6px;
+            }
+            100% {
+                transform: rotate(360deg) scale(1);
+                border-top-color: #f59e0b;
+                border-width: 4px;
+            }
+        }
+        
+        @keyframes textPulse {
+            0% {
+                opacity: 0.6;
+                transform: scale(0.9);
+                color: #f59e0b;
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.2);
+                color: #3b82f6;
+            }
+            100% {
+                opacity: 0.6;
+                transform: scale(0.9);
+                color: #f59e0b;
+            }
+        }
+        
+        @keyframes fadeSlideUp {
+            0% {
+                opacity: 0;
+                transform: translateY(60px);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes floatImage {
+            0% {
+                transform: translateY(0px) translateX(0px) rotate(0deg);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            }
+            25% {
+                transform: translateY(-15px) translateX(10px) rotate(1deg);
+                box-shadow: 0 15px 25px rgba(0,0,0,0.2);
+            }
+            50% {
+                transform: translateY(-8px) translateX(-5px) rotate(-1deg);
+                box-shadow: 0 10px 20px rgba(0,0,0,0.15);
+            }
+            75% {
+                transform: translateY(-12px) translateX(8px) rotate(0.5deg);
+                box-shadow: 0 12px 22px rgba(0,0,0,0.18);
+            }
+            100% {
+                transform: translateY(0px) translateX(0px) rotate(0deg);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            }
+        }
+        
+        @keyframes floatUp {
+            0% {
+                transform: translateY(0) rotate(0deg);
+                opacity: 0.8;
+            }
+            25% {
+                transform: translateY(-12px) rotate(3deg);
+                opacity: 1;
+            }
+            50% {
+                transform: translateY(-20px) rotate(5deg);
+                opacity: 1;
+            }
+            75% {
+                transform: translateY(-12px) rotate(3deg);
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(0) rotate(0deg);
+                opacity: 0.8;
+            }
+        }
+        
+        @keyframes fadeIn {
+            0% {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+        
+        @keyframes shimmer {
+            0% {
+                background-position: -100% 0;
+            }
+            100% {
+                background-position: 200% 0;
+            }
+        }
+        
+        .animate-shimmer {
+            background: linear-gradient(90deg, 
+                rgba(255,255,255,0) 0%, 
+                rgba(255,255,255,0.2) 25%, 
+                rgba(255,255,255,0.5) 50%, 
+                rgba(255,255,255,0.2) 75%, 
+                rgba(255,255,255,0) 100%);
+            background-size: 200% 100%;
+            animation: shimmer 3s infinite linear;
+        }
+        
+        .animate-fadeSlideUp {
+            animation: fadeSlideUp 1s ease-out forwards;
+        }
+        
+        .animate-floatImage {
+            animation: floatImage 15s ease-in-out infinite;
+        }
+        
+        .animate-floatUp {
+            animation: floatUp 20s ease-in-out infinite;
+        }
+        
+        .animate-floatUp-slow {
+            animation: floatUp 26s ease-in-out infinite;
+        }
+        
+        .animate-floatUp-fast {
+            animation: floatUp 15s ease-in-out infinite;
+        }
+        
+        .animate-fadeIn {
+            animation: fadeIn 1.5s ease forwards;
+        }
+        
+        .animate-count {
+            animation: countUp 2s ease-out forwards;
+            display: inline-block;
+        }
+        
+        @keyframes countUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-white">
+    <!-- Page Loader -->
+    <div class="page-loader" id="pageLoader">
+        <div class="loader-logo">
+            <div class="loader-circle"></div>
+            <div class="loader-circle"></div>
+            <div class="loader-icon">
+                <i class="fas fa-hard-hat"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Header/Navigation -->
+    <header class="bg-slate-900 text-white">
+        <div class="container mx-auto py-4 px-6">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center mr-2">
+                        <i class="fas fa-hard-hat text-slate-900 text-xl"></i>
+                    </div>
+                    <span class="text-xl font-bold">Safety <span class="text-amber-500">First</span></span>
+                </div>
+                <nav>
+                    <ul class="flex items-center space-x-8">
+                        <li><a href="#" class="nav-link text-white hover:text-amber-300 transition duration-300">Home</a></li>
+                        <li><a href="#features" class="nav-link text-white hover:text-amber-300 transition duration-300">Features</a></li>
+                        <li><a href="#testimonials" class="nav-link text-white hover:text-amber-300 transition duration-300">Testimonials</a></li>
+                        <li data-auth-logged-out class="hidden"><a href="login.html" class="nav-link text-white hover:text-amber-300 transition duration-300">Log In</a></li>
+                        <li data-auth-logged-out class="hidden"><a href="signup.html" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-2 px-6 rounded-full transition duration-300">Sign Up</a></li>
+                        <li data-auth-logged-in class="hidden"><a href="visit-site.html" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-2 px-6 rounded-full transition duration-300">Go to Dashboard</a></li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="relative bg-slate-900 bg-opacity-95 text-white py-16 overflow-hidden">        
+        <!-- Hero background effects -->
+        <div class="absolute inset-0 overflow-hidden">
+            <div class="absolute inset-0 bg-gradient-to-b from-blue-900/20 to-amber-900/10"></div>
+            <div class="absolute -inset-0.5 bg-slate-900 opacity-60"></div>
+            <div class="absolute inset-0" style="background-image: radial-gradient(circle at 30% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 25%), radial-gradient(circle at 80% 40%, rgba(245, 158, 11, 0.08) 0%, transparent 25%);"></div>
+        </div>
+        <!-- Decorative elements -->
+        <div class="absolute top-10 right-10 w-72 h-72 bg-amber-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob"></div>
+        <div class="absolute bottom-10 left-10 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
+        <div class="container mx-auto px-6">
+            <div class="flex flex-col md:flex-row items-center">
+                <div class="md:w-1/2 mb-10 md:mb-0 md:pr-10 animate-fadeSlideUp" style="animation-duration: 1.2s;">
+                    <h1 class="text-4xl md:text-5xl font-bold mb-6">AI-Powered<br>Construction Safety<br>Monitoring System</h1>
+                    <p class="text-gray-300 mb-8">Protect your workforce with our advanced computer vision technology that detects PPE non-compliance and safety violations in real-time, reducing accidents by up to 73%.</p>
+                    <div class="flex space-x-4">
+                        <a href="visit-site.html" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-3 px-8 rounded-full transition duration-300 relative overflow-hidden group">
+                            <span class="absolute inset-0 w-full h-full opacity-0 group-hover:opacity-30 animate-shimmer"></span>
+                            <i class="fas fa-hard-hat mr-2"></i>Launch System
+                        </a>
+                        <a href="#features" class="border border-gray-500 hover:border-amber-500 text-white py-3 px-8 rounded-full transition duration-300 relative overflow-hidden group">
+                            <span class="absolute inset-0 w-full h-full opacity-0 group-hover:opacity-20 animate-shimmer"></span>
+                            <i class="fas fa-info-circle mr-2"></i>Learn More
+                        </a>
+                    </div>
+                </div>
+                <div class="md:w-1/2">
+                    <div class="relative animate-floatImage overflow-hidden rounded-2xl" style="animation-duration: 12s;">
+                        <div class="bg-gradient-to-br from-amber-500/20 to-blue-500/20 absolute inset-0 rounded-2xl blur-xl"></div>
+                        <img src="https://images.unsplash.com/photo-1531834685032-c34bf0d84c77?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1287&q=80" 
+                             alt="Construction site safety monitoring" 
+                             class="relative w-full rounded-2xl shadow-xl border border-slate-700 transition-all duration-700">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Statistics Section -->
+    <section class="py-20 bg-white">
+        <div class="container mx-auto px-6">
+            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">Real Impact on Safety</h2>
+            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">Our AI-powered safety monitoring system has transformed construction sites worldwide with proven results.</p>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
+                <!-- Stat 1 -->
+                <div class="stat-card bg-white rounded-xl p-6 text-center border border-gray-200 shadow-sm animate-fadeIn relative overflow-hidden" style="animation-duration: 0.7s;">
+                    <span class="absolute inset-0 bg-blue-50 opacity-0 transition-opacity duration-700 hover:opacity-100"></span>
+                    <div class="rounded-full h-16 w-16 flex items-center justify-center bg-blue-100 text-blue-500 mx-auto mb-5 animate-floatUp relative z-10" style="animation-duration: 6s;">
+                        <i class="fas fa-check-circle text-2xl"></i>
+                    </div>
+                    <h3 class="text-5xl font-bold text-blue-500 mb-2 relative z-10"><span class="animate-count" data-value="98">0</span>%</h3>
+                    <p class="text-sm text-gray-500 relative z-10">PPE Compliance Rate</p>
+                </div>
+                
+                <!-- Stat 2 -->
+                <div class="stat-card bg-white rounded-xl p-6 text-center border border-gray-200 shadow-sm animate-fadeIn relative overflow-hidden" style="animation-delay: 0.2s; animation-duration: 0.7s;">
+                    <span class="absolute inset-0 bg-blue-50 opacity-0 transition-opacity duration-700 hover:opacity-100"></span>
+                    <div class="rounded-full h-16 w-16 flex items-center justify-center bg-blue-100 text-blue-500 mx-auto mb-5 animate-floatUp-slow relative z-10" style="animation-duration: 9s;">
+                        <i class="fas fa-chart-line text-2xl"></i>
+                    </div>
+                    <h3 class="text-5xl font-bold text-blue-500 mb-2 relative z-10"><span class="animate-count" data-value="73">0</span>%</h3>
+                    <p class="text-sm text-gray-500 relative z-10">Reduction in Accidents</p>
+                </div>
+                
+                <!-- Stat 3 -->
+                <div class="stat-card bg-white rounded-xl p-6 text-center border border-gray-200 shadow-sm animate-fadeIn relative overflow-hidden" style="animation-delay: 0.4s; animation-duration: 0.7s;">
+                    <span class="absolute inset-0 bg-blue-50 opacity-0 transition-opacity duration-700 hover:opacity-100"></span>
+                    <div class="rounded-full h-16 w-16 flex items-center justify-center bg-blue-100 text-blue-500 mx-auto mb-5 animate-floatUp-fast relative z-10" style="animation-duration: 5s;">
+                        <i class="fas fa-bolt text-2xl"></i>
+                    </div>
+                    <h3 class="text-5xl font-bold text-blue-500 mb-2 relative z-10"><span class="animate-count" data-value="0.3">0</span>s</h3>
+                    <p class="text-sm text-gray-500 relative z-10">Alert Response Time</p>
+                </div>
+                
+                <!-- Stat 4 -->
+                <div class="stat-card bg-white rounded-xl p-6 text-center border border-gray-200 shadow-sm animate-fadeIn relative overflow-hidden" style="animation-delay: 0.6s; animation-duration: 0.7s;">
+                    <span class="absolute inset-0 bg-blue-50 opacity-0 transition-opacity duration-700 hover:opacity-100"></span>
+                    <div class="rounded-full h-16 w-16 flex items-center justify-center bg-blue-100 text-blue-500 mx-auto mb-5 animate-floatUp relative z-10" style="animation-duration: 7s;">
+                        <i class="fas fa-building text-2xl"></i>
+                    </div>
+                    <h3 class="text-5xl font-bold text-blue-500 mb-2 relative z-10"><span class="animate-count" data-value="500">0</span>+</h3>
+                    <p class="text-sm text-gray-500 relative z-10">Sites Protected</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-20 bg-gray-50">
+        <div class="container mx-auto px-6">
+            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">Advanced Safety Features</h2>
+            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">Our cutting-edge technology provides comprehensive safety monitoring solutions tailored for construction environments.</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <!-- Feature 1 -->
+                <div class="feature-card bg-white rounded-xl shadow-sm overflow-hidden animate-fadeSlideUp" style="animation-delay: 0.1s;">
+                    <div class="p-8">
+                        <div class="rounded-full h-14 w-14 flex items-center justify-center bg-blue-100 text-blue-600 mb-6 animate-floatUp-fast">
+                            <i class="fas fa-eye text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-3 text-slate-800">Real-time Detection</h3>
+                        <p class="text-gray-600 mb-6">Advanced computer vision algorithms for instant PPE detection and alerts with high accuracy in various lighting conditions and challenging environments.</p>
+                        <a href="#" class="text-blue-600 font-medium hover:underline flex items-center">
+                            Learn More <i class="fas fa-arrow-right ml-2 text-sm"></i>
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Feature 2 -->
+                <div class="feature-card bg-white rounded-xl shadow-sm overflow-hidden animate-fadeSlideUp" style="animation-delay: 0.3s;">
+                    <div class="p-8">
+                        <div class="rounded-full h-14 w-14 flex items-center justify-center bg-blue-100 text-blue-600 mb-6 animate-floatUp">
+                            <i class="fas fa-shield-alt text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-3 text-slate-800">Enhanced Safety Alerts</h3>
+                        <p class="text-gray-600 mb-6">Immediate audio and visual alerts when safety violations are detected to prevent accidents before they occur. Customizable notification system.</p>
+                        <a href="#" class="text-blue-600 font-medium hover:underline flex items-center">
+                            Learn More <i class="fas fa-arrow-right ml-2 text-sm"></i>
+                        </a>
+                    </div>
+                </div>
+                
+                <!-- Feature 3 -->
+                <div class="feature-card bg-white rounded-xl shadow-sm overflow-hidden animate-fadeSlideUp" style="animation-delay: 0.5s;">
+                    <div class="p-8">
+                        <div class="rounded-full h-14 w-14 flex items-center justify-center bg-blue-100 text-blue-600 mb-6 animate-floatUp-slow">
+                            <i class="fas fa-chart-bar text-2xl"></i>
+                        </div>
+                        <h3 class="text-xl font-bold mb-3 text-slate-800">Compliance Analytics</h3>
+                        <p class="text-gray-600 mb-6">Comprehensive dashboards to monitor and record safety compliance across the construction site with detailed analytics and custom reporting.</p>
+                        <a href="#" class="text-blue-600 font-medium hover:underline flex items-center">
+                            Learn More <i class="fas fa-arrow-right ml-2 text-sm"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Testimonials Section -->
+    <section id="testimonials" class="py-20 bg-white">
+        <div class="container mx-auto px-6">
+            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">Client Success Stories</h2>
+            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">Hear from construction professionals who have transformed their safety protocols with our system.</p>
+            
+            <div class="testimonial-card bg-white rounded-xl shadow-sm border border-gray-200 p-8 max-w-4xl mx-auto animate-fadeSlideUp">
+                <div class="border-l-4 border-blue-500 pl-6 mb-6">
+                    <p class="text-gray-700 italic">"The SafetyFirst monitoring system has revolutionized how we manage safety on our construction sites. The real-time detection of PPE non-compliance has helped us achieve a perfect safety record for the last 12 months. The analytics dashboard gives us invaluable insights for continual improvement, and the system was remarkably easy to implement."</p>
+                </div>
+                <div class="flex items-center">
+                    <div class="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center mr-4">
+                        <span class="text-blue-600 font-bold">JS</span>
+                    </div>
+                    <div>
+                        <h4 class="font-bold text-slate-800">John Smith</h4>
+                        <p class="text-gray-500 text-sm">Safety Director, BuildCorp International</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CTA Section -->
+    <section class="py-20 bg-blue-600 text-white">
+        <div class="container mx-auto px-6 text-center">
+            <h2 class="text-3xl font-bold mb-6 animate-fadeSlideUp">Ready to Transform Your Site Safety?</h2>
+            <p class="text-xl mb-10 max-w-3xl mx-auto animate-fadeSlideUp" style="animation-delay: 0.2s;">Join hundreds of construction companies that have elevated their safety standards and reduced workplace incidents with our AI-powered monitoring system.</p>
+            <a href="visit-site.html" class="bg-white text-blue-600 hover:bg-gray-100 font-bold py-3 px-10 rounded-full transition duration-300 inline-flex items-center animate-fadeSlideUp" style="animation-delay: 0.4s;">
+                Get Started Today <i class="fas fa-arrow-right ml-2"></i>
+            </a>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="bg-slate-900 text-white pt-16 pb-8">
+        <div class="container mx-auto px-6">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-10 mb-16">
+                <div>
+                    <div class="flex items-center mb-4">
+                        <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center mr-2">
+                            <i class="fas fa-hard-hat text-slate-900 text-xl"></i>
+                        </div>
+                        <span class="text-xl font-bold">Safety<span class="text-amber-500">First</span></span>
+                    </div>
+                    <p class="text-gray-400 mb-4">Leading provider of AI-powered safety monitoring solutions for construction site workplaces.</p>
+                    <div class="flex space-x-4">
+                        <a href="#" class="text-gray-400 hover:text-amber-500 transition duration-300"><i class="fab fa-twitter"></i></a>
+                        <a href="#" class="text-gray-400 hover:text-amber-500 transition duration-300"><i class="fab fa-linkedin"></i></a>
+                        <a href="#" class="text-gray-400 hover:text-amber-500 transition duration-300"><i class="fab fa-facebook"></i></a>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-4">Quick Links</h3>
+                    <ul class="space-y-2">
+                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Home</a></li>
+                        <li><a href="#features" class="text-gray-400 hover:text-amber-300 transition duration-300">Features</a></li>
+                        <li><a href="#testimonials" class="text-gray-400 hover:text-amber-300 transition duration-300">Testimonials</a></li>
+                        <li><a href="visit-site.html" class="text-gray-400 hover:text-amber-300 transition duration-300">Demo</a></li>
+                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Pricing</a></li>
+                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Blog</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-4">Solutions</h3>
+                    <ul class="space-y-2">
+                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">PPE Detection</a></li>
+                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Hazard Recognition</a></li>
+                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Compliance Reporting</a></li>
+                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Safety Training</a></li>
+                    </ul>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold mb-4">Contact Us</h3>
+                    <ul class="space-y-3">
+                        <li class="flex items-start">
+                            <i class="fas fa-map-marker-alt text-amber-500 mt-1 mr-3"></i>
+                            <span class="text-gray-400">123 Safety Street, Tech City, SV 10010</span>
+                        </li>
+                        <li class="flex items-center">
+                            <i class="fas fa-phone text-amber-500 mr-3"></i>
+                            <span class="text-gray-400">+1 (555) 123-4567</span>
+                        </li>
+                        <li class="flex items-center">
+                            <i class="fas fa-envelope text-amber-500 mr-3"></i>
+                            <span class="text-gray-400">info@safetyfirst.com</span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="border-t border-gray-800 pt-8 text-center">
+                <p class="text-gray-500">© 2026 SafetyFirst Construction PPE Detection System. All Rights Reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    <script>
+        // Page loader
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                document.getElementById('pageLoader').classList.add('loader-hidden');
+            }, 1000);
+        });
+        
+        // Animation configurations
+        AOS.init({
+            duration: 1000,
+            once: true,
+            offset: 100
+        });
+        
+        // Animated counter for statistics
+        function animateCounters() {
+            const counters = document.querySelectorAll('.animate-count');
+            const speed = 200;
+            
+            counters.forEach(counter => {
+                const targetValue = parseFloat(counter.getAttribute('data-value'));
+                const decimalPlaces = targetValue % 1 !== 0 ? (targetValue.toString().split('.')[1] || '').length : 0;
+                const increment = targetValue / speed;
+                let currentValue = 0;
+                
+                const updateCounter = () => {
+                    if (currentValue < targetValue) {
+                        currentValue += increment;
+                        if (currentValue > targetValue) {
+                            currentValue = targetValue;
+                        }
+                        
+                        counter.textContent = currentValue.toFixed(decimalPlaces);
+                        requestAnimationFrame(updateCounter);
+                    } else {
+                        counter.textContent = targetValue;
+                    }
+                };
+                
+                // Start the animation when the element is in view
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        if (entry.isIntersecting) {
+                            updateCounter();
+                            observer.unobserve(entry.target);
+                        }
+                    });
+                }, { threshold: 0.5 });
+                
+                observer.observe(counter);
+            });
+        }
+        
+        // Initialize the counter animation
+        document.addEventListener('DOMContentLoaded', function() {
+            animateCounters();
+        });
+    </script>
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const loggedIn = Auth.isLoggedIn();
+            document.querySelectorAll('[data-auth-logged-out]').forEach(el => {
+                el.classList.toggle('hidden', loggedIn);
+            });
+            document.querySelectorAll('[data-auth-logged-in]').forEach(el => {
+                el.classList.toggle('hidden', !loggedIn);
+            });
+        });
+    </script>
+    <script src="js/main.js"></script>
+</body>
+</html> 

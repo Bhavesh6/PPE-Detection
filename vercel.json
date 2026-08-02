@@ -1,0 +1,4 @@
+{
+  "buildCommand": "echo \"Static frontend only. Skipping build.\"",
+  "outputDirectory": "frontend"
+}
