@@ -100,7 +100,7 @@
                     return;
                 }
                 Auth.setSession(data.token, data.user);
-                window.location.href = 'visit-site.html';
+                window.location.href = data.user.is_admin ? 'admin.html' : 'visit-site.html';
             } catch (err) {
                 showError('Could not reach the server. Is the API running?');
             }
@@ -142,7 +142,7 @@
                     return;
                 }
                 Auth.setSession(data.token, data.user);
-                window.location.href = 'visit-site.html';
+                window.location.href = data.user.is_admin ? 'admin.html' : 'visit-site.html';
             } catch (err) {
                 showError('Could not reach the server. Is the API running?');
             } finally {

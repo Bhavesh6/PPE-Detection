@@ -47,6 +47,23 @@ def _state_for(user_id):
         return _user_state[user_id]
 
 
+def get_all_states():
+    """Read-only snapshot of every user's detection state, for the admin dashboard."""
+    with _state_lock:
+        return dict(_user_state)
+
+
+def get_user_state(user_id):
+    """Read-only lookup that does NOT create a new state entry (unlike _state_for)."""
+    with _state_lock:
+        return _user_state.get(user_id)
+
+
+def remove_state(user_id):
+    with _state_lock:
+        _user_state.pop(user_id, None)
+
+
 def _update_counts(state, detections):
     live = {"violations": 0, "helmets": 0, "vests": 0, "gloves": 0}
 

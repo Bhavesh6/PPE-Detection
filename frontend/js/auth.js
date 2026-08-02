@@ -43,6 +43,16 @@ const Auth = {
         }
     },
 
+    // Redirect to the dashboard if there's no session or the user isn't an
+    // admin. Call at the top of admin.html.
+    requireAdmin() {
+        this.requireAuth();
+        const user = this.getUser();
+        if (!user || !user.is_admin) {
+            window.location.href = 'visit-site.html';
+        }
+    },
+
     // fetch() wrapper that attaches the JWT and handles 401s uniformly.
     async fetch(path, options = {}) {
         const headers = Object.assign({}, options.headers, {
@@ -69,6 +79,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const user = Auth.getUser();
     document.querySelectorAll('[data-user-name]').forEach((el) => {
         if (user) el.textContent = user.name;
+    });
+    document.querySelectorAll('[data-admin-only]').forEach((el) => {
+        if (user && user.is_admin) el.classList.remove('hidden');
     });
     document.querySelectorAll('[data-logout]').forEach((el) => {
         el.addEventListener('click', (e) => {

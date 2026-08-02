@@ -13,6 +13,7 @@ class User(db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=True)  # null for Google-only accounts
     google_sub = db.Column(db.String(255), unique=True, nullable=True, index=True)
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     def set_password(self, password):
@@ -24,4 +25,4 @@ class User(db.Model):
         return check_password_hash(self.password_hash, password)
 
     def to_public_dict(self):
-        return {"id": self.id, "name": self.name, "email": self.email}
+        return {"id": self.id, "name": self.name, "email": self.email, "is_admin": self.is_admin}

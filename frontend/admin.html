@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Safety First</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .nav-link { position: relative; }
+        .nav-link::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: -4px;
+            left: 0;
+            background-color: #f59e0b;
+            transition: width 0.3s ease;
+        }
+        .nav-link:hover::after { width: 100%; }
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 6px;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-slate-900 text-white">
+        <div class="container mx-auto py-4 px-6">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center mr-2">
+                        <i class="fas fa-hard-hat text-slate-900 text-xl"></i>
+                    </div>
+                    <span class="text-xl font-bold">Safety <span class="text-amber-500">First</span></span>
+                    <span class="ml-3 text-xs font-bold uppercase tracking-wide bg-amber-500 text-slate-900 rounded-full px-3 py-1">Admin</span>
+                </div>
+                <nav class="flex items-center space-x-6">
+                    <a href="visit-site.html" class="nav-link text-white hover:text-amber-300">Dashboard</a>
+                    <a href="index.html" class="nav-link text-white hover:text-amber-300">Home</a>
+                    <span class="hidden sm:flex items-center text-sm text-gray-300">
+                        <i class="fas fa-user-shield mr-2 text-amber-400"></i>
+                        <span data-user-name>Account</span>
+                    </span>
+                    <a href="#" data-logout class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-5 rounded-full transition duration-300">
+                        <i class="fas fa-sign-out-alt mr-1"></i>Logout
+                    </a>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <section class="py-10 bg-slate-900 text-white">
+        <div class="container mx-auto px-6 text-center">
+            <h1 class="text-4xl font-bold mb-4">Admin Panel</h1>
+            <p class="text-gray-300 max-w-2xl mx-auto">Site-wide safety overview across every registered user</p>
+        </div>
+    </section>
+
+    <section class="py-10 -mt-10">
+        <div class="container mx-auto px-6">
+            <!-- Site-wide stats -->
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+                <div class="bg-white rounded-xl shadow-md p-5 border border-gray-200 text-center">
+                    <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Total Users</h4>
+                    <p id="statTotalUsers" class="text-3xl font-bold text-slate-800">-</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-md p-5 border border-gray-200 text-center">
+                    <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Active Now</h4>
+                    <p id="statActiveSessions" class="text-3xl font-bold text-green-600">-</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-md p-5 border border-gray-200 text-center">
+                    <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Hardhats</h4>
+                    <p id="statHelmets" class="text-3xl font-bold text-slate-800">-</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-md p-5 border border-gray-200 text-center">
+                    <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Vests</h4>
+                    <p id="statVests" class="text-3xl font-bold text-slate-800">-</p>
+                </div>
+                <div class="bg-white rounded-xl shadow-md p-5 border border-gray-200 text-center">
+                    <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Violations</h4>
+                    <p id="statViolations" class="text-3xl font-bold text-red-600">-</p>
+                </div>
+            </div>
+
+            <!-- User table -->
+            <div class="bg-white rounded-xl shadow-md overflow-hidden border border-gray-200">
+                <div class="bg-slate-800 p-4 flex justify-between items-center">
+                    <h3 class="text-xl font-bold text-white">Users</h3>
+                    <button id="refreshButton" class="text-sm bg-slate-700 hover:bg-slate-600 text-white py-1.5 px-4 rounded-full">
+                        <i class="fas fa-rotate mr-1"></i>Refresh
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100 text-gray-500 uppercase text-xs">
+                            <tr>
+                                <th class="px-4 py-3">User</th>
+                                <th class="px-4 py-3">Status</th>
+                                <th class="px-4 py-3 text-center">Live Violations</th>
+                                <th class="px-4 py-3 text-center">Total Violations</th>
+                                <th class="px-4 py-3">Joined</th>
+                                <th class="px-4 py-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="usersTableBody" class="divide-y divide-gray-100">
+                            <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">Loading users...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Detection log modal -->
+    <div id="logModal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 px-4">
+        <div class="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div class="bg-slate-800 p-4 rounded-t-xl flex justify-between items-center">
+                <h3 id="logModalTitle" class="text-lg font-bold text-white">Detection Log</h3>
+                <button id="logModalClose" class="text-gray-300 hover:text-white"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="logModalBody" class="p-4 overflow-y-auto text-sm space-y-1"></div>
+        </div>
+    </div>
+
+    <footer class="bg-slate-900 text-gray-400 py-8 text-center border-t border-gray-800">
+        <p>&copy; 2026 SafetyFirst PPE Detection System</p>
+    </footer>
+
+    <script src="js/config.js"></script>
+    <script src="js/auth.js"></script>
+    <script>
+        Auth.requireAdmin();
+
+        const tbody = document.getElementById('usersTableBody');
+        const logModal = document.getElementById('logModal');
+        const logModalBody = document.getElementById('logModalBody');
+        const logModalTitle = document.getElementById('logModalTitle');
+
+        function countsRow(counts) {
+            return `H:${counts.helmets} V:${counts.vests} G:${counts.gloves}`;
+        }
+
+        async function loadStats() {
+            try {
+                const res = await Auth.fetch('/api/admin/stats');
+                if (!res.ok) return;
+                const data = await res.json();
+                document.getElementById('statTotalUsers').textContent = data.total_users;
+                document.getElementById('statActiveSessions').textContent = data.active_sessions;
+                document.getElementById('statHelmets').textContent = data.totals.helmets;
+                document.getElementById('statVests').textContent = data.totals.vests;
+                document.getElementById('statViolations').textContent = data.totals.violations;
+            } catch (e) {}
+        }
+
+        async function loadUsers() {
+            tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">Loading users...</td></tr>';
+            try {
+                const res = await Auth.fetch('/api/admin/users');
+                if (!res.ok) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-red-500">Failed to load users.</td></tr>';
+                    return;
+                }
+                const data = await res.json();
+                if (!data.users.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">No users yet.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+                data.users.forEach(u => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'hover:bg-gray-50';
+                    const joined = new Date(u.created_at).toLocaleDateString();
+                    tr.innerHTML = `
+                        <td class="px-4 py-3">
+                            <div class="font-semibold text-slate-800">${u.name}${u.is_admin ? ' <span class=\"text-amber-500 text-xs\">(admin)</span>' : ''}</div>
+                            <div class="text-gray-400 text-xs">${u.email}</div>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="status-indicator ${u.active ? 'bg-green-500' : 'bg-gray-300'}"></span>
+                            ${u.active ? 'Active' : 'Idle'}
+                        </td>
+                        <td class="px-4 py-3 text-center font-bold ${u.live.violations > 0 ? 'text-red-600' : 'text-slate-700'}">${u.live.violations}</td>
+                        <td class="px-4 py-3 text-center font-bold text-slate-700">${u.totals.violations}</td>
+                        <td class="px-4 py-3 text-gray-500">${joined}</td>
+                        <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                            <button data-log="${u.id}" data-name="${u.name}" class="text-blue-600 hover:text-blue-800 text-sm font-semibold">Log</button>
+                            <button data-delete="${u.id}" class="text-red-600 hover:text-red-800 text-sm font-semibold">Delete</button>
+                        </td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-red-500">Failed to load users.</td></tr>';
+            }
+        }
+
+        async function showLog(userId, name) {
+            logModalTitle.textContent = `Detection Log — ${name}`;
+            logModalBody.innerHTML = '<p class="text-gray-400">Loading...</p>';
+            logModal.classList.remove('hidden');
+
+            try {
+                const res = await Auth.fetch(`/api/admin/users/${userId}/results`);
+                const data = await res.json();
+                if (!data.results || !data.results.length) {
+                    logModalBody.innerHTML = '<p class="text-gray-400">No detections logged for this user yet.</p>';
+                    return;
+                }
+                logModalBody.innerHTML = '';
+                data.results.slice().reverse().forEach(r => {
+                    r.detections.forEach(d => {
+                        const color = d.type.startsWith('NO-') ? 'text-red-600 font-bold' : 'text-blue-600';
+                        const line = document.createElement('div');
+                        line.className = 'border-b pb-1';
+                        line.innerHTML = `<span class="text-gray-400">[${r.timestamp}]</span> <span class="${color}">${d.type} (${Math.round(d.confidence * 100)}%)</span>`;
+                        logModalBody.appendChild(line);
+                    });
+                });
+            } catch (e) {
+                logModalBody.innerHTML = '<p class="text-red-500">Failed to load log.</p>';
+            }
+        }
+
+        async function deleteUser(userId) {
+            if (!confirm('Delete this user? This cannot be undone.')) return;
+            try {
+                const res = await Auth.fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) {
+                    alert(data.message || 'Failed to delete user.');
+                    return;
+                }
+                loadUsers();
+                loadStats();
+            } catch (e) {
+                alert('Failed to delete user.');
+            }
+        }
+
+        tbody.addEventListener('click', (e) => {
+            const logBtn = e.target.closest('[data-log]');
+            if (logBtn) return showLog(logBtn.dataset.log, logBtn.dataset.name);
+
+            const delBtn = e.target.closest('[data-delete]');
+            if (delBtn) return deleteUser(delBtn.dataset.delete);
+        });
+
+        document.getElementById('logModalClose').addEventListener('click', () => logModal.classList.add('hidden'));
+        logModal.addEventListener('click', (e) => { if (e.target === logModal) logModal.classList.add('hidden'); });
+
+        document.getElementById('refreshButton').addEventListener('click', () => { loadUsers(); loadStats(); });
+
+        loadUsers();
+        loadStats();
+        setInterval(() => { loadUsers(); loadStats(); }, 5000);
+    </script>
+</body>
+</html>

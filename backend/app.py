@@ -1,7 +1,10 @@
 import os
 
+from dotenv import load_dotenv
 from flask import Flask, jsonify
 from flask_cors import CORS
+
+load_dotenv()
 
 from config import Config
 from extensions import db, jwt
@@ -15,11 +18,13 @@ def create_app():
     jwt.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
 
+    from admin import admin_bp
     from auth import auth_bp
     from detection import detection_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(detection_bp)
+    app.register_blueprint(admin_bp)
 
     with app.app_context():
         db.create_all()
