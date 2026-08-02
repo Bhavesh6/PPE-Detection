@@ -205,7 +205,7 @@
     <script src="js/camera.js"></script>
     <script>
         Auth.requireAuth();
-        AOS.init();
+        if (typeof AOS !== 'undefined') AOS.init();
 
         let isRunning = false;
         let pollInterval = null;

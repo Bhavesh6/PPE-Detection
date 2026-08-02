@@ -578,11 +578,13 @@
         });
         
         // Animation configurations
-        AOS.init({
-            duration: 1000,
-            once: true,
-            offset: 100
-        });
+        if (typeof AOS !== 'undefined') {
+            AOS.init({
+                duration: 1000,
+                once: true,
+                offset: 100
+            });
+        }
         
         // Animated counter for statistics
         function animateCounters() {
