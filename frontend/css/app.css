@@ -1,0 +1,458 @@
+/* =====================================================
+   SafetyFirst — Console Design System
+   Industrial access-control / PPE compliance platform.
+   Restrained, dense, navy + amber. No gradients, no glow.
+   ===================================================== */
+
+:root {
+  /* structure */
+  --navy:        #0f172a;
+  --navy-mid:    #1e293b;
+  --navy-soft:   #334155;
+
+  /* ink */
+  --ink:         #0f172a;
+  --ink-strong:  #334155;
+  --muted:       #64748b;
+  --faint:       #94a3b8;
+  --on-dark:     #ffffff;
+  --on-dark-dim: #cbd5e1;
+
+  /* surfaces */
+  --bg:          #f6f8fb;
+  --surface:     #ffffff;
+  --surface-alt: #f1f5f9;
+
+  /* borders */
+  --border:      #dce3ec;
+  --border-firm: #cbd5e1;
+
+  /* accent — used sparingly */
+  --amber:       #d97706;
+  --amber-dark:  #b45309;
+  --amber-soft:  #fef3c7;
+
+  /* semantic */
+  --ok:          #15803d;
+  --ok-soft:     #dcfce7;
+  --danger:      #dc2626;
+  --danger-soft: #fee2e2;
+  --info:        #1d4ed8;
+  --info-soft:   #dbeafe;
+
+  --radius:      6px;
+  --radius-md:   10px;
+
+  /* Shadows are tinted with the navy hue rather than neutral black, so they
+     read as depth in this palette instead of grey haze. */
+  --shadow-sm:   0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06);
+  --shadow:      0 6px 22px rgba(15,23,42,.08);
+  --shadow-lift: 0 2px 4px rgba(15,23,42,.04), 0 12px 28px rgba(15,23,42,.10);
+
+  /* The stock CSS easings are too weak to feel intentional. These are the
+     stronger variants — ease-out for anything entering (starts fast, so the
+     UI answers instantly), ease-in-out for things moving on screen.
+     ease-in is deliberately absent: it stalls at the exact moment the user
+     is watching, which reads as lag. */
+  --ease-out:    cubic-bezier(.23, 1, .32, 1);
+  --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+
+  --dur-press:   140ms;
+  --dur-fast:    180ms;
+  --dur-modal:   220ms;
+
+  --font-head:   'Montserrat', 'Inter', sans-serif;
+  --font-body:   'Inter', sans-serif;
+
+  --sidebar-w:   232px;
+  --topbar-h:    60px;
+
+  /* z-index scale */
+  --z-sticky:    20;
+  --z-drawer:    40;
+  --z-modal:     60;
+}
+
+/* -- RESET ------------------------------------------- */
+/* Not every page here loads Tailwind (the kiosk and device-home screens are
+   deliberately dependency-light), so the border-box reset can't be assumed.
+   Without it, padding is added on top of height:100dvh and fullscreen
+   layouts overflow by exactly their padding. */
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; }
+
+/* -- BASE -------------------------------------------- */
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--ink-strong);
+}
+h1, h2, h3, h4 { font-family: var(--font-head); color: var(--ink); }
+.tnum { font-variant-numeric: tabular-nums; }
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--navy);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* -- APP SHELL --------------------------------------- */
+.app { display: flex; min-height: 100dvh; }
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--navy);
+  color: var(--on-dark);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: var(--z-drawer);
+  transition: transform .2s ease;
+}
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.sidebar-mark {
+  width: 34px; height: 34px;
+  border-radius: var(--radius);
+  background: var(--amber);
+  color: var(--navy);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.sidebar-name { font-family: var(--font-head); font-weight: 700; font-size: .95rem; line-height: 1.1; }
+.sidebar-sub { font-size: .58rem; letter-spacing: .18em; text-transform: uppercase; color: var(--amber); font-weight: 700; }
+
+.sidebar-nav { padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.sidebar-section {
+  font-size: .6rem; letter-spacing: .12em; text-transform: uppercase;
+  color: #64748b; font-weight: 700; padding: 14px 8px 6px;
+}
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  font-size: .85rem; font-weight: 500;
+  color: var(--on-dark-dim);
+  transition: background-color .15s ease, color .15s ease;
+  position: relative;
+}
+.nav-item i { width: 16px; text-align: center; font-size: .82rem; }
+.nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
+.nav-item.is-active { background: rgba(217,119,6,.14); color: #fff; }
+.nav-item.is-active::before {
+  content: ''; position: absolute; left: 0; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 0 2px 2px 0; background: var(--amber);
+}
+
+.sidebar-foot { padding: 14px 12px; border-top: 1px solid rgba(255,255,255,.08); }
+.sidebar-user { display: flex; align-items: center; gap: 10px; padding: 4px 8px 12px; }
+.avatar {
+  width: 30px; height: 30px; border-radius: var(--radius);
+  background: var(--navy-soft); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-size: .72rem; font-weight: 700; flex-shrink: 0;
+}
+.sidebar-user-name { font-size: .8rem; font-weight: 600; color: #fff; line-height: 1.2; }
+.sidebar-user-role { font-size: .66rem; color: var(--faint); }
+
+.main {
+  flex: 1;
+  margin-left: var(--sidebar-w);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: var(--topbar-h);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+  padding: 0 24px;
+  position: sticky; top: 0; z-index: var(--z-sticky);
+}
+.topbar h1 { font-size: 1rem; font-weight: 700; line-height: 1.2; }
+.topbar-sub { font-size: .72rem; color: var(--muted); }
+.content { padding: 24px; flex: 1; }
+
+.menu-toggle { display: none; }
+
+/* -- LIVE PILL --------------------------------------- */
+.live-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 5px 12px;
+  font-size: .7rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--muted);
+  background: var(--surface);
+}
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.live-pill.is-live { color: var(--ok); border-color: #bbf7d0; background: var(--ok-soft); }
+.live-pill.is-live .live-dot { background: var(--ok); animation: blip 2s infinite; }
+.live-pill.is-off { color: var(--muted); }
+@keyframes blip { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+
+/* -- CARDS / PANELS ---------------------------------- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.card-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.card-title {
+  font-size: .72rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--muted);
+  display: flex; align-items: center; gap: 8px;
+}
+.card-body { padding: 16px; }
+
+/* -- METRIC RAIL ------------------------------------- */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.metric { padding: 16px 18px; position: relative; }
+.metric + .metric { border-left: 1px solid var(--border); }
+.metric::before {
+  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--m-accent, var(--amber));
+  transform: scaleY(0); transform-origin: center;
+  transition: transform .2s ease;
+}
+.metric:hover::before { transform: scaleY(1); }
+.metric-label {
+  font-size: .68rem; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--faint);
+  display: flex; align-items: center; gap: 6px; margin-bottom: 8px;
+}
+.metric-value {
+  font-family: var(--font-head); font-weight: 800;
+  font-size: 1.9rem; line-height: 1; color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.metric-foot { font-size: .72rem; color: var(--faint); margin-top: 6px; }
+
+/* -- BUTTONS ----------------------------------------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 9px 18px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font-size: .84rem; font-weight: 600;
+  cursor: pointer; line-height: 1;
+  transition:
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    transform var(--dur-press) var(--ease-out);
+  min-height: 38px;
+}
+/* Press feedback: the control visibly answers the click. Subtle on purpose —
+   0.97 reads as "pressed", anything lower reads as a bouncy toy. */
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary { background: var(--amber); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--amber-dark); }
+.btn-navy { background: var(--navy); color: #fff; }
+.btn-navy:hover:not(:disabled) { background: var(--navy-mid); }
+.btn-ok { background: var(--ok); color: #fff; }
+.btn-ok:hover:not(:disabled) { background: #166534; }
+.btn-danger { background: var(--danger); color: #fff; }
+.btn-danger:hover:not(:disabled) { background: #b91c1c; }
+.btn-outline { background: transparent; color: var(--ink-strong); border-color: var(--border-firm); }
+.btn-outline:hover:not(:disabled) { border-color: var(--navy); color: var(--navy); }
+.btn-sm { padding: 6px 13px; font-size: .78rem; min-height: 32px; }
+
+/* -- BADGES ------------------------------------------ */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 4px;
+  font-size: .68rem; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.badge-ok { background: var(--ok-soft); color: var(--ok); border-color: #bbf7d0; }
+.badge-danger { background: var(--danger-soft); color: var(--danger); border-color: #fecaca; }
+.badge-muted { background: var(--surface-alt); color: var(--muted); border-color: var(--border); }
+.badge-amber { background: var(--amber-soft); color: var(--amber-dark); border-color: #fde68a; }
+.badge-info { background: var(--info-soft); color: var(--info); border-color: #bfdbfe; }
+
+/* -- TABLES ------------------------------------------ */
+.table-wrap { overflow-x: auto; }
+table.data { width: 100%; border-collapse: collapse; font-size: .85rem; }
+table.data thead th {
+  text-align: left;
+  font-size: .66rem; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--faint);
+  padding: 10px 16px;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+table.data tbody td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+table.data tbody tr:last-child td { border-bottom: none; }
+table.data tbody tr:hover { background: #fafbfd; }
+.cell-empty { text-align: center; color: var(--faint); padding: 40px 16px !important; }
+
+/* -- FORM ------------------------------------------- */
+.field-label { display: block; font-size: .78rem; font-weight: 600; color: var(--ink-strong); margin-bottom: 6px; }
+.field {
+  width: 100%; padding: 10px 13px;
+  background: #fff; border: 1px solid var(--border-firm);
+  border-radius: var(--radius); color: var(--ink);
+  font-size: .9rem; outline: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.field:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(15,23,42,.07); }
+
+/* -- ALERT ------------------------------------------- */
+.alert {
+  display: flex; align-items: center; gap: 9px;
+  padding: 11px 16px; border-radius: var(--radius);
+  font-size: .85rem; border: 1px solid var(--border);
+  background: var(--surface-alt); color: var(--ink-strong);
+}
+/* Tailwind's .hidden must still win over the flex layout above. */
+.alert.hidden, .check-row.hidden, .live-pill.hidden { display: none; }
+.alert-ok { background: var(--ok-soft); color: #14532d; border-color: #bbf7d0; }
+.alert-danger { background: var(--danger-soft); color: #7f1d1d; border-color: #fecaca; }
+.alert-amber { background: var(--amber-soft); color: #78350f; border-color: #fde68a; }
+
+/* -- CHECKLIST (gate PPE) ---------------------------- */
+.check-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 12px 4px;
+}
+.check-row + .check-row { border-top: 1px solid var(--border); }
+.check-name { display: flex; align-items: center; gap: 10px; font-size: .88rem; font-weight: 500; color: var(--ink-strong); }
+.check-icon {
+  width: 30px; height: 30px; border-radius: var(--radius);
+  display: flex; align-items: center; justify-content: center;
+  background: var(--surface-alt); color: var(--muted);
+  border: 1px solid var(--border); font-size: .8rem;
+}
+.check-row[data-state="ok"] .check-icon { background: var(--ok-soft); color: var(--ok); border-color: #bbf7d0; }
+.check-row[data-state="bad"] .check-icon { background: var(--danger-soft); color: var(--danger); border-color: #fecaca; }
+
+/* -- VERDICT ----------------------------------------- */
+.verdict {
+  border-radius: var(--radius-md);
+  padding: 20px;
+  text-align: center;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  transition: background-color .2s ease, border-color .2s ease;
+}
+.verdict-word {
+  font-family: var(--font-head); font-weight: 800;
+  font-size: 1.5rem; letter-spacing: -.01em; line-height: 1.1;
+  color: var(--muted);
+}
+.verdict-note { font-size: .78rem; color: var(--faint); margin-top: 6px; }
+.verdict[data-state="granted"] { background: var(--ok-soft); border-color: #bbf7d0; }
+.verdict[data-state="granted"] .verdict-word { color: var(--ok); }
+.verdict[data-state="granted"] .verdict-note { color: #15803d; }
+.verdict[data-state="denied"] { background: var(--danger-soft); border-color: #fecaca; }
+.verdict[data-state="denied"] .verdict-word { color: var(--danger); }
+.verdict[data-state="denied"] .verdict-note { color: #b91c1c; }
+
+/* -- LOG FEED ---------------------------------------- */
+.log-feed { max-height: 340px; overflow-y: auto; }
+.log-line {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 7px 0; font-size: .8rem;
+  border-bottom: 1px solid var(--border);
+}
+.log-time { color: var(--faint); font-variant-numeric: tabular-nums; font-size: .74rem; flex-shrink: 0; }
+.log-type { font-weight: 600; }
+.log-type.is-violation { color: var(--danger); }
+.log-type.is-ok { color: var(--info); }
+.log-conf { color: var(--faint); margin-left: auto; font-variant-numeric: tabular-nums; font-size: .74rem; }
+
+/* -- VIDEO ------------------------------------------- */
+.video-stage {
+  position: relative;
+  background: #0b1120;
+  aspect-ratio: 4 / 3;
+  width: 100%;
+  overflow: hidden;
+}
+.video-stage video,
+.video-stage canvas.overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.video-idle {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; color: #64748b; text-align: center; padding: 20px;
+}
+
+/* -- RESPONSIVE -------------------------------------- */
+@media (max-width: 1024px) {
+  .sidebar { transform: translateX(-100%); box-shadow: var(--shadow); }
+  .sidebar.is-open { transform: translateX(0); }
+  .main { margin-left: 0; }
+  .menu-toggle { display: inline-flex; }
+}
+@media (max-width: 640px) {
+  .content { padding: 16px; }
+  .topbar { padding: 0 16px; }
+  .metric + .metric { border-left: none; border-top: 1px solid var(--border); }
+}
+
+/* -- TOUCH TARGETS ----------------------------------- */
+/* A finger is far less precise than a cursor. On a touchscreen (the Pi gate
+   display, phones) controls grow to the 44px minimum both Apple and Material
+   specify — 32px .btn-sm is comfortable with a mouse and a coin-flip with a
+   thumb. Desktop keeps the tighter, denser sizing. */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; padding: 11px 20px; }
+  .btn-sm { min-height: 44px; padding: 10px 16px; font-size: .8rem; }
+  .field { min-height: 44px; }
+  .nav-item { padding: 12px 12px; }
+  table.data tbody td { padding: 14px 16px; }
+}
+
+/* -- TOUCH ------------------------------------------- */
+/* Tapping fires :hover on touch devices and the state then sticks until the
+   next tap elsewhere. Transform-based reveals are the ones that actually look
+   broken when stuck, so those are held back to real pointers. Colour changes
+   are left alone — they read fine either way. */
+@media not all and (hover: hover) and (pointer: fine) {
+  .metric:hover::before,
+  .rail-item:hover::before { transform: scaleY(0); }
+  .card:hover { box-shadow: none; }
+  table.data tbody tr:hover { background: transparent; }
+}
+
+/* -- MOTION PREFERENCE ------------------------------- */
+/* Reduced motion means gentler, not none: opacity still communicates state
+   change, movement and scaling are what trigger motion sickness. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .btn:active:not(:disabled) { transform: none; }
+}

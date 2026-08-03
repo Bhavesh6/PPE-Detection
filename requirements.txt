@@ -2,6 +2,7 @@ flask>=2.3
 flask-cors
 flask-sqlalchemy
 flask-jwt-extended
+psycopg2-binary
 google-auth
 requests
 gunicorn

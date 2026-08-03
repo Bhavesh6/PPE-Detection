@@ -3,31 +3,162 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Safety First - Construction PPE Monitoring</title>
+    <title>SafetyFirst — PPE Compliance Checkpoint for Site Access</title>
+    <meta name="description" content="A computer-vision checkpoint that verifies hardhat and safety vest before granting site access, and keeps a timestamped record of every entry decision.">
+    <meta property="og:title" content="SafetyFirst — PPE Compliance Checkpoint">
+    <meta property="og:description" content="No hardhat. No vest. No entry. Automatic PPE verification at the gate, with a permanent compliance record.">
+    <meta property="og:type" content="website">
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --navy: #0f172a;
+            --navy-mid: #1e293b;
+            --amber: #d97706;
+            --amber-dark: #b45309;
+            --border-soft: #d8dfe9;
+        }
+
         body {
             font-family: 'Inter', sans-serif;
         }
-        
-        .gradient-text {
-            background: linear-gradient(90deg, #f59e0b, #d97706);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
+
+        h1, h2, h3, h4 {
+            font-family: 'Montserrat', 'Inter', sans-serif;
         }
 
         .btn-primary {
-            background: linear-gradient(90deg, #f59e0b, #d97706);
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(251, 191, 36, 0.3);
+            background: var(--amber);
+            border-radius: 6px;
+            transition: background-color 0.15s ease;
         }
-        
+
         .btn-primary:hover {
-            box-shadow: 0 7px 20px rgba(251, 191, 36, 0.4);
-            transform: translateY(-3px);
+            background: var(--amber-dark);
+        }
+
+        .hero {
+            position: relative;
+            min-height: 82vh;
+            display: flex;
+            align-items: flex-end;
+            overflow: hidden;
+            background: var(--navy);
+        }
+        .hero-media {
+            position: absolute;
+            inset: 0;
+            z-index: 0;
+        }
+        .hero-media img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            object-position: center;
+        }
+        .hero-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            background: linear-gradient(180deg, rgba(15,23,42,0.88) 0%, rgba(15,23,42,0.55) 40%, rgba(15,23,42,0.95) 100%);
+        }
+        .hero-inner {
+            position: relative;
+            z-index: 2;
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 120px 24px 0;
+        }
+        .hero-content {
+            max-width: 680px;
+        }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 100px;
+            padding: 7px 16px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 1.2px;
+            text-transform: uppercase;
+            margin-bottom: 24px;
+            backdrop-filter: blur(6px);
+        }
+        .hero-badge span {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--amber);
+            display: inline-block;
+            animation: heroPulse 2s infinite;
+        }
+        @keyframes heroPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.4); }
+        }
+        .hero-title {
+            font-family: 'Montserrat', 'Inter', sans-serif;
+            font-size: clamp(2.25rem, 4.5vw, 3.75rem);
+            font-weight: 800;
+            line-height: 1.08;
+            color: #fff;
+            margin-bottom: 20px;
+            letter-spacing: -0.02em;
+        }
+        .hero-desc {
+            font-size: 1.05rem;
+            color: rgba(255,255,255,0.82);
+            line-height: 1.7;
+            margin-bottom: 32px;
+            max-width: 540px;
+        }
+        .hero-actions {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 48px;
+        }
+        .btn-outline-hero {
+            background: transparent;
+            border: 1px solid rgba(255,255,255,0.35);
+        }
+        .btn-outline-hero:hover {
+            border-color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+        .hero-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px 0;
+            border-top: 1px solid rgba(255,255,255,0.16);
+            padding: 24px 0 36px;
+        }
+        .hstat-num {
+            font-family: 'Montserrat', 'Inter', sans-serif;
+            font-weight: 800;
+            font-size: clamp(1.4rem, 2.4vw, 1.9rem);
+            color: #fff;
+            line-height: 1;
+        }
+        .hstat-label {
+            font-size: 0.78rem;
+            color: rgba(255,255,255,0.6);
+            margin-top: 6px;
+            font-weight: 500;
+        }
+        @media (max-width: 768px) {
+            .hero { min-height: auto; }
+            .hero-inner { padding: 104px 24px 0; }
+            .hero-stats { grid-template-columns: repeat(2, 1fr); }
         }
 
         .nav-link {
@@ -41,8 +172,8 @@
             height: 2px;
             bottom: -4px;
             left: 0;
-            background-color: #f59e0b;
-            transition: width 0.3s ease;
+            background-color: var(--amber);
+            transition: width 0.2s ease;
         }
 
         .nav-link:hover::after {
@@ -50,32 +181,82 @@
         }
 
         .feature-card {
-            transition: all 0.4s ease;
-            border-radius: 12px;
+            transition: box-shadow 0.2s ease, border-color 0.2s ease;
+            border-radius: 10px;
         }
 
         .feature-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
+            border-color: #c3cbd8;
+            box-shadow: 0 6px 22px rgba(15, 23, 42, 0.08);
         }
 
         .stat-card {
-            transition: transform 0.3s ease;
+            transition: box-shadow 0.2s ease, border-color 0.2s ease;
+            border-radius: 10px;
         }
-        
+
         .stat-card:hover {
-            transform: translateY(-5px);
+            border-color: #c3cbd8;
+            box-shadow: 0 6px 22px rgba(15, 23, 42, 0.08);
         }
 
         .testimonial-card {
-            transition: all 0.4s ease;
+            border-radius: 10px;
         }
-        
-        .testimonial-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+
+        .rail {
+            display: grid;
+            border-top: 1px solid var(--border-soft);
+            border-bottom: 1px solid var(--border-soft);
         }
-        
+        .rail-item {
+            position: relative;
+            padding: 32px 28px;
+            transition: background-color 0.25s ease;
+        }
+        .rail-item:not(:first-child) {
+            border-left: 1px solid var(--border-soft);
+        }
+        .rail-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--amber);
+            transform: scaleY(0);
+            transition: transform 0.25s ease;
+        }
+        .rail-item:hover {
+            background: linear-gradient(180deg, rgba(15,23,42,0.025), transparent 80%);
+        }
+        .rail-item:hover::before {
+            transform: scaleY(1);
+        }
+        .rail-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background: #f6f8fb;
+            border: 1px solid var(--border-soft);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--navy);
+            margin-bottom: 18px;
+            transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+        }
+        .rail-item:hover .rail-icon {
+            background: var(--navy);
+            border-color: var(--navy);
+            color: #fff;
+        }
+        @media (max-width: 767px) {
+            .rail { grid-template-columns: 1fr !important; }
+            .rail-item:not(:first-child) { border-left: none; border-top: 1px solid var(--border-soft); }
+        }
+
         /* Page Loading Animation */
         .page-loader {
             position: fixed;
@@ -176,52 +357,6 @@
             }
         }
         
-        @keyframes floatImage {
-            0% {
-                transform: translateY(0px) translateX(0px) rotate(0deg);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            }
-            25% {
-                transform: translateY(-15px) translateX(10px) rotate(1deg);
-                box-shadow: 0 15px 25px rgba(0,0,0,0.2);
-            }
-            50% {
-                transform: translateY(-8px) translateX(-5px) rotate(-1deg);
-                box-shadow: 0 10px 20px rgba(0,0,0,0.15);
-            }
-            75% {
-                transform: translateY(-12px) translateX(8px) rotate(0.5deg);
-                box-shadow: 0 12px 22px rgba(0,0,0,0.18);
-            }
-            100% {
-                transform: translateY(0px) translateX(0px) rotate(0deg);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            }
-        }
-        
-        @keyframes floatUp {
-            0% {
-                transform: translateY(0) rotate(0deg);
-                opacity: 0.8;
-            }
-            25% {
-                transform: translateY(-12px) rotate(3deg);
-                opacity: 1;
-            }
-            50% {
-                transform: translateY(-20px) rotate(5deg);
-                opacity: 1;
-            }
-            75% {
-                transform: translateY(-12px) rotate(3deg);
-                opacity: 1;
-            }
-            100% {
-                transform: translateY(0) rotate(0deg);
-                opacity: 0.8;
-            }
-        }
-        
         @keyframes fadeIn {
             0% {
                 opacity: 0;
@@ -256,40 +391,29 @@
         .animate-fadeSlideUp {
             animation: fadeSlideUp 1s ease-out forwards;
         }
-        
-        .animate-floatImage {
-            animation: floatImage 15s ease-in-out infinite;
-        }
-        
-        .animate-floatUp {
-            animation: floatUp 20s ease-in-out infinite;
-        }
-        
-        .animate-floatUp-slow {
-            animation: floatUp 26s ease-in-out infinite;
-        }
-        
-        .animate-floatUp-fast {
-            animation: floatUp 15s ease-in-out infinite;
-        }
-        
+
         .animate-fadeIn {
             animation: fadeIn 1.5s ease forwards;
         }
-        
-        .animate-count {
-            animation: countUp 2s ease-out forwards;
-            display: inline-block;
-        }
-        
-        @keyframes countUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
+
+        @media (prefers-reduced-motion: reduce) {
+            .animate-fadeSlideUp,
+            .animate-fadeIn,
+            .animate-shimmer,
+            .loader-circle,
+            .loader-icon,
+            .hero-badge span {
+                animation: none !important;
+                opacity: 1 !important;
+                transform: none !important;
             }
-            to {
-                opacity: 1;
-                transform: translateY(0);
+            .feature-card:hover,
+            .stat-card:hover,
+            .testimonial-card:hover {
+                transform: none;
+            }
+            * {
+                transition-duration: 0.01ms !important;
             }
         }
     </style>
@@ -308,7 +432,7 @@
     </div>
 
     <!-- Header/Navigation -->
-    <header class="bg-slate-900 text-white">
+    <header class="bg-slate-900 text-white relative z-50">
         <div class="container mx-auto py-4 px-6">
             <div class="flex justify-between items-center">
                 <div class="flex items-center">
@@ -317,178 +441,341 @@
                     </div>
                     <span class="text-xl font-bold">Safety <span class="text-amber-500">First</span></span>
                 </div>
-                <nav>
+
+                <nav class="hidden md:block">
                     <ul class="flex items-center space-x-8">
-                        <li><a href="#" class="nav-link text-white hover:text-amber-300 transition duration-300">Home</a></li>
+                        <li><a href="#top" class="nav-link text-white hover:text-amber-300 transition duration-300">Home</a></li>
                         <li><a href="#features" class="nav-link text-white hover:text-amber-300 transition duration-300">Features</a></li>
-                        <li><a href="#testimonials" class="nav-link text-white hover:text-amber-300 transition duration-300">Testimonials</a></li>
+                        <li><a href="#about" class="nav-link text-white hover:text-amber-300 transition duration-300">About</a></li>
                         <li data-auth-logged-out class="hidden"><a href="login.html" class="nav-link text-white hover:text-amber-300 transition duration-300">Log In</a></li>
-                        <li data-auth-logged-out class="hidden"><a href="signup.html" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-2 px-6 rounded-full transition duration-300">Sign Up</a></li>
-                        <li data-auth-logged-in class="hidden"><a href="visit-site.html" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-2 px-6 rounded-full transition duration-300">Go to Dashboard</a></li>
+                        <li data-auth-logged-out class="hidden"><a href="login.html?mode=signup" class="bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 px-6 rounded-md transition duration-150">Sign Up</a></li>
+                        <li data-auth-logged-in class="hidden"><a href="visit-site.html" class="bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 px-6 rounded-md transition duration-150">Go to Dashboard</a></li>
                     </ul>
                 </nav>
+
+                <button id="mobileMenuButton" class="md:hidden text-white text-2xl w-10 h-10 flex items-center justify-center" aria-label="Toggle menu" aria-expanded="false" aria-controls="mobileMenu">
+                    <i class="fas fa-bars" id="mobileMenuIcon"></i>
+                </button>
             </div>
+        </div>
+
+        <!-- Mobile menu -->
+        <div id="mobileMenu" class="md:hidden hidden border-t border-slate-800 bg-slate-900">
+            <ul class="container mx-auto px-6 py-4 space-y-1">
+                <li><a href="#top" class="block py-2.5 text-white hover:text-amber-300 transition duration-300">Home</a></li>
+                <li><a href="#features" class="block py-2.5 text-white hover:text-amber-300 transition duration-300">Features</a></li>
+                <li><a href="#about" class="block py-2.5 text-white hover:text-amber-300 transition duration-300">About</a></li>
+                <li data-auth-logged-out class="hidden"><a href="login.html" class="block py-2.5 text-white hover:text-amber-300 transition duration-300">Log In</a></li>
+                <li data-auth-logged-out class="hidden pt-2"><a href="login.html?mode=signup" class="block text-center bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 px-6 rounded-md transition duration-150">Sign Up</a></li>
+                <li data-auth-logged-in class="hidden pt-2"><a href="visit-site.html" class="block text-center bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2.5 px-6 rounded-md transition duration-150">Go to Dashboard</a></li>
+            </ul>
         </div>
     </header>
 
     <!-- Hero Section -->
-    <section class="relative bg-slate-900 bg-opacity-95 text-white py-16 overflow-hidden">        
-        <!-- Hero background effects -->
-        <div class="absolute inset-0 overflow-hidden">
-            <div class="absolute inset-0 bg-gradient-to-b from-blue-900/20 to-amber-900/10"></div>
-            <div class="absolute -inset-0.5 bg-slate-900 opacity-60"></div>
-            <div class="absolute inset-0" style="background-image: radial-gradient(circle at 30% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 25%), radial-gradient(circle at 80% 40%, rgba(245, 158, 11, 0.08) 0%, transparent 25%);"></div>
+    <section id="top" class="hero">
+        <div class="hero-media">
+            <img src="https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=1600&q=80" alt="Construction site" fetchpriority="high">
         </div>
-        <!-- Decorative elements -->
-        <div class="absolute top-10 right-10 w-72 h-72 bg-amber-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob"></div>
-        <div class="absolute bottom-10 left-10 w-72 h-72 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
-        <div class="container mx-auto px-6">
-            <div class="flex flex-col md:flex-row items-center">
-                <div class="md:w-1/2 mb-10 md:mb-0 md:pr-10 animate-fadeSlideUp" style="animation-duration: 1.2s;">
-                    <h1 class="text-4xl md:text-5xl font-bold mb-6">AI-Powered<br>Construction Safety<br>Monitoring System</h1>
-                    <p class="text-gray-300 mb-8">Protect your workforce with our advanced computer vision technology that detects PPE non-compliance and safety violations in real-time, reducing accidents by up to 73%.</p>
-                    <div class="flex space-x-4">
-                        <a href="visit-site.html" class="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-3 px-8 rounded-full transition duration-300 relative overflow-hidden group">
-                            <span class="absolute inset-0 w-full h-full opacity-0 group-hover:opacity-30 animate-shimmer"></span>
-                            <i class="fas fa-hard-hat mr-2"></i>Launch System
-                        </a>
-                        <a href="#features" class="border border-gray-500 hover:border-amber-500 text-white py-3 px-8 rounded-full transition duration-300 relative overflow-hidden group">
-                            <span class="absolute inset-0 w-full h-full opacity-0 group-hover:opacity-20 animate-shimmer"></span>
-                            <i class="fas fa-info-circle mr-2"></i>Learn More
-                        </a>
-                    </div>
+        <div class="hero-overlay"></div>
+        <div class="hero-inner">
+            <div class="hero-content">
+                <div class="hero-badge"><span></span>Checkpoint Online</div>
+                <h1 class="hero-title">No Hardhat.<br>No Vest. No Entry.</h1>
+                <p class="hero-desc">A computer vision checkpoint verifies every person's protective equipment before they step on site — and decides, in the moment, whether the gate should open.</p>
+                <div class="hero-actions">
+                    <a href="visit-site.html" class="bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-8 rounded-md transition duration-150">
+                        <i class="fas fa-shield-halved mr-2"></i>Open Gate Control
+                    </a>
+                    <a href="#features" class="btn-outline-hero text-white py-3 px-8 rounded-md transition duration-150">
+                        <i class="fas fa-info-circle mr-2"></i>How It Works
+                    </a>
                 </div>
-                <div class="md:w-1/2">
-                    <div class="relative animate-floatImage overflow-hidden rounded-2xl" style="animation-duration: 12s;">
-                        <div class="bg-gradient-to-br from-amber-500/20 to-blue-500/20 absolute inset-0 rounded-2xl blur-xl"></div>
-                        <img src="https://images.unsplash.com/photo-1531834685032-c34bf0d84c77?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1287&q=80" 
-                             alt="Construction site safety monitoring" 
-                             class="relative w-full rounded-2xl shadow-xl border border-slate-700 transition-all duration-700">
-                    </div>
-                </div>
+            </div>
+            <div class="hero-stats">
+                <div class="hstat"><div class="hstat-num">2</div><div class="hstat-label">Required PPE Checks</div></div>
+                <div class="hstat"><div class="hstat-num">Live</div><div class="hstat-label">Frame-by-Frame Verification</div></div>
+                <div class="hstat"><div class="hstat-num">Auto</div><div class="hstat-label">Grant / Deny Decision</div></div>
+                <div class="hstat"><div class="hstat-num">0</div><div class="hstat-label">New Hardware Needed</div></div>
             </div>
         </div>
     </section>
 
-    <!-- Statistics Section -->
+    <!-- The problem -->
     <section class="py-20 bg-white">
         <div class="container mx-auto px-6">
-            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">Real Impact on Safety</h2>
-            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">Our AI-powered safety monitoring system has transformed construction sites worldwide with proven results.</p>
-            
-            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10">
-                <!-- Stat 1 -->
-                <div class="stat-card bg-white rounded-xl p-6 text-center border border-gray-200 shadow-sm animate-fadeIn relative overflow-hidden" style="animation-duration: 0.7s;">
-                    <span class="absolute inset-0 bg-blue-50 opacity-0 transition-opacity duration-700 hover:opacity-100"></span>
-                    <div class="rounded-full h-16 w-16 flex items-center justify-center bg-blue-100 text-blue-500 mx-auto mb-5 animate-floatUp relative z-10" style="animation-duration: 6s;">
-                        <i class="fas fa-check-circle text-2xl"></i>
-                    </div>
-                    <h3 class="text-5xl font-bold text-blue-500 mb-2 relative z-10"><span class="animate-count" data-value="98">0</span>%</h3>
-                    <p class="text-sm text-gray-500 relative z-10">PPE Compliance Rate</p>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
+                <div data-aos="fade-up">
+                    <h2 class="text-3xl font-bold mb-6 text-slate-800">The Gap Is at the Gate</h2>
+                    <p class="text-gray-600 mb-6">
+                        Sites don't fail because nobody issued the equipment. They fail because
+                        nobody is watching the moment a worker walks in without it.
+                    </p>
+                    <p class="text-gray-600 mb-6">
+                        Safety inspection is still mostly a supervisor walking the site checking
+                        for hard hats and harnesses — an approach industry research describes as
+                        <strong class="text-slate-800">labour-intensive, time-consuming and susceptible
+                        to human error</strong>. Workers who do carry their PPE often remove it
+                        temporarily in hazardous areas, and those moments are the hardest of all
+                        to catch by observation.
+                    </p>
+                    <p class="text-gray-600">
+                        A checkpoint doesn't get tired, doesn't look away, and doesn't wave anyone
+                        through because it's the end of a shift.
+                    </p>
                 </div>
-                
-                <!-- Stat 2 -->
-                <div class="stat-card bg-white rounded-xl p-6 text-center border border-gray-200 shadow-sm animate-fadeIn relative overflow-hidden" style="animation-delay: 0.2s; animation-duration: 0.7s;">
-                    <span class="absolute inset-0 bg-blue-50 opacity-0 transition-opacity duration-700 hover:opacity-100"></span>
-                    <div class="rounded-full h-16 w-16 flex items-center justify-center bg-blue-100 text-blue-500 mx-auto mb-5 animate-floatUp-slow relative z-10" style="animation-duration: 9s;">
-                        <i class="fas fa-chart-line text-2xl"></i>
+
+                <div class="rail" style="grid-template-columns: 1fr" data-aos="fade-up" data-aos-delay="100">
+                    <div class="rail-item">
+                        <div class="flex items-baseline gap-4 mb-2">
+                            <span class="text-3xl font-bold text-slate-800" style="font-family:'Montserrat',sans-serif">~60%</span>
+                            <h3 class="text-base font-bold text-slate-800">of construction deaths</h3>
+                        </div>
+                        <p class="text-sm text-gray-500">
+                            come from OSHA's “Fatal Four” — falls, struck-by, caught-in/between and
+                            electrocution. Head and high-visibility protection bear directly on two of them.
+                        </p>
                     </div>
-                    <h3 class="text-5xl font-bold text-blue-500 mb-2 relative z-10"><span class="animate-count" data-value="73">0</span>%</h3>
-                    <p class="text-sm text-gray-500 relative z-10">Reduction in Accidents</p>
-                </div>
-                
-                <!-- Stat 3 -->
-                <div class="stat-card bg-white rounded-xl p-6 text-center border border-gray-200 shadow-sm animate-fadeIn relative overflow-hidden" style="animation-delay: 0.4s; animation-duration: 0.7s;">
-                    <span class="absolute inset-0 bg-blue-50 opacity-0 transition-opacity duration-700 hover:opacity-100"></span>
-                    <div class="rounded-full h-16 w-16 flex items-center justify-center bg-blue-100 text-blue-500 mx-auto mb-5 animate-floatUp-fast relative z-10" style="animation-duration: 5s;">
-                        <i class="fas fa-bolt text-2xl"></i>
+                    <div class="rail-item">
+                        <div class="flex items-baseline gap-4 mb-2">
+                            <span class="text-3xl font-bold text-slate-800" style="font-family:'Montserrat',sans-serif">15 yrs</span>
+                            <h3 class="text-base font-bold text-slate-800">running</h3>
+                        </div>
+                        <p class="text-sm text-gray-500">
+                            Fall protection has been OSHA's most-cited violation for fifteen consecutive
+                            years — 5,914 citations in FY 2025 alone. Non-compliance is not an edge case.
+                        </p>
                     </div>
-                    <h3 class="text-5xl font-bold text-blue-500 mb-2 relative z-10"><span class="animate-count" data-value="0.3">0</span>s</h3>
-                    <p class="text-sm text-gray-500 relative z-10">Alert Response Time</p>
-                </div>
-                
-                <!-- Stat 4 -->
-                <div class="stat-card bg-white rounded-xl p-6 text-center border border-gray-200 shadow-sm animate-fadeIn relative overflow-hidden" style="animation-delay: 0.6s; animation-duration: 0.7s;">
-                    <span class="absolute inset-0 bg-blue-50 opacity-0 transition-opacity duration-700 hover:opacity-100"></span>
-                    <div class="rounded-full h-16 w-16 flex items-center justify-center bg-blue-100 text-blue-500 mx-auto mb-5 animate-floatUp relative z-10" style="animation-duration: 7s;">
-                        <i class="fas fa-building text-2xl"></i>
+                    <div class="rail-item">
+                        <div class="flex items-baseline gap-4 mb-2">
+                            <span class="text-3xl font-bold text-slate-800" style="font-family:'Montserrat',sans-serif">0.19</span>
+                            <h3 class="text-base font-bold text-slate-800">per 1,000 miners</h3>
+                        </div>
+                        <p class="text-sm text-gray-500">
+                            India's coal-mine fatality rate, down from 0.93 a century ago (DGMS).
+                            Real progress — and still a number measured in lives.
+                        </p>
                     </div>
-                    <h3 class="text-5xl font-bold text-blue-500 mb-2 relative z-10"><span class="animate-count" data-value="500">0</span>+</h3>
-                    <p class="text-sm text-gray-500 relative z-10">Sites Protected</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Features Section -->
+    <!-- Regulatory grounding -->
+    <section class="py-20 bg-gray-50">
+        <div class="container mx-auto px-6">
+            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800" data-aos="fade-up">Checks What the Rules Already Require</h2>
+            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">
+                The checkpoint isn't enforcing an invented policy. Helmet and reflective jacket are
+                baseline statutory PPE on Indian sites — this simply verifies them at the entrance.
+            </p>
+
+            <div class="rail" style="grid-template-columns: repeat(3, 1fr);">
+                <div class="rail-item" data-aos="fade-up">
+                    <div class="rail-icon"><i class="fas fa-gavel"></i></div>
+                    <h3 class="text-base font-bold text-slate-800 mb-2">Statutory Baseline</h3>
+                    <p class="text-sm text-gray-500">
+                        The BOCW Act, Factories Act and Occupational Safety Code oblige employers to
+                        supply PPE free of cost. Minimum kit on site: helmet, safety shoes and
+                        reflective jacket.
+                    </p>
+                </div>
+                <div class="rail-item" data-aos="fade-up" data-aos-delay="100">
+                    <div class="rail-icon"><i class="fas fa-certificate"></i></div>
+                    <h3 class="text-base font-bold text-slate-800 mb-2">ISI-Certified Equipment</h3>
+                    <p class="text-sm text-gray-500">
+                        PPE must be ISI-certified to BIS standards and replaced once damaged.
+                        Verification at the gate is what turns that requirement into a daily habit.
+                    </p>
+                </div>
+                <div class="rail-item" data-aos="fade-up" data-aos-delay="200">
+                    <div class="rail-icon"><i class="fas fa-clipboard-check"></i></div>
+                    <h3 class="text-base font-bold text-slate-800 mb-2">Evidence After the Fact</h3>
+                    <p class="text-sm text-gray-500">
+                        DGMS and factory inspectorates ask what controls were in place. A timestamped
+                        record of every entry decision answers that question with data, not recollection.
+                    </p>
+                </div>
+            </div>
+
+            <p class="text-xs text-center mt-8" style="color:#94a3b8">
+                Figures from published OSHA construction-safety reporting, DGMS mine-safety data and
+                Indian construction-safety compliance guidance. This is a student prototype, not a
+                certified safety system.
+            </p>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
     <section id="features" class="py-20 bg-gray-50">
         <div class="container mx-auto px-6">
-            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">Advanced Safety Features</h2>
-            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">Our cutting-edge technology provides comprehensive safety monitoring solutions tailored for construction environments.</p>
-            
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <!-- Feature 1 -->
-                <div class="feature-card bg-white rounded-xl shadow-sm overflow-hidden animate-fadeSlideUp" style="animation-delay: 0.1s;">
-                    <div class="p-8">
-                        <div class="rounded-full h-14 w-14 flex items-center justify-center bg-blue-100 text-blue-600 mb-6 animate-floatUp-fast">
-                            <i class="fas fa-eye text-2xl"></i>
-                        </div>
-                        <h3 class="text-xl font-bold mb-3 text-slate-800">Real-time Detection</h3>
-                        <p class="text-gray-600 mb-6">Advanced computer vision algorithms for instant PPE detection and alerts with high accuracy in various lighting conditions and challenging environments.</p>
-                        <a href="#" class="text-blue-600 font-medium hover:underline flex items-center">
-                            Learn More <i class="fas fa-arrow-right ml-2 text-sm"></i>
-                        </a>
+            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800" data-aos="fade-up">How It Works</h2>
+            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">Four steps, running continuously, frame by frame.</p>
+
+            <div class="rail bg-white" style="grid-template-columns: repeat(4, 1fr);">
+                <div class="rail-item" data-aos="fade-up" data-aos-delay="0">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="rail-icon" style="margin-bottom: 0;"><i class="fas fa-video"></i></div>
+                        <span class="text-2xl font-bold text-gray-200" style="font-family: 'Montserrat', sans-serif;">01</span>
                     </div>
+                    <h3 class="text-base font-bold mb-2 text-slate-800">Capture</h3>
+                    <p class="text-gray-500 text-sm">Webcam or IP camera input, from any device or browser. No special hardware required.</p>
                 </div>
-                
-                <!-- Feature 2 -->
-                <div class="feature-card bg-white rounded-xl shadow-sm overflow-hidden animate-fadeSlideUp" style="animation-delay: 0.3s;">
-                    <div class="p-8">
-                        <div class="rounded-full h-14 w-14 flex items-center justify-center bg-blue-100 text-blue-600 mb-6 animate-floatUp">
-                            <i class="fas fa-shield-alt text-2xl"></i>
-                        </div>
-                        <h3 class="text-xl font-bold mb-3 text-slate-800">Enhanced Safety Alerts</h3>
-                        <p class="text-gray-600 mb-6">Immediate audio and visual alerts when safety violations are detected to prevent accidents before they occur. Customizable notification system.</p>
-                        <a href="#" class="text-blue-600 font-medium hover:underline flex items-center">
-                            Learn More <i class="fas fa-arrow-right ml-2 text-sm"></i>
-                        </a>
+                <div class="rail-item" data-aos="fade-up" data-aos-delay="100">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="rail-icon" style="margin-bottom: 0;"><i class="fas fa-microchip"></i></div>
+                        <span class="text-2xl font-bold text-gray-200" style="font-family: 'Montserrat', sans-serif;">02</span>
                     </div>
+                    <h3 class="text-base font-bold mb-2 text-slate-800">Detect</h3>
+                    <p class="text-gray-500 text-sm">YOLOv8 checks the frame for person, hardhat and safety vest — and flags each one that's missing.</p>
                 </div>
-                
-                <!-- Feature 3 -->
-                <div class="feature-card bg-white rounded-xl shadow-sm overflow-hidden animate-fadeSlideUp" style="animation-delay: 0.5s;">
-                    <div class="p-8">
-                        <div class="rounded-full h-14 w-14 flex items-center justify-center bg-blue-100 text-blue-600 mb-6 animate-floatUp-slow">
-                            <i class="fas fa-chart-bar text-2xl"></i>
-                        </div>
-                        <h3 class="text-xl font-bold mb-3 text-slate-800">Compliance Analytics</h3>
-                        <p class="text-gray-600 mb-6">Comprehensive dashboards to monitor and record safety compliance across the construction site with detailed analytics and custom reporting.</p>
-                        <a href="#" class="text-blue-600 font-medium hover:underline flex items-center">
-                            Learn More <i class="fas fa-arrow-right ml-2 text-sm"></i>
-                        </a>
+                <div class="rail-item" data-aos="fade-up" data-aos-delay="200">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="rail-icon" style="margin-bottom: 0;"><i class="fas fa-diagram-project"></i></div>
+                        <span class="text-2xl font-bold text-gray-200" style="font-family: 'Montserrat', sans-serif;">03</span>
                     </div>
+                    <h3 class="text-base font-bold mb-2 text-slate-800">Evaluate</h3>
+                    <p class="text-gray-500 text-sm">Checks which PPE items are present against what's required, and classifies the frame as compliant or a violation.</p>
+                </div>
+                <div class="rail-item" data-aos="fade-up" data-aos-delay="300">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="rail-icon" style="margin-bottom: 0;"><i class="fas fa-bell"></i></div>
+                        <span class="text-2xl font-bold text-gray-200" style="font-family: 'Montserrat', sans-serif;">04</span>
+                    </div>
+                    <h3 class="text-base font-bold mb-2 text-slate-800">Respond</h3>
+                    <p class="text-gray-500 text-sm">Dashboard updates instantly, an audio alert fires, and the violation is logged with a timestamp.</p>
                 </div>
             </div>
         </div>
     </section>
 
-    <!-- Testimonials Section -->
-    <section id="testimonials" class="py-20 bg-white">
+    <!-- Platform surfaces -->
+    <section class="py-20 bg-white">
         <div class="container mx-auto px-6">
-            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800">Client Success Stories</h2>
-            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">Hear from construction professionals who have transformed their safety protocols with our system.</p>
-            
-            <div class="testimonial-card bg-white rounded-xl shadow-sm border border-gray-200 p-8 max-w-4xl mx-auto animate-fadeSlideUp">
-                <div class="border-l-4 border-blue-500 pl-6 mb-6">
-                    <p class="text-gray-700 italic">"The SafetyFirst monitoring system has revolutionized how we manage safety on our construction sites. The real-time detection of PPE non-compliance has helped us achieve a perfect safety record for the last 12 months. The analytics dashboard gives us invaluable insights for continual improvement, and the system was remarkably easy to implement."</p>
+            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800" data-aos="fade-up">Three Surfaces, One Record</h2>
+            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">
+                The gate makes the call. The console proves it happened. Everyone sees the part that concerns them.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <article class="feature-card bg-white border border-gray-200 overflow-hidden" data-aos="fade-up">
+                    <div class="p-7">
+                        <div class="rail-icon" style="margin-bottom:20px"><i class="fas fa-shield-halved"></i></div>
+                        <h3 class="text-lg font-bold mb-2 text-slate-800">Gate Control</h3>
+                        <p class="text-sm text-gray-500 mb-5">
+                            The live checkpoint. Camera feed, a per-item PPE checklist, and an unambiguous
+                            grant-or-deny ruling that names exactly what's missing.
+                        </p>
+                        <ul class="text-sm text-gray-500 space-y-1.5">
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Frame-by-frame verification</li>
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Spoken alert on refusal</li>
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Fullscreen kiosk mode</li>
+                        </ul>
+                    </div>
+                </article>
+
+                <article class="feature-card bg-white border border-gray-200 overflow-hidden" data-aos="fade-up" data-aos-delay="100">
+                    <div class="p-7">
+                        <div class="rail-icon" style="margin-bottom:20px"><i class="fas fa-gauge-high"></i></div>
+                        <h3 class="text-lg font-bold mb-2 text-slate-800">Compliance Console</h3>
+                        <p class="text-sm text-gray-500 mb-5">
+                            The supervisor's view. Site-wide compliance rate, who is live at a checkpoint
+                            right now, and the full decision history for any individual.
+                        </p>
+                        <ul class="text-sm text-gray-500 space-y-1.5">
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Granted vs. denied per person</li>
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Live checkpoint status</li>
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Per-person detection log</li>
+                        </ul>
+                    </div>
+                </article>
+
+                <article class="feature-card bg-white border border-gray-200 overflow-hidden" data-aos="fade-up" data-aos-delay="200">
+                    <div class="p-7">
+                        <div class="rail-icon" style="margin-bottom:20px"><i class="fas fa-clock-rotate-left"></i></div>
+                        <h3 class="text-lg font-bold mb-2 text-slate-800">Worker Records</h3>
+                        <p class="text-sm text-gray-500 mb-5">
+                            What each person sees about themselves — their own compliance rate and every
+                            entry decision made about them, filterable and timestamped.
+                        </p>
+                        <ul class="text-sm text-gray-500 space-y-1.5">
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Personal compliance rate</li>
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Filter granted / denied</li>
+                            <li><i class="fas fa-check text-amber-600 mr-2"></i>Survives restarts</li>
+                        </ul>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- Roadmap -->
+    <section class="py-20 bg-slate-900 text-white">
+        <div class="container mx-auto px-6">
+            <h2 class="text-3xl font-bold text-center mb-4 text-white" data-aos="fade-up">From Browser Tab to Physical Gate</h2>
+            <p class="text-gray-400 text-center mb-16 max-w-3xl mx-auto">The checkpoint logic is built and running today. Here's what it plugs into next.</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-px" style="background:#1e293b;border:1px solid #1e293b;border-radius:10px;overflow:hidden">
+                <div class="p-8 bg-slate-900" data-aos="fade-up">
+                    <span class="inline-block text-xs font-bold uppercase tracking-wider text-slate-900 bg-amber-500 rounded px-2.5 py-1 mb-5">Live now</span>
+                    <h3 class="text-lg font-bold mb-3 text-white">Software Checkpoint</h3>
+                    <ul class="text-sm text-gray-400 space-y-2">
+                        <li><i class="fas fa-check text-amber-500 mr-2"></i>PPE verification from any camera</li>
+                        <li><i class="fas fa-check text-amber-500 mr-2"></i>Automatic grant / deny ruling</li>
+                        <li><i class="fas fa-check text-amber-500 mr-2"></i>Permanent per-person record</li>
+                        <li><i class="fas fa-check text-amber-500 mr-2"></i>Admin compliance console</li>
+                    </ul>
                 </div>
-                <div class="flex items-center">
-                    <div class="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center mr-4">
-                        <span class="text-blue-600 font-bold">JS</span>
+                <div class="p-8 bg-slate-900" data-aos="fade-up" data-aos-delay="100">
+                    <span class="inline-block text-xs font-bold uppercase tracking-wider text-gray-400 border border-slate-700 rounded px-2.5 py-1 mb-5">Next</span>
+                    <h3 class="text-lg font-bold mb-3 text-white">Identity at the Gate</h3>
+                    <ul class="text-sm text-gray-400 space-y-2">
+                        <li><i class="fas fa-arrow-right text-slate-600 mr-2"></i>RFID or NFC badge scan</li>
+                        <li><i class="fas fa-arrow-right text-slate-600 mr-2"></i>Fingerprint verification</li>
+                        <li><i class="fas fa-arrow-right text-slate-600 mr-2"></i>Attendance marked on entry</li>
+                        <li><i class="fas fa-arrow-right text-slate-600 mr-2"></i>PPE tied to a named worker</li>
+                    </ul>
+                </div>
+                <div class="p-8 bg-slate-900" data-aos="fade-up" data-aos-delay="200">
+                    <span class="inline-block text-xs font-bold uppercase tracking-wider text-gray-400 border border-slate-700 rounded px-2.5 py-1 mb-5">Then</span>
+                    <h3 class="text-lg font-bold mb-3 text-white">Autonomous Turnstile</h3>
+                    <ul class="text-sm text-gray-400 space-y-2">
+                        <li><i class="fas fa-arrow-right text-slate-600 mr-2"></i>Gate opens only on a pass</li>
+                        <li><i class="fas fa-arrow-right text-slate-600 mr-2"></i>Edge device at the checkpoint</li>
+                        <li><i class="fas fa-arrow-right text-slate-600 mr-2"></i>Offline operation underground</li>
+                        <li><i class="fas fa-arrow-right text-slate-600 mr-2"></i>Supervisor alerts on refusal</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- About Section -->
+    <section id="about" class="py-20 bg-gray-50">
+        <div class="container mx-auto px-6">
+            <h2 class="text-3xl font-bold text-center mb-4 text-slate-800" data-aos="fade-up">Team Mojito</h2>
+            <p class="text-gray-600 text-center mb-16 max-w-3xl mx-auto">Built for FAR AWAY 2026 — Agentic &amp; Autonomous Systems.</p>
+
+            <div class="testimonial-card bg-white rounded-xl shadow-sm border border-gray-200 p-8 max-w-4xl mx-auto" data-aos="fade-up">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-x-8 gap-y-3 mb-8">
+                    <p class="text-slate-700 flex items-center gap-2"><i class="fas fa-user text-amber-600 text-sm"></i>Bhavesh Waghmare</p>
+                    <p class="text-slate-700 flex items-center gap-2"><i class="fas fa-user text-amber-600 text-sm"></i>Jasbir Singh Monga</p>
+                    <p class="text-slate-700 flex items-center gap-2"><i class="fas fa-user text-amber-600 text-sm"></i>Priyal Vairagade</p>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-8 border-t border-gray-100">
+                    <div>
+                        <div class="rounded-full h-12 w-12 flex items-center justify-center bg-amber-100 text-amber-600 mb-4">
+                            <i class="fas fa-brain text-xl"></i>
+                        </div>
+                        <h3 class="font-bold text-slate-800 mb-2">The Detection Model</h3>
+                        <p class="text-gray-600 text-sm">YOLOv8, fine-tuned for PPE detection — hardhat, safety vest, mask and person — with multi-class real-time inference.</p>
                     </div>
                     <div>
-                        <h4 class="font-bold text-slate-800">John Smith</h4>
-                        <p class="text-gray-500 text-sm">Safety Director, BuildCorp International</p>
+                        <div class="rounded-full h-12 w-12 flex items-center justify-center bg-blue-100 text-blue-600 mb-4">
+                            <i class="fas fa-globe text-xl"></i>
+                        </div>
+                        <h3 class="font-bold text-slate-800 mb-2">The Web Platform</h3>
+                        <p class="text-gray-600 text-sm">The site you're on: authenticated accounts, per-user detection sessions, and the live camera pipeline connecting your browser to the model above.</p>
                     </div>
                 </div>
             </div>
@@ -496,12 +783,12 @@
     </section>
 
     <!-- CTA Section -->
-    <section class="py-20 bg-blue-600 text-white">
+    <section class="py-20 bg-slate-900 text-white border-t border-slate-800">
         <div class="container mx-auto px-6 text-center">
-            <h2 class="text-3xl font-bold mb-6 animate-fadeSlideUp">Ready to Transform Your Site Safety?</h2>
-            <p class="text-xl mb-10 max-w-3xl mx-auto animate-fadeSlideUp" style="animation-delay: 0.2s;">Join hundreds of construction companies that have elevated their safety standards and reduced workplace incidents with our AI-powered monitoring system.</p>
-            <a href="visit-site.html" class="bg-white text-blue-600 hover:bg-gray-100 font-bold py-3 px-10 rounded-full transition duration-300 inline-flex items-center animate-fadeSlideUp" style="animation-delay: 0.4s;">
-                Get Started Today <i class="fas fa-arrow-right ml-2"></i>
+            <h2 class="text-3xl font-bold mb-6 animate-fadeSlideUp">See It Detect PPE In Real Time</h2>
+            <p class="text-xl text-gray-300 mb-10 max-w-3xl mx-auto animate-fadeSlideUp" style="animation-delay: 0.2s;">Point a camera at yourself and watch the checkpoint decide, live, whether you'd be cleared through the gate.</p>
+            <a href="visit-site.html" class="bg-amber-600 hover:bg-amber-700 text-white font-semibold py-3 px-10 rounded-md transition duration-150 inline-flex items-center animate-fadeSlideUp" style="animation-delay: 0.4s;">
+                Try The Live Demo <i class="fas fa-arrow-right ml-2"></i>
             </a>
         </div>
     </section>
@@ -517,48 +804,36 @@
                         </div>
                         <span class="text-xl font-bold">Safety<span class="text-amber-500">First</span></span>
                     </div>
-                    <p class="text-gray-400 mb-4">Leading provider of AI-powered safety monitoring solutions for construction site workplaces.</p>
+                    <p class="text-gray-400 mb-4">An AI-powered PPE detection prototype, built for Round 2 of our hackathon.</p>
                     <div class="flex space-x-4">
-                        <a href="#" class="text-gray-400 hover:text-amber-500 transition duration-300"><i class="fab fa-twitter"></i></a>
-                        <a href="#" class="text-gray-400 hover:text-amber-500 transition duration-300"><i class="fab fa-linkedin"></i></a>
-                        <a href="#" class="text-gray-400 hover:text-amber-500 transition duration-300"><i class="fab fa-facebook"></i></a>
+                        <a href="https://github.com/Bhavesh6/PPE-Detection" target="_blank" rel="noopener" aria-label="View source on GitHub" class="text-gray-400 hover:text-amber-500 transition duration-300"><i class="fab fa-github"></i></a>
                     </div>
                 </div>
                 <div>
                     <h3 class="text-lg font-semibold mb-4">Quick Links</h3>
                     <ul class="space-y-2">
-                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Home</a></li>
+                        <li><a href="#top" class="text-gray-400 hover:text-amber-300 transition duration-300">Home</a></li>
                         <li><a href="#features" class="text-gray-400 hover:text-amber-300 transition duration-300">Features</a></li>
-                        <li><a href="#testimonials" class="text-gray-400 hover:text-amber-300 transition duration-300">Testimonials</a></li>
+                        <li><a href="#about" class="text-gray-400 hover:text-amber-300 transition duration-300">About</a></li>
                         <li><a href="visit-site.html" class="text-gray-400 hover:text-amber-300 transition duration-300">Demo</a></li>
-                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Pricing</a></li>
-                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Blog</a></li>
                     </ul>
                 </div>
                 <div>
-                    <h3 class="text-lg font-semibold mb-4">Solutions</h3>
+                    <h3 class="text-lg font-semibold mb-4">What We Detect</h3>
                     <ul class="space-y-2">
-                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">PPE Detection</a></li>
-                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Hazard Recognition</a></li>
-                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Compliance Reporting</a></li>
-                        <li><a href="#" class="text-gray-400 hover:text-amber-300 transition duration-300">Safety Training</a></li>
+                        <li class="text-gray-400">Hardhats</li>
+                        <li class="text-gray-400">Safety Vests</li>
+                        <li class="text-gray-400">Masks</li>
+                        <li class="text-gray-400">Violations</li>
                     </ul>
                 </div>
                 <div>
-                    <h3 class="text-lg font-semibold mb-4">Contact Us</h3>
-                    <ul class="space-y-3">
-                        <li class="flex items-start">
-                            <i class="fas fa-map-marker-alt text-amber-500 mt-1 mr-3"></i>
-                            <span class="text-gray-400">123 Safety Street, Tech City, SV 10010</span>
-                        </li>
-                        <li class="flex items-center">
-                            <i class="fas fa-phone text-amber-500 mr-3"></i>
-                            <span class="text-gray-400">+1 (555) 123-4567</span>
-                        </li>
-                        <li class="flex items-center">
-                            <i class="fas fa-envelope text-amber-500 mr-3"></i>
-                            <span class="text-gray-400">info@safetyfirst.com</span>
-                        </li>
+                    <h3 class="text-lg font-semibold mb-4">Built With</h3>
+                    <ul class="space-y-2">
+                        <li class="text-gray-400">YOLOv8 (Ultralytics)</li>
+                        <li class="text-gray-400">Flask + JWT</li>
+                        <li class="text-gray-400">Google Sign-In</li>
+                        <li class="text-gray-400">Tailwind CSS</li>
                     </ul>
                 </div>
             </div>
@@ -586,52 +861,32 @@
             });
         }
         
-        // Animated counter for statistics
-        function animateCounters() {
-            const counters = document.querySelectorAll('.animate-count');
-            const speed = 200;
-            
-            counters.forEach(counter => {
-                const targetValue = parseFloat(counter.getAttribute('data-value'));
-                const decimalPlaces = targetValue % 1 !== 0 ? (targetValue.toString().split('.')[1] || '').length : 0;
-                const increment = targetValue / speed;
-                let currentValue = 0;
-                
-                const updateCounter = () => {
-                    if (currentValue < targetValue) {
-                        currentValue += increment;
-                        if (currentValue > targetValue) {
-                            currentValue = targetValue;
-                        }
-                        
-                        counter.textContent = currentValue.toFixed(decimalPlaces);
-                        requestAnimationFrame(updateCounter);
-                    } else {
-                        counter.textContent = targetValue;
-                    }
-                };
-                
-                // Start the animation when the element is in view
-                const observer = new IntersectionObserver((entries) => {
-                    entries.forEach(entry => {
-                        if (entry.isIntersecting) {
-                            updateCounter();
-                            observer.unobserve(entry.target);
-                        }
-                    });
-                }, { threshold: 0.5 });
-                
-                observer.observe(counter);
-            });
-        }
-        
-        // Initialize the counter animation
+        // Mobile menu toggle
         document.addEventListener('DOMContentLoaded', function() {
-            animateCounters();
+            const menuButton = document.getElementById('mobileMenuButton');
+            const menuIcon = document.getElementById('mobileMenuIcon');
+            const mobileMenu = document.getElementById('mobileMenu');
+
+            menuButton.addEventListener('click', function() {
+                const isOpen = !mobileMenu.classList.contains('hidden');
+                mobileMenu.classList.toggle('hidden');
+                menuButton.setAttribute('aria-expanded', String(!isOpen));
+                menuIcon.classList.toggle('fa-bars', isOpen);
+                menuIcon.classList.toggle('fa-xmark', !isOpen);
+            });
+
+            mobileMenu.querySelectorAll('a').forEach(link => {
+                link.addEventListener('click', () => {
+                    mobileMenu.classList.add('hidden');
+                    menuButton.setAttribute('aria-expanded', 'false');
+                    menuIcon.classList.add('fa-bars');
+                    menuIcon.classList.remove('fa-xmark');
+                });
+            });
         });
     </script>
-    <script src="js/config.js"></script>
-    <script src="js/auth.js"></script>
+    <script src="js/config.js?v=20260803a"></script>
+    <script src="js/auth.js?v=20260803a"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const loggedIn = Auth.isLoggedIn();
@@ -643,6 +898,6 @@
             });
         });
     </script>
-    <script src="js/main.js"></script>
+    <script src="js/main.js?v=20260803a"></script>
 </body>
 </html> 

@@ -2,11 +2,37 @@ import os
 from datetime import timedelta
 
 
+def _database_uri():
+    """Resolve the database URL, normalising managed-Postgres quirks.
+
+    Render/Heroku hand out URLs beginning with "postgres://", a scheme
+    SQLAlchemy 1.4+ dropped in favour of "postgresql://". Left as-is it
+    fails at startup with "Can't load plugin: sqlalchemy.dialects:postgres".
+
+    Falls back to local SQLite for development. Note that SQLite on an
+    ephemeral container filesystem (Render, HF Spaces) is wiped on every
+    restart — set DATABASE_URL to a managed Postgres instance in production
+    or the compliance record will not survive a redeploy.
+    """
+    url = os.environ.get("DATABASE_URL", "sqlite:///app.db")
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    return url
+
+
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///app.db")
+    SQLALCHEMY_DATABASE_URI = _database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # Managed Postgres drops idle connections; pre-ping avoids handing the
+    # app a dead one, and recycling keeps connections under that timeout.
+    SQLALCHEMY_ENGINE_OPTIONS = (
+        {"pool_pre_ping": True, "pool_recycle": 280}
+        if SQLALCHEMY_DATABASE_URI.startswith("postgresql")
+        else {}
+    )
 
     JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-jwt-secret-change-me")
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=7)

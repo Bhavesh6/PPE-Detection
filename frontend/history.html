@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Records — SafetyFirst</title>
+    <meta name="description" content="Your personal PPE compliance record: every checkpoint verification logged against your account.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260803a">
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div id="guestNotice" class="alert alert-amber mb-5 hidden">
+                    <i class="fas fa-flask"></i>
+                    <span>You are in a guest session. These records are not attached to a permanent account.</span>
+                </div>
+
+                <!-- Personal compliance summary -->
+                <div class="metrics mb-5">
+                    <div class="metric" style="--m-accent: var(--ok)">
+                        <div class="metric-label"><i class="fas fa-circle-check"></i>Compliance Rate</div>
+                        <div class="metric-value" id="mRate">—</div>
+                        <div class="metric-foot">Across all checks</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--info)">
+                        <div class="metric-label"><i class="fas fa-door-open"></i>Times Cleared</div>
+                        <div class="metric-value" id="mCleared">0</div>
+                        <div class="metric-foot">Access granted</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--danger)">
+                        <div class="metric-label"><i class="fas fa-ban"></i>Times Blocked</div>
+                        <div class="metric-value" id="mBlocked">0</div>
+                        <div class="metric-foot">Access denied</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--amber)">
+                        <div class="metric-label"><i class="fas fa-database"></i>Total Records</div>
+                        <div class="metric-value" id="mTotal">0</div>
+                        <div class="metric-foot">Gate decisions logged</div>
+                    </div>
+                </div>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-clock-rotate-left"></i>Verification History</span>
+                        <div class="flex items-center gap-2">
+                            <select id="filterSelect" class="field btn-sm" style="width:auto;padding:6px 10px;font-size:.78rem">
+                                <option value="all">All results</option>
+                                <option value="granted">Granted only</option>
+                                <option value="denied">Denied only</option>
+                            </select>
+                            <button id="refreshButton" class="btn btn-outline btn-sm"><i class="fas fa-rotate"></i>Refresh</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Result</th>
+                                    <th>Missing PPE</th>
+                                    <th>Detected</th>
+                                    <th style="text-align:center">Violations</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historyBody">
+                                <tr><td colspan="5" class="cell-empty">Loading records…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="card-head" style="border-bottom:none;border-top:1px solid var(--border)">
+                        <span class="text-xs" style="color:var(--faint)" id="pageInfo"></span>
+                        <div class="flex gap-2">
+                            <button id="prevButton" class="btn btn-outline btn-sm">Previous</button>
+                            <button id="nextButton" class="btn btn-outline btn-sm">Next</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260803a"></script>
+    <script src="js/auth.js?v=20260803a"></script>
+    <script src="js/shell.js?v=20260803a"></script>
+    <script>
+        Auth.requireAuth();
+        Shell.render('history', {
+            title: 'My Records',
+            subtitle: 'Every checkpoint verification logged against your account',
+        });
+
+        const el = (id) => document.getElementById(id);
+        const user = Auth.getUser();
+        if (user && user.is_guest) el('guestNotice').classList.remove('hidden');
+
+        let currentPage = 1;
+        const perPage = 25;
+        let filter = 'all';
+
+        const VERDICT_BADGE = {
+            granted: '<span class="badge badge-ok"><i class="fas fa-check"></i>Granted</span>',
+            denied: '<span class="badge badge-danger"><i class="fas fa-xmark"></i>Denied</span>',
+            no_person: '<span class="badge badge-muted">No person</span>',
+        };
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        function detectionSummary(detections) {
+            if (!detections.length) return '<span style="color:var(--faint)">—</span>';
+            const counts = {};
+            detections.forEach((d) => { counts[d.type] = (counts[d.type] || 0) + 1; });
+            return Object.entries(counts).map(([type, n]) => {
+                const cls = type.startsWith('NO-') ? 'badge-danger' : 'badge-info';
+                const label = n > 1 ? `${escapeHtml(type)} ×${n}` : escapeHtml(type);
+                return `<span class="badge ${cls}" style="margin:1px 2px">${label}</span>`;
+            }).join('');
+        }
+
+        async function loadSummary() {
+            try {
+                const res = await Auth.fetch('/api/history?page=1&per_page=200');
+                if (!res.ok) return;
+                const data = await res.json();
+                const granted = data.records.filter((r) => r.verdict === 'granted').length;
+                const denied = data.records.filter((r) => r.verdict === 'denied').length;
+                const checked = granted + denied;
+                el('mCleared').textContent = granted;
+                el('mBlocked').textContent = denied;
+                el('mTotal').textContent = data.total;
+                el('mRate').textContent = checked ? `${Math.round((granted / checked) * 100)}%` : '—';
+            } catch (e) { /* summary is best-effort */ }
+        }
+
+        async function loadHistory() {
+            const tbody = el('historyBody');
+            tbody.innerHTML = '<tr><td colspan="5" class="cell-empty">Loading records…</td></tr>';
+
+            try {
+                const res = await Auth.fetch(`/api/history?page=${currentPage}&per_page=${perPage}`);
+                if (!res.ok) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="cell-empty" style="color:var(--danger)">Could not load records.</td></tr>';
+                    return;
+                }
+                const data = await res.json();
+                const rows = filter === 'all'
+                    ? data.records
+                    : data.records.filter((r) => r.verdict === filter);
+
+                if (!rows.length) {
+                    tbody.innerHTML = `<tr><td colspan="5" class="cell-empty">
+                        ${data.total ? 'No records match this filter.' :
+                        'No verifications yet. Run the checkpoint on <a href="visit-site.html" style="color:var(--amber);font-weight:600">Gate Control</a> to build your record.'}
+                    </td></tr>`;
+                } else {
+                    tbody.innerHTML = rows.map((r) => `
+                        <tr>
+                            <td style="white-space:nowrap;color:var(--muted)">${new Date(r.timestamp).toLocaleString()}</td>
+                            <td>${VERDICT_BADGE[r.verdict] || VERDICT_BADGE.no_person}</td>
+                            <td>${r.missing_ppe.length
+                                ? r.missing_ppe.map((p) => `<span class="badge badge-danger" style="margin:1px 2px">${escapeHtml(p)}</span>`).join('')
+                                : '<span style="color:var(--faint)">—</span>'}</td>
+                            <td>${detectionSummary(r.detections)}</td>
+                            <td style="text-align:center;font-weight:700;color:${r.violation_count ? 'var(--danger)' : 'var(--faint)'}" class="tnum">${r.violation_count}</td>
+                        </tr>`).join('');
+                }
+
+                const totalPages = Math.max(Math.ceil(data.total / perPage), 1);
+                el('pageInfo').textContent = `Page ${data.page} of ${totalPages} · ${data.total} records`;
+                el('prevButton').disabled = currentPage <= 1;
+                el('nextButton').disabled = currentPage >= totalPages;
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="5" class="cell-empty" style="color:var(--danger)">Could not load records.</td></tr>';
+            }
+        }
+
+        function refresh() { loadHistory(); loadSummary(); }
+
+        el('prevButton').addEventListener('click', () => { if (currentPage > 1) { currentPage--; loadHistory(); } });
+        el('nextButton').addEventListener('click', () => { currentPage++; loadHistory(); });
+        el('refreshButton').addEventListener('click', refresh);
+        el('filterSelect').addEventListener('change', (e) => { filter = e.target.value; loadHistory(); });
+
+        refresh();
+    </script>
+</body>
+</html>

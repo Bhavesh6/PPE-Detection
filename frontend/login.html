@@ -6,65 +6,125 @@
     <title>Sign In - Safety First</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260803a">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         body { font-family: 'Inter', sans-serif; }
+        h1, h2 { font-family: 'Montserrat', 'Inter', sans-serif; }
+
         .btn-primary {
-            background: linear-gradient(90deg, #f59e0b, #d97706);
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(251, 191, 36, 0.3);
+            background: #d97706;
+            transition: background-color 0.15s ease;
         }
-        .btn-primary:hover:not(:disabled) {
-            box-shadow: 0 7px 20px rgba(251, 191, 36, 0.4);
-            transform: translateY(-2px);
-        }
+        .btn-primary:hover:not(:disabled) { background: #b45309; }
         .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+        .auth-tab {
+            transition: color 0.15s ease, border-color 0.15s ease;
+            border-bottom: 2px solid transparent;
+        }
+        .auth-tab[aria-selected="true"] {
+            color: #0f172a;
+            border-color: #d97706;
+        }
+        .auth-tab[aria-selected="false"] {
+            color: #94a3b8;
+        }
+        .auth-tab[aria-selected="false"]:hover {
+            color: #475569;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * { transition-duration: 0.01ms !important; }
+        }
     </style>
 </head>
-<body class="bg-slate-900 min-h-screen flex items-center justify-center px-4">
+<body class="bg-slate-900 min-h-screen flex items-center justify-center px-4 py-10">
 
     <div class="w-full max-w-md">
-        <div class="flex items-center justify-center mb-8">
-            <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center mr-2">
+        <a href="index.html" class="flex items-center justify-center mb-8">
+            <div class="w-10 h-10 bg-amber-500 rounded-md flex items-center justify-center mr-2">
                 <i class="fas fa-hard-hat text-slate-900 text-xl"></i>
             </div>
             <span class="text-2xl font-bold text-white">Safety <span class="text-amber-500">First</span></span>
-        </div>
+        </a>
 
-        <div class="bg-white rounded-2xl shadow-2xl p-8">
-            <h1 class="text-2xl font-bold text-slate-800 mb-1">Welcome back</h1>
-            <p class="text-gray-500 mb-6">Sign in to access the live monitoring dashboard</p>
-
-            <div id="googleButton" class="mb-4"></div>
-            <div id="googleDivider" class="hidden items-center gap-3 my-5">
-                <div class="h-px bg-gray-200 flex-1"></div>
-                <span class="text-xs text-gray-400 uppercase">or</span>
-                <div class="h-px bg-gray-200 flex-1"></div>
-            </div>
-
-            <div id="formError" class="hidden mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3"></div>
-
-            <form id="loginForm" class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    <input type="email" id="email" required autocomplete="email"
-                           class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                    <input type="password" id="password" required autocomplete="current-password"
-                           class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none">
-                </div>
-                <button type="submit" id="submitBtn"
-                        class="btn-primary w-full text-slate-900 font-bold py-3 rounded-lg">
+        <div class="bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
+            <!-- Tabs -->
+            <div class="flex border-b border-gray-200" role="tablist">
+                <button type="button" id="tabSignIn" class="auth-tab flex-1 py-4 text-sm font-semibold" role="tab" aria-selected="true" aria-controls="loginForm">
                     Sign In
                 </button>
-            </form>
+                <button type="button" id="tabSignUp" class="auth-tab flex-1 py-4 text-sm font-semibold" role="tab" aria-selected="false" aria-controls="signupForm">
+                    Create Account
+                </button>
+            </div>
 
-            <p class="text-center text-sm text-gray-500 mt-6">
-                Don't have an account?
-                <a href="signup.html" class="text-amber-600 font-semibold hover:text-amber-700">Sign up</a>
-            </p>
+            <div class="p-8">
+                <div id="googleButton" class="mb-4"></div>
+                <div id="googleDivider" class="hidden items-center gap-3 my-5">
+                    <div class="h-px bg-gray-200 flex-1"></div>
+                    <span class="text-xs text-gray-400 uppercase">or</span>
+                    <div class="h-px bg-gray-200 flex-1"></div>
+                </div>
+
+                <div id="formError" class="alert alert-danger hidden" style="margin-bottom:16px"></div>
+
+                <!-- Sign In panel -->
+                <form id="loginForm" role="tabpanel" aria-labelledby="tabSignIn" class="space-y-4">
+                    <div>
+                        <label class="field-label">Email</label>
+                        <input type="email" id="loginEmail" required autocomplete="email"
+                               class="field">
+                    </div>
+                    <div>
+                        <label class="field-label">Password</label>
+                        <input type="password" id="loginPassword" required autocomplete="current-password"
+                               class="field">
+                    </div>
+                    <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width:100%">
+                        Sign In
+                    </button>
+                </form>
+
+                <!-- Sign Up panel -->
+                <form id="signupForm" role="tabpanel" aria-labelledby="tabSignUp" class="hidden space-y-4">
+                    <div>
+                        <label class="field-label">Full name</label>
+                        <input type="text" id="signupName" required autocomplete="name"
+                               class="field">
+                    </div>
+                    <div>
+                        <label class="field-label">Email</label>
+                        <input type="email" id="signupEmail" required autocomplete="email"
+                               class="field">
+                    </div>
+                    <div>
+                        <label class="field-label">Password</label>
+                        <input type="password" id="signupPassword" required minlength="8" autocomplete="new-password"
+                               class="field">
+                        <p class="text-xs text-gray-400 mt-1">At least 8 characters</p>
+                    </div>
+                    <button type="submit" id="signupSubmitBtn" class="btn btn-primary" style="width:100%">
+                        Create Account
+                    </button>
+                </form>
+
+                <div class="flex items-center gap-3 my-5">
+                    <div class="h-px bg-gray-200 flex-1"></div>
+                    <span class="text-xs text-gray-400 uppercase">or</span>
+                    <div class="h-px bg-gray-200 flex-1"></div>
+                </div>
+
+                <button id="guestBtn" type="button"
+                        class="btn btn-outline" style="width:100%">
+                    Continue as Guest
+                </button>
+                <p class="text-center text-xs text-gray-400 mt-2">Try live detection now — no account needed, nothing is saved.</p>
+            </div>
         </div>
 
         <p class="text-center text-sm text-gray-400 mt-6">
@@ -72,8 +132,8 @@
         </p>
     </div>
 
-    <script src="js/config.js"></script>
-    <script src="js/auth.js"></script>
+    <script src="js/config.js?v=20260803a"></script>
+    <script src="js/auth.js?v=20260803a"></script>
     <script>
         Auth.redirectIfLoggedIn('visit-site.html');
 
@@ -86,6 +146,54 @@
             formError.classList.add('hidden');
         }
 
+        // Tab switching
+        const tabSignIn = document.getElementById('tabSignIn');
+        const tabSignUp = document.getElementById('tabSignUp');
+        const loginForm = document.getElementById('loginForm');
+        const signupForm = document.getElementById('signupForm');
+
+        function showTab(tab) {
+            clearError();
+            const isSignIn = tab === 'signin';
+            tabSignIn.setAttribute('aria-selected', String(isSignIn));
+            tabSignUp.setAttribute('aria-selected', String(!isSignIn));
+            loginForm.classList.toggle('hidden', !isSignIn);
+            signupForm.classList.toggle('hidden', isSignIn);
+        }
+
+        tabSignIn.addEventListener('click', () => showTab('signin'));
+        tabSignUp.addEventListener('click', () => showTab('signup'));
+
+        if (new URLSearchParams(window.location.search).get('mode') === 'signup') {
+            showTab('signup');
+        }
+
+        // Guest
+        async function continueAsGuest() {
+            clearError();
+            const guestBtn = document.getElementById('guestBtn');
+            guestBtn.disabled = true;
+            guestBtn.textContent = 'Starting guest session...';
+
+            try {
+                const res = await fetch(`${window.API_BASE_URL}/api/auth/guest`, { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    showError(data.message || 'Could not start a guest session');
+                    return;
+                }
+                Auth.setSession(data.token, data.user);
+                window.location.href = 'visit-site.html';
+            } catch (err) {
+                showError('Could not reach the server. Is the API running?');
+            } finally {
+                guestBtn.disabled = false;
+                guestBtn.textContent = 'Continue as Guest';
+            }
+        }
+        document.getElementById('guestBtn').addEventListener('click', continueAsGuest);
+
+        // Google
         async function handleGoogleCredentialResponse(response) {
             clearError();
             try {
@@ -113,17 +221,18 @@
                     callback: handleGoogleCredentialResponse,
                 });
                 google.accounts.id.renderButton(document.getElementById('googleButton'), {
-                    theme: 'outline', size: 'large', width: 328, text: 'signin_with',
+                    theme: 'outline', size: 'large', width: 328, text: 'continue_with',
                 });
                 document.getElementById('googleDivider').classList.remove('hidden');
                 document.getElementById('googleDivider').classList.add('flex');
             }
         };
 
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        // Sign in submit
+        loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             clearError();
-            const submitBtn = document.getElementById('submitBtn');
+            const submitBtn = document.getElementById('loginSubmitBtn');
             submitBtn.disabled = true;
             submitBtn.textContent = 'Signing in...';
 
@@ -132,8 +241,8 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        email: document.getElementById('email').value.trim(),
-                        password: document.getElementById('password').value,
+                        email: document.getElementById('loginEmail').value.trim(),
+                        password: document.getElementById('loginPassword').value,
                     }),
                 });
                 const data = await res.json();
@@ -148,6 +257,39 @@
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.textContent = 'Sign In';
+            }
+        });
+
+        // Sign up submit
+        signupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            clearError();
+            const submitBtn = document.getElementById('signupSubmitBtn');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating account...';
+
+            try {
+                const res = await fetch(`${window.API_BASE_URL}/api/auth/signup`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: document.getElementById('signupName').value.trim(),
+                        email: document.getElementById('signupEmail').value.trim(),
+                        password: document.getElementById('signupPassword').value,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    showError(data.message || 'Could not create account');
+                    return;
+                }
+                Auth.setSession(data.token, data.user);
+                window.location.href = 'visit-site.html';
+            } catch (err) {
+                showError('Could not reach the server. Is the API running?');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Account';
             }
         });
     </script>

@@ -83,6 +83,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-admin-only]').forEach((el) => {
         if (user && user.is_admin) el.classList.remove('hidden');
     });
+    document.querySelectorAll('[data-guest-only]').forEach((el) => {
+        if (user && user.is_guest) el.classList.remove('hidden');
+    });
     document.querySelectorAll('[data-logout]').forEach((el) => {
         el.addEventListener('click', (e) => {
             e.preventDefault();

@@ -1,4 +1,6 @@
 import re
+import uuid
+from datetime import timedelta
 
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_required
@@ -11,6 +13,7 @@ from models import User
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+GUEST_TOKEN_EXPIRES = timedelta(hours=24)
 
 
 def _validation_error(message):
@@ -55,6 +58,21 @@ def login():
 
     token = create_access_token(identity=str(user.id))
     return jsonify({"success": True, "token": token, "user": user.to_public_dict()})
+
+
+@auth_bp.route("/guest", methods=["POST"])
+def guest_login():
+    guest_id = uuid.uuid4().hex[:10]
+    user = User(
+        name=f"Guest-{guest_id[:4]}",
+        email=f"guest-{guest_id}@guest.local",
+        is_guest=True,
+    )
+    db.session.add(user)
+    db.session.commit()
+
+    token = create_access_token(identity=str(user.id), expires_delta=GUEST_TOKEN_EXPIRES)
+    return jsonify({"success": True, "token": token, "user": user.to_public_dict()}), 201
 
 
 @auth_bp.route("/google", methods=["POST"])

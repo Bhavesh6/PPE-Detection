@@ -33,6 +33,17 @@ def create_app():
     def index():
         return jsonify({"status": "ok", "service": "PPE Detection API"})
 
+    @app.route("/api/health")
+    def health():
+        """Unauthenticated liveness check.
+
+        Lives under /api/ deliberately: CORS is only configured for that
+        prefix, so a browser on the frontend origin can actually read this.
+        The kiosk device uses it to show whether the service is up before
+        anyone tries to start a checkpoint.
+        """
+        return jsonify({"status": "ok", "service": "PPE Detection API"})
+
     @jwt.unauthorized_loader
     def handle_missing_token(reason):
         return jsonify({"success": False, "message": "Authentication required"}), 401

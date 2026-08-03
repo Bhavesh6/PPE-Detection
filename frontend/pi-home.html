@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>SafetyFirst — Device Home</title>
+    <meta name="description" content="Touch launcher for the SafetyFirst checkpoint device.">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260803a">
+    <style>
+        /* Sized for the Pi's own display — commonly 800x480 or 1024x600 —
+           and driven by touch, so every target is finger-sized and nothing
+           depends on hover. */
+        html, body { height: 100%; }
+        body {
+            background: #070b14;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .ph { display: flex; flex-direction: column; height: 100dvh; padding: clamp(16px, 3vh, 32px); gap: clamp(14px, 3vh, 28px); }
+
+        .ph-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+        .ph-brand { display: flex; align-items: center; gap: 12px; }
+        .ph-mark {
+            width: clamp(38px, 6vh, 48px); aspect-ratio: 1; border-radius: 10px;
+            background: var(--amber); color: #0b1120;
+            display: flex; align-items: center; justify-content: center;
+            font-size: clamp(1.1rem, 2.6vh, 1.4rem);
+        }
+        .ph-name { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: clamp(1.1rem, 2.8vh, 1.5rem); line-height: 1.1; }
+        .ph-sub { font-size: clamp(.55rem, 1.2vh, .65rem); letter-spacing: .22em; text-transform: uppercase; color: var(--amber); font-weight: 700; }
+
+        .ph-clock { text-align: right; }
+        .ph-time { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: clamp(1.6rem, 5vh, 2.6rem); line-height: 1; font-variant-numeric: tabular-nums; }
+        .ph-date { font-size: clamp(.68rem, 1.5vh, .82rem); color: #94a3b8; margin-top: 4px; }
+
+        /* Status strip */
+        .ph-status { display: flex; flex-wrap: wrap; gap: 10px; flex-shrink: 0; }
+        .ph-chip {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 8px 14px; border-radius: 100px;
+            border: 1px solid rgba(255,255,255,.12);
+            background: rgba(255,255,255,.03);
+            font-size: clamp(.66rem, 1.4vh, .76rem); font-weight: 600; color: #94a3b8;
+        }
+        .ph-chip i { font-size: .5rem; }
+        .ph-chip.is-ok { color: #4ade80; border-color: rgba(74,222,128,.35); background: rgba(74,222,128,.08); }
+        .ph-chip.is-bad { color: #f87171; border-color: rgba(248,113,113,.35); background: rgba(248,113,113,.08); }
+
+        /* Tiles */
+        /* minmax(0,1fr) — without the 0 floor, the grid row is sized by its
+           content and refuses to shrink, so a short screen overflows. */
+        .ph-tiles {
+            flex: 1 1 0;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            grid-template-rows: minmax(0, 1fr);
+            gap: clamp(12px, 2.4vh, 20px);
+            min-height: 0;
+        }
+        .ph-tile {
+            display: flex; flex-direction: column; justify-content: space-between;
+            padding: clamp(16px, 3vh, 26px);
+            border-radius: 16px;
+            border: 1px solid rgba(255,255,255,.1);
+            background: #0d1526;
+            color: #fff;
+            text-align: left;
+            transition: transform 140ms var(--ease-out), border-color 180ms var(--ease-out), background-color 180ms var(--ease-out);
+            min-height: 0;
+            overflow: hidden;
+        }
+        .ph-tile:active { transform: scale(.98); }
+        .ph-tile-icon {
+            width: clamp(44px, 7vh, 58px); aspect-ratio: 1; border-radius: 12px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: clamp(1.2rem, 3vh, 1.6rem);
+            background: rgba(255,255,255,.06); color: var(--amber);
+            flex-shrink: 0;
+        }
+        .ph-tile-title { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: clamp(1rem, 2.6vh, 1.35rem); margin-top: auto; padding-top: 14px; }
+        .ph-tile-desc { font-size: clamp(.7rem, 1.5vh, .82rem); color: #94a3b8; margin-top: 6px; line-height: 1.45; }
+
+        .ph-tile.is-primary { background: #13233f; border-color: rgba(217,119,6,.4); }
+        .ph-tile.is-primary .ph-tile-icon { background: var(--amber); color: #0b1120; }
+        .ph-tile[hidden] { display: none; }
+
+        .ph-foot { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: clamp(.62rem, 1.3vh, .72rem); color: #475569; }
+        .ph-foot a { color: #64748b; text-decoration: underline; }
+
+        /* The official Pi touchscreen is 800x480 — short enough that the
+           default rhythm overflows, and a wall-mounted kiosk has no scrollbar
+           to rescue it. Tighten everything so the screen always fits exactly. */
+        @media (max-height: 560px) {
+            .ph { padding: 12px 16px; gap: 10px; }
+            .ph-mark { width: 34px; }
+            .ph-name { font-size: 1rem; }
+            .ph-time { font-size: 1.5rem; }
+            .ph-date { font-size: .66rem; }
+            .ph-chip { padding: 5px 11px; font-size: .64rem; }
+            .ph-tiles { gap: 10px; }
+            .ph-tile { padding: 14px; border-radius: 12px; }
+            .ph-tile-icon { width: 36px; font-size: 1rem; border-radius: 9px; }
+            .ph-tile-title { font-size: .95rem; padding-top: 8px; }
+            .ph-tile-desc { font-size: .68rem; margin-top: 3px; }
+            .ph-foot { font-size: .6rem; }
+        }
+
+        /* Pi displays are wide-but-short; stack only when genuinely narrow. */
+        @media (max-width: 700px) {
+            .ph-tiles { grid-template-columns: 1fr; overflow-y: auto; }
+            .ph-tile { flex-direction: row; align-items: center; gap: 16px; }
+            .ph-tile-title { margin-top: 0; padding-top: 0; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .ph-tile:active { transform: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="ph">
+        <header class="ph-top">
+            <div class="ph-brand">
+                <span class="ph-mark"><i class="fas fa-hard-hat"></i></span>
+                <span>
+                    <div class="ph-name">SafetyFirst</div>
+                    <div class="ph-sub">Checkpoint Device</div>
+                </span>
+            </div>
+            <div class="ph-clock">
+                <div class="ph-time" id="phTime">--:--</div>
+                <div class="ph-date" id="phDate"></div>
+            </div>
+        </header>
+
+        <div class="ph-status">
+            <span class="ph-chip" id="chipApi"><i class="fas fa-circle"></i><span>Checking service…</span></span>
+            <span class="ph-chip" id="chipCam"><i class="fas fa-circle"></i><span>Checking camera…</span></span>
+            <span class="ph-chip" id="chipSecure"><i class="fas fa-circle"></i><span>Checking origin…</span></span>
+        </div>
+
+        <nav class="ph-tiles">
+            <a href="kiosk.html" class="ph-tile is-primary">
+                <span class="ph-tile-icon"><i class="fas fa-shield-halved"></i></span>
+                <span>
+                    <span class="ph-tile-title">Checkpoint</span>
+                    <span class="ph-tile-desc">Run the gate. Verify PPE and grant or deny entry.</span>
+                </span>
+            </a>
+            <a href="admin.html" class="ph-tile" id="tileAdmin">
+                <span class="ph-tile-icon"><i class="fas fa-gauge-high"></i></span>
+                <span>
+                    <span class="ph-tile-title">Console</span>
+                    <span class="ph-tile-desc">Site compliance, personnel and entry decisions.</span>
+                </span>
+            </a>
+            <a href="history.html" class="ph-tile">
+                <span class="ph-tile-icon"><i class="fas fa-clock-rotate-left"></i></span>
+                <span>
+                    <span class="ph-tile-title">Records</span>
+                    <span class="ph-tile-desc">Past entry decisions logged on this device.</span>
+                </span>
+            </a>
+        </nav>
+
+        <footer class="ph-foot">
+            <span id="phWho">Not signed in</span>
+            <span><a href="login.html">Sign in</a> · <a href="index.html">About</a></span>
+        </footer>
+    </div>
+
+    <script src="js/config.js?v=20260803a"></script>
+    <script src="js/auth.js?v=20260803a"></script>
+    <script>
+        const el = (id) => document.getElementById(id);
+
+        function clock() {
+            const now = new Date();
+            el('phTime').textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            el('phDate').textContent = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'short' });
+        }
+        clock();
+        setInterval(clock, 15000);
+
+        function chip(id, state, text) {
+            const c = el(id);
+            c.className = 'ph-chip' + (state ? ` is-${state}` : '');
+            c.querySelector('span').textContent = text;
+        }
+
+        // Secure-origin check decides whether the camera can work at all.
+        if (window.IS_SECURE_CONTEXT) {
+            chip('chipSecure', 'ok', 'Secure origin');
+        } else {
+            chip('chipSecure', 'bad', 'Insecure origin — camera blocked');
+        }
+
+        // Is the detection service reachable?
+        (async () => {
+            try {
+                const res = await fetch(`${window.API_BASE_URL}/api/health`, { cache: 'no-store' });
+                chip('chipApi', res.ok ? 'ok' : 'bad', res.ok ? 'Detection service online' : 'Service error');
+            } catch (e) {
+                chip('chipApi', 'bad', 'Service unreachable');
+            }
+        })();
+
+        // Is a camera actually attached? enumerateDevices works without
+        // prompting, though labels stay empty until permission is granted.
+        (async () => {
+            if (!navigator.mediaDevices?.enumerateDevices) {
+                return chip('chipCam', 'bad', 'No camera API');
+            }
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const cams = devices.filter((d) => d.kind === 'videoinput');
+                chip('chipCam', cams.length ? 'ok' : 'bad',
+                    cams.length ? `${cams.length} camera${cams.length > 1 ? 's' : ''} detected` : 'No camera detected');
+            } catch (e) {
+                chip('chipCam', 'bad', 'Camera check failed');
+            }
+        })();
+
+        // Identity + admin-only tile
+        const user = Auth.getUser();
+        if (user) {
+            el('phWho').textContent = `${user.name}${user.is_admin ? ' · Administrator' : user.is_guest ? ' · Guest' : ''}`;
+            if (!user.is_admin) el('tileAdmin').hidden = true;
+        } else {
+            el('tileAdmin').hidden = true;
+        }
+    </script>
+</body>
+</html>

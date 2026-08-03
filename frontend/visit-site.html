@@ -3,283 +3,291 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SafetyFirst - Live PPE Detection</title>
+    <title>Gate Control — SafetyFirst</title>
+    <meta name="description" content="Live PPE compliance checkpoint. Verify required protective equipment before granting site access.">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        .btn-primary {
-            background: linear-gradient(90deg, #f59e0b, #d97706);
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(251, 191, 36, 0.3);
-        }
-        .btn-primary:hover {
-            box-shadow: 0 7px 20px rgba(251, 191, 36, 0.4);
-            transform: translateY(-3px);
-        }
-        .nav-link { position: relative; }
-        .nav-link::after {
-            content: '';
-            position: absolute;
-            width: 0;
-            height: 2px;
-            bottom: -4px;
-            left: 0;
-            background-color: #f59e0b;
-            transition: width 0.3s ease;
-        }
-        .nav-link:hover::after { width: 100%; }
-        .monitor-card {
-            transition: all 0.3s ease;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        .monitor-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.1);
-        }
-        .status-indicator {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 8px;
-        }
-        @keyframes pulse {
-            0% { transform: scale(1); opacity: 0.7; }
-            70% { transform: scale(1.05); opacity: 1; }
-            100% { transform: scale(1); opacity: 0.7; }
-        }
-        @keyframes slideIn {
-            0% { opacity: 0; transform: translateX(-20px); }
-            100% { opacity: 1; transform: translateX(0); }
-        }
-        .animate-pulse { animation: pulse 2s infinite; }
-        .animate-slideIn { animation: slideIn 0.3s ease-out forwards; }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260803a">
 </head>
-<body class="bg-gray-50">
-    <!-- Header -->
-    <header class="bg-slate-900 text-white">
-        <div class="container mx-auto py-4 px-6">
-            <div class="flex justify-between items-center">
-                <div class="flex items-center">
-                    <div class="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center mr-2 animate-pulse">
-                        <i class="fas fa-hard-hat text-slate-900 text-xl"></i>
-                    </div>
-                    <span class="text-xl font-bold">Safety <span class="text-amber-500">First</span></span>
-                </div>
-                <nav class="flex items-center space-x-6">
-                    <a href="index.html" class="nav-link text-white hover:text-amber-300">Home</a>
-                    <a href="admin.html" data-admin-only class="hidden nav-link text-white hover:text-amber-300">Admin</a>
-                    <span class="hidden sm:flex items-center text-sm text-gray-300">
-                        <i class="fas fa-user-circle mr-2 text-amber-400"></i>
-                        <span data-user-name>Account</span>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div id="insecureNotice" class="alert alert-amber mb-5 hidden">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    <span>
+                        <strong>Camera blocked:</strong> this page is served over an insecure origin
+                        (<span id="insecureOrigin"></span>). Browsers only allow camera access on
+                        <code>https://</code> or <code>http://localhost</code>. Serve the page on this
+                        device, or put it behind HTTPS.
                     </span>
-                    <a href="#" data-logout class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2 px-5 rounded-full transition duration-300">
-                        <i class="fas fa-sign-out-alt mr-1"></i>Logout
-                    </a>
-                </nav>
-            </div>
-        </div>
-    </header>
+                </div>
 
-    <!-- Monitor Section -->
-    <section class="py-10 bg-slate-900 text-white">
-        <div class="container mx-auto px-6 text-center">
-            <h1 class="text-4xl font-bold mb-4">Live PPE Detection Monitor</h1>
-            <p class="text-gray-300 max-w-2xl mx-auto">Real-time monitoring of construction site safety equipment</p>
-        </div>
-    </section>
+                <!-- Checkpoint verdict -->
+                <div class="verdict mb-5" id="verdictPanel" data-state="idle">
+                    <div class="verdict-word" id="verdictWord">Checkpoint Idle</div>
+                    <div class="verdict-note" id="verdictNote">Start the checkpoint to begin verifying access.</div>
+                </div>
 
-    <section class="py-10 -mt-10">
-        <div class="container mx-auto px-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <!-- Camera Feed -->
-                <div class="monitor-card bg-white rounded-xl shadow-md overflow-hidden">
-                    <div class="bg-slate-800 p-4">
-                        <h3 class="text-xl font-bold text-white">Camera Feed</h3>
+                <!-- Gate metrics -->
+                <div class="metrics mb-5">
+                    <div class="metric" style="--m-accent: var(--ok)">
+                        <div class="metric-label"><i class="fas fa-door-open"></i>Access Granted</div>
+                        <div class="metric-value" id="mGranted">0</div>
+                        <div class="metric-foot">Cleared this session</div>
                     </div>
-                    <div id="videoContainer" class="bg-black relative h-96">
-                        <div id="cameraPlaceholder" class="flex items-center justify-center h-full">
-                            <div class="text-center">
-                                <i class="fas fa-video text-6xl text-amber-500 mb-4 animate-pulse"></i>
-                                <p class="text-lg text-gray-300">Camera feed will appear here</p>
+                    <div class="metric" style="--m-accent: var(--danger)">
+                        <div class="metric-label"><i class="fas fa-ban"></i>Access Denied</div>
+                        <div class="metric-value" id="mDenied">0</div>
+                        <div class="metric-foot">Blocked this session</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--info)">
+                        <div class="metric-label"><i class="fas fa-user"></i>People In Frame</div>
+                        <div class="metric-value" id="mPeople">0</div>
+                        <div class="metric-foot">Current frame</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--amber)">
+                        <div class="metric-label"><i class="fas fa-triangle-exclamation"></i>Violations</div>
+                        <div class="metric-value" id="mViolations">0</div>
+                        <div class="metric-foot">Session total: <span id="mViolationsTotal" class="tnum">0</span></div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    <!-- Camera -->
+                    <section class="card lg:col-span-2">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-video"></i>Checkpoint Camera</span>
+                            <span class="badge badge-muted" id="camBadge">Standby</span>
+                        </div>
+                        <div class="video-stage">
+                            <div class="video-idle" id="cameraPlaceholder">
+                                <i class="fas fa-video-slash text-3xl"></i>
+                                <p class="text-sm">Camera inactive — start the checkpoint to open the feed.</p>
+                            </div>
+                            <video id="videoFeed" class="hidden" autoplay playsinline muted></video>
+                            <canvas id="overlayCanvas" class="overlay hidden"></canvas>
+                            <canvas id="captureCanvas" class="hidden"></canvas>
+                            <div id="streamError" class="video-idle hidden" style="background:rgba(11,17,32,.9)">
+                                <i class="fas fa-circle-exclamation text-3xl" style="color:var(--danger)"></i>
+                                <p class="text-sm text-white font-semibold">Camera unavailable</p>
+                                <button id="retryButton" class="btn btn-primary btn-sm">Retry</button>
                             </div>
                         </div>
-                        <video id="videoFeed" class="w-full h-full object-cover hidden" autoplay playsinline></video>
-                        <canvas id="overlayCanvas" class="w-full h-full object-cover hidden absolute top-0 left-0 pointer-events-none"></canvas>
-                        <canvas id="captureCanvas" class="hidden"></canvas>
-                        <div id="streamError" class="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center hidden">
-                            <div class="text-center p-4">
-                                <i class="fas fa-exclamation-circle text-5xl text-red-500 mb-3 animate-pulse"></i>
-                                <p class="text-white text-lg font-bold">Video stream error</p>
-                                <button id="retryButton" class="btn-primary mt-4 py-2 px-6 rounded-full text-slate-900 font-bold">Retry</button>
+                    </section>
+
+                    <!-- Requirements + log -->
+                    <div class="flex flex-col gap-5">
+                        <section class="card">
+                            <div class="card-head">
+                                <span class="card-title"><i class="fas fa-list-check"></i>Entry Requirements</span>
                             </div>
-                        </div>
-                    </div>
-                    <div class="p-6 text-center">
-                        <div class="flex justify-center space-x-4 mb-4">
-                            <button id="startButton" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-full transition-all">Start Detection</button>
-                            <button id="stopButton" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-full disabled:opacity-50" disabled>Stop Detection</button>
-                        </div>
-                        <div id="apiStatus" class="text-sm text-gray-500">
-                            API Status: <span id="apiStatusText" class="font-medium">Checking...</span>
-                        </div>
+                            <div class="card-body" style="padding-top:4px;padding-bottom:4px">
+                                <div class="check-row" data-state="idle" id="checkHardhat">
+                                    <span class="check-name">
+                                        <span class="check-icon"><i class="fas fa-hard-hat"></i></span>Hardhat
+                                    </span>
+                                    <span class="badge badge-muted" id="badgeHardhat">Waiting</span>
+                                </div>
+                                <div class="check-row" data-state="idle" id="checkVest">
+                                    <span class="check-name">
+                                        <span class="check-icon"><i class="fas fa-vest"></i></span>Safety Vest
+                                    </span>
+                                    <span class="badge badge-muted" id="badgeVest">Waiting</span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="card flex-1">
+                            <div class="card-head">
+                                <span class="card-title"><i class="fas fa-rss"></i>Live Detections</span>
+                                <span class="text-xs" style="color:var(--faint)" id="feedCount"></span>
+                            </div>
+                            <div class="card-body">
+                                <div class="log-feed" id="detection-results">
+                                    <p class="text-sm" style="color:var(--faint)">Detections will stream here once the checkpoint is running.</p>
+                                </div>
+                            </div>
+                        </section>
                     </div>
                 </div>
 
-                <!-- Detection Log -->
-                <div class="monitor-card bg-white rounded-xl shadow-md overflow-hidden">
-                    <div class="bg-slate-800 p-4">
-                        <h3 class="text-xl font-bold text-white">Detection Log</h3>
-                    </div>
-                    <div class="p-6">
-                        <div id="detection-results" class="bg-gray-50 rounded-lg p-4 h-80 overflow-y-auto text-left border border-gray-200">
-                            <p class="text-gray-500">Logs will appear here...</p>
-                        </div>
-                        <div class="mt-6 grid grid-cols-4 gap-4">
-                            <div class="text-center"><span class="status-indicator bg-green-500"></span><span class="text-xs">Hardhat</span></div>
-                            <div class="text-center"><span class="status-indicator bg-blue-500"></span><span class="text-xs">Safety Vest</span></div>
-                            <div class="text-center"><span class="status-indicator" style="background-color: #f0f;"></span><span class="text-xs">Gloves</span></div>
-                            <div class="text-center"><span class="status-indicator bg-red-500"></span><span class="text-xs">Violation</span></div>
-                        </div>
-                    </div>
-                </div>
+                <p class="text-xs mt-5" style="color:var(--faint)">
+                    <i class="fas fa-circle-info mr-1"></i>
+                    Badge and biometric identification at the gate is planned for the hardware phase; this checkpoint currently verifies PPE against the signed-in operator.
+                </p>
             </div>
+        </main>
+    </div>
 
-            <!-- Stats -->
-            <div class="mt-8 bg-white rounded-xl shadow-md p-6 border border-gray-200">
-                <div id="statusMessage" class="text-center py-4 px-6 rounded-lg bg-blue-50 text-blue-800 mb-6">
-                    Waiting for detection to start...
-                </div>
-                <h4 class="text-xs font-bold text-gray-400 uppercase mb-3">Current Frame</h4>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 text-center mb-8">
-                    <div class="p-4 border rounded-xl">
-                        <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Hardhats</h4>
-                        <p id="helmetStatus" class="text-2xl font-bold text-slate-800">0</p>
-                    </div>
-                    <div class="p-4 border rounded-xl">
-                        <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Vests</h4>
-                        <p id="vestStatus" class="text-2xl font-bold text-slate-800">0</p>
-                    </div>
-                    <div class="p-4 border rounded-xl">
-                        <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Gloves</h4>
-                        <p id="gloveStatus" class="text-2xl font-bold text-slate-800">0</p>
-                    </div>
-                    <div class="p-4 border rounded-xl">
-                        <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Violations</h4>
-                        <p id="violationStatus" class="text-2xl font-bold text-red-600">0</p>
-                    </div>
-                </div>
-                <h4 class="text-xs font-bold text-gray-400 uppercase mb-3">Session Totals</h4>
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-6 text-center">
-                    <div class="p-4 border rounded-xl bg-gray-50">
-                        <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Hardhats</h4>
-                        <p id="totalHelmet" class="text-xl font-bold text-slate-700">0</p>
-                    </div>
-                    <div class="p-4 border rounded-xl bg-gray-50">
-                        <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Vests</h4>
-                        <p id="totalVest" class="text-xl font-bold text-slate-700">0</p>
-                    </div>
-                    <div class="p-4 border rounded-xl bg-gray-50">
-                        <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Gloves</h4>
-                        <p id="totalGlove" class="text-xl font-bold text-slate-700">0</p>
-                    </div>
-                    <div class="p-4 border rounded-xl bg-gray-50">
-                        <h4 class="font-bold text-gray-500 uppercase text-xs mb-2">Violations</h4>
-                        <p id="totalViolation" class="text-xl font-bold text-red-500">0</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <footer class="bg-slate-900 text-gray-400 py-8 text-center border-t border-gray-800">
-        <p>&copy; 2026 SafetyFirst PPE Detection System</p>
-    </footer>
-
-    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
-    <script src="js/config.js"></script>
-    <script src="js/auth.js"></script>
-    <script src="js/camera.js"></script>
+    <script src="js/config.js?v=20260803a"></script>
+    <script src="js/auth.js?v=20260803a"></script>
+    <script src="js/shell.js?v=20260803a"></script>
+    <script src="js/camera.js?v=20260803a"></script>
     <script>
         Auth.requireAuth();
-        if (typeof AOS !== 'undefined') AOS.init();
+        Shell.render('gate', {
+            title: 'Gate Control',
+            subtitle: 'Verify required PPE before granting site access',
+        });
+
+        // Topbar controls
+        document.getElementById('topbarSlot').innerHTML = `
+            <span class="live-pill is-off" id="livePill"><span class="live-dot"></span><span id="liveText">Offline</span></span>
+            <button id="startButton" class="btn btn-ok btn-sm"><i class="fas fa-play"></i>Start Checkpoint</button>
+            <button id="stopButton" class="btn btn-danger btn-sm" disabled><i class="fas fa-stop"></i>Stop</button>`;
+
+        const el = (id) => document.getElementById(id);
+        const detectionLog = el('detection-results');
+
+        // Camera needs a secure context — warn before the operator hits Start.
+        if (!window.IS_SECURE_CONTEXT) {
+            el('insecureOrigin').textContent = window.location.origin;
+            el('insecureNotice').classList.remove('hidden');
+        }
 
         let isRunning = false;
         let pollInterval = null;
-        let demoInterval = null;
-        const detectionLog = document.getElementById('detection-results');
+        let cameraFeedInstance = null;
+        let lastSpokenVerdict = null;
+
+        function setLive(state, text) {
+            const pill = el('livePill');
+            pill.className = `live-pill ${state}`;
+            el('liveText').textContent = text;
+        }
+
+        function setCheck(rowId, badgeId, state, label, badgeClass) {
+            el(rowId).dataset.state = state;
+            const badge = el(badgeId);
+            badge.className = `badge ${badgeClass}`;
+            badge.textContent = label;
+        }
+
+        function resetChecks() {
+            setCheck('checkHardhat', 'badgeHardhat', 'idle', 'Waiting', 'badge-muted');
+            setCheck('checkVest', 'badgeVest', 'idle', 'Waiting', 'badge-muted');
+        }
+
+        function renderVerdict(verdict, missing) {
+            const panel = el('verdictPanel');
+            const word = el('verdictWord');
+            const note = el('verdictNote');
+
+            if (verdict === 'granted') {
+                panel.dataset.state = 'granted';
+                word.textContent = 'Access Granted';
+                note.textContent = 'All required PPE detected — gate would open.';
+            } else if (verdict === 'denied') {
+                panel.dataset.state = 'denied';
+                word.textContent = 'Access Denied';
+                note.textContent = missing.length
+                    ? `Missing: ${missing.join(', ')}`
+                    : 'Required PPE not detected.';
+            } else {
+                panel.dataset.state = 'idle';
+                word.textContent = isRunning ? 'No Person Detected' : 'Checkpoint Idle';
+                note.textContent = isRunning
+                    ? 'Step into frame to be checked.'
+                    : 'Start the checkpoint to begin verifying access.';
+            }
+
+            // Announce only on change, so it doesn't repeat every poll.
+            if (isRunning && verdict === 'denied' && lastSpokenVerdict !== 'denied') {
+                speak('Access denied. Required protective equipment missing.');
+            }
+            lastSpokenVerdict = verdict;
+        }
+
+        function applyChecks(verdict, missing) {
+            if (verdict === 'no_person') return resetChecks();
+            const missHardhat = missing.includes('Hardhat');
+            const missVest = missing.includes('Safety Vest');
+            setCheck('checkHardhat', 'badgeHardhat',
+                missHardhat ? 'bad' : 'ok',
+                missHardhat ? 'Missing' : 'Detected',
+                missHardhat ? 'badge-danger' : 'badge-ok');
+            setCheck('checkVest', 'badgeVest',
+                missVest ? 'bad' : 'ok',
+                missVest ? 'Missing' : 'Detected',
+                missVest ? 'badge-danger' : 'badge-ok');
+        }
+
+        function speak(msg) {
+            if (!isRunning || !('speechSynthesis' in window)) return;
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
+        }
 
         async function checkStatus() {
             try {
                 const res = await Auth.fetch('/api/status');
-                if (res.ok) {
-                    document.getElementById('apiStatusText').textContent = 'Connected';
-                    document.getElementById('apiStatusText').className = 'text-green-500 font-bold';
-                    return true;
-                }
-            } catch (e) {}
-            document.getElementById('apiStatusText').textContent = 'Not Connected';
-            document.getElementById('apiStatusText').className = 'text-red-500';
+                if (res.ok) return true;
+            } catch (e) { /* offline */ }
             return false;
         }
 
-        function speak(msg) {
-            if (!isRunning) return;
-            if (!('speechSynthesis' in window)) return;
-            window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
-        }
-
-        let cameraFeedInstance = null;
-
         async function start() {
             if (isRunning) return;
-            const ok = await checkStatus();
-            if (!ok) return startDemo();
+            if (!(await checkStatus())) {
+                setLive('is-off', 'API unreachable');
+                el('camBadge').textContent = 'API offline';
+                el('camBadge').className = 'badge badge-danger';
+                return;
+            }
 
             try {
                 const res = await Auth.fetch('/api/start', { method: 'POST' });
-                if (res.ok) {
-                    isRunning = true;
-                    document.getElementById('startButton').disabled = true;
-                    document.getElementById('stopButton').disabled = false;
-                    document.getElementById('cameraPlaceholder').classList.add('hidden');
-                    const feed = document.getElementById('videoFeed');
-                    feed.classList.remove('hidden');
-                    document.getElementById('overlayCanvas').classList.remove('hidden');
+                if (!res.ok) return;
 
-                    if (!cameraFeedInstance) {
-                        const canvas = document.getElementById('captureCanvas');
-                        const statusElement = document.getElementById('apiStatusText');
-                        cameraFeedInstance = new CameraFeed(feed, canvas, statusElement);
-                    }
-                    await cameraFeedInstance.start();
+                isRunning = true;
+                el('startButton').disabled = true;
+                el('stopButton').disabled = false;
+                el('cameraPlaceholder').classList.add('hidden');
+                el('streamError').classList.add('hidden');
+                el('videoFeed').classList.remove('hidden');
+                el('overlayCanvas').classList.remove('hidden');
+                el('camBadge').textContent = 'Streaming';
+                el('camBadge').className = 'badge badge-ok';
+                setLive('is-live', 'Live');
 
-                    detectionLog.innerHTML = '';
-                    pollInterval = setInterval(update, 1000);
-                    speak('System activated');
+                if (!cameraFeedInstance) {
+                    cameraFeedInstance = new CameraFeed(el('videoFeed'), el('captureCanvas'), null);
                 }
-            } catch (e) { startDemo(); }
+                const ok = await cameraFeedInstance.start();
+                if (!ok) {
+                    el('streamError').classList.remove('hidden');
+                    el('camBadge').textContent = 'No camera';
+                    el('camBadge').className = 'badge badge-danger';
+                }
+
+                detectionLog.innerHTML = '';
+                pollInterval = setInterval(update, 1000);
+            } catch (e) { /* keep UI in a safe state */ }
         }
 
         async function stop() {
             isRunning = false;
             clearInterval(pollInterval);
-            clearInterval(demoInterval);
             if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-
             if (cameraFeedInstance) cameraFeedInstance.stop();
 
-            try { await Auth.fetch('/api/stop', { method: 'POST' }); } catch (e) {}
+            try { await Auth.fetch('/api/stop', { method: 'POST' }); } catch (e) { /* ignore */ }
 
-            document.getElementById('startButton').disabled = false;
-            document.getElementById('stopButton').disabled = true;
-            document.getElementById('videoFeed').classList.add('hidden');
-            document.getElementById('cameraPlaceholder').classList.remove('hidden');
-            document.getElementById('statusMessage').textContent = 'Detection stopped';
+            el('startButton').disabled = false;
+            el('stopButton').disabled = true;
+            el('videoFeed').classList.add('hidden');
+            el('overlayCanvas').classList.add('hidden');
+            el('cameraPlaceholder').classList.remove('hidden');
+            el('camBadge').textContent = 'Standby';
+            el('camBadge').className = 'badge badge-muted';
+            setLive('is-off', 'Offline');
+            lastSpokenVerdict = null;
+            resetChecks();
+            renderVerdict('no_person', []);
         }
 
         async function update() {
@@ -287,78 +295,46 @@
             try {
                 const [sRes, rRes] = await Promise.all([
                     Auth.fetch('/api/status'),
-                    Auth.fetch('/api/results')
+                    Auth.fetch('/api/results'),
                 ]);
 
                 if (sRes.ok) {
                     const data = await sRes.json();
-                    document.getElementById('helmetStatus').textContent = data.helmets;
-                    document.getElementById('vestStatus').textContent = data.vests;
-                    document.getElementById('gloveStatus').textContent = data.gloves;
-                    document.getElementById('violationStatus').textContent = data.violations;
+                    el('mPeople').textContent = data.people ?? 0;
+                    el('mViolations').textContent = data.violations ?? 0;
+                    el('mViolationsTotal').textContent = data.totals?.violations ?? 0;
+                    el('mGranted').textContent = data.gate?.granted ?? 0;
+                    el('mDenied').textContent = data.gate?.denied ?? 0;
 
-                    if (data.totals) {
-                        document.getElementById('totalHelmet').textContent = data.totals.helmets;
-                        document.getElementById('totalVest').textContent = data.totals.vests;
-                        document.getElementById('totalGlove').textContent = data.totals.gloves;
-                        document.getElementById('totalViolation').textContent = data.totals.violations;
-                    }
-
-                    const msg = document.getElementById('statusMessage');
-                    if (data.violations > 0) {
-                        msg.className = 'text-center py-4 px-6 rounded-lg bg-red-100 text-red-800 mb-6';
-                        msg.textContent = '⚠️ Safety violations detected!';
-                    } else {
-                        msg.className = 'text-center py-4 px-6 rounded-lg bg-green-100 text-green-800 mb-6';
-                        msg.textContent = '✅ All workers compliant';
-                    }
+                    const missing = data.missing_ppe || [];
+                    renderVerdict(data.verdict, missing);
+                    applyChecks(data.verdict, missing);
                 }
 
                 if (rRes.ok) {
                     const data = await rRes.json();
-                    detectionLog.innerHTML = '';
-                    data.results.forEach(r => {
-                        r.detections.forEach(d => {
-                            const entry = document.createElement('div');
-                            entry.className = 'mb-1 text-sm animate-slideIn border-b pb-1';
-                            const color = d.type.startsWith('NO-') ? 'text-red-600 font-bold' : 'text-blue-600';
-                            entry.innerHTML = `<span class="text-gray-400">[${r.timestamp}]</span> <span class="${color}">${d.type} (${Math.round(d.confidence*100)}%)</span>`;
-                            detectionLog.insertBefore(entry, detectionLog.firstChild);
+                    const lines = [];
+                    data.results.forEach((r) => {
+                        r.detections.forEach((d) => {
+                            const violation = d.type.startsWith('NO-');
+                            lines.push(`<div class="log-line">
+                                <span class="log-time">${r.timestamp}</span>
+                                <span class="log-type ${violation ? 'is-violation' : 'is-ok'}">${d.type}</span>
+                                <span class="log-conf">${Math.round(d.confidence * 100)}%</span>
+                            </div>`);
                         });
                     });
+                    detectionLog.innerHTML = lines.length
+                        ? lines.reverse().join('')
+                        : '<p class="text-sm" style="color:var(--faint)">No detections in the current window.</p>';
+                    el('feedCount').textContent = lines.length ? `${lines.length} events` : '';
                 }
-            } catch (e) {}
+            } catch (e) { /* transient poll failure */ }
         }
 
-        function startDemo() {
-            isRunning = true;
-            document.getElementById('apiStatusText').textContent = 'DEMO MODE (API unreachable)';
-            document.getElementById('apiStatusText').className = 'text-amber-500 font-bold';
-            document.getElementById('startButton').disabled = true;
-            document.getElementById('stopButton').disabled = false;
-            document.getElementById('cameraPlaceholder').classList.add('hidden');
-            const feed = document.getElementById('videoFeed');
-            feed.classList.remove('hidden');
-            feed.src = 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?auto=format&fit=crop&w=600&q=80';
-
-            const msg = document.getElementById('statusMessage');
-            msg.className = 'text-center py-4 px-6 rounded-lg bg-amber-50 text-amber-800 mb-6';
-            msg.textContent = 'Demo mode: showing simulated detections because the API is unreachable.';
-
-            demoInterval = setInterval(() => {
-                const type = Math.random() > 0.7 ? 'NO-Hardhat' : 'Hardhat';
-                const entry = document.createElement('div');
-                entry.className = 'mb-1 text-sm animate-slideIn';
-                entry.innerHTML = `<span class="text-gray-400">[DEMO]</span> <span class="${type.startsWith('NO-') ? 'text-red-600 font-bold' : 'text-green-600'}">${type}</span>`;
-                detectionLog.insertBefore(entry, detectionLog.firstChild);
-                if (type.startsWith('NO-')) speak('Violation in demo mode');
-            }, 3000);
-        }
-
-        document.getElementById('startButton').addEventListener('click', start);
-        document.getElementById('stopButton').addEventListener('click', stop);
-        document.getElementById('retryButton').addEventListener('click', start);
-        checkStatus();
+        el('startButton').addEventListener('click', start);
+        el('stopButton').addEventListener('click', stop);
+        el('retryButton').addEventListener('click', () => { stop().then(start); });
     </script>
 </body>
 </html>
