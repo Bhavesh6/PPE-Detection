@@ -176,11 +176,16 @@ def get_history():
     user_id = int(get_jwt_identity())
     page = max(int(request.args.get("page", 1)), 1)
     per_page = min(int(request.args.get("per_page", 50)), 200)
+    # Filtering has to happen here, not client-side on one already-paginated
+    # page — otherwise "Page 1 of N" is computed from the unfiltered total
+    # while the visible rows are a filtered subset of just page 1.
+    verdict = request.args.get("verdict")
 
-    query = (
-        DetectionRecord.query.filter_by(user_id=user_id)
-        .order_by(DetectionRecord.timestamp.desc())
-    )
+    query = DetectionRecord.query.filter_by(user_id=user_id)
+    if verdict in ("granted", "denied", "no_person"):
+        query = query.filter_by(verdict=verdict)
+    query = query.order_by(DetectionRecord.timestamp.desc())
+
     total = query.count()
     records = query.offset((page - 1) * per_page).limit(per_page).all()
 

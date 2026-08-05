@@ -9,8 +9,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260803a">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260804b">
 </head>
 <body>
     <div class="app">
@@ -124,10 +124,10 @@
         </main>
     </div>
 
-    <script src="js/config.js?v=20260803a"></script>
-    <script src="js/auth.js?v=20260803a"></script>
-    <script src="js/shell.js?v=20260803a"></script>
-    <script src="js/camera.js?v=20260803a"></script>
+    <script src="js/config.js?v=20260804b"></script>
+    <script src="js/auth.js?v=20260804b"></script>
+    <script src="js/shell.js?v=20260804b"></script>
+    <script src="js/camera.js?v=20260804b"></script>
     <script>
         Auth.requireAuth();
         Shell.render('gate', {
@@ -148,6 +148,16 @@
         if (!window.IS_SECURE_CONTEXT) {
             el('insecureOrigin').textContent = window.location.origin;
             el('insecureNotice').classList.remove('hidden');
+        }
+
+        // A guest clicking Start Checkpoint gets their OWN webcam, not
+        // footage from a real gate — say so before they hit the button,
+        // not after they've granted the browser camera permission confused
+        // about what they're looking at.
+        const guestUser = Auth.getUser();
+        if (guestUser && guestUser.is_guest) {
+            el('cameraPlaceholder').querySelector('p').textContent =
+                'This is a live demo - Start Checkpoint opens your own device\'s camera. Nothing leaves your browser except the frame sent to the detector.';
         }
 
         let isRunning = false;

@@ -9,8 +9,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260803a">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260804b">
     <style>
         .modal-backdrop {
             position: fixed; inset: 0; z-index: var(--z-modal);
@@ -42,29 +42,57 @@
         <main class="main">
             <div class="content">
 
-                <!-- Site-wide KPIs -->
+                <!-- Today / right now. Historical rates and trends live on
+                     Analytics — repeating them here just invites the two pages
+                     to disagree once records age past the Analytics window. -->
                 <div class="metrics mb-5">
                     <div class="metric" style="--m-accent: var(--ok)">
-                        <div class="metric-label"><i class="fas fa-chart-pie"></i>Compliance Rate</div>
-                        <div class="metric-value" id="kRate">—</div>
-                        <div class="metric-foot">Granted vs. all decisions</div>
+                        <div class="metric-label"><i class="fas fa-user-check"></i>On Site Now</div>
+                        <div class="metric-value" id="kPresent">0</div>
+                        <div class="metric-foot">Badged in and cleared today</div>
                     </div>
                     <div class="metric" style="--m-accent: var(--info)">
+                        <div class="metric-label"><i class="fas fa-shield-halved"></i>Decisions Today</div>
+                        <div class="metric-value" id="kToday">0</div>
+                        <div class="metric-foot">Rulings made since midnight</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--danger)">
+                        <div class="metric-label"><i class="fas fa-ban"></i>Turned Away Today</div>
+                        <div class="metric-value" id="kDeniedToday">0</div>
+                        <div class="metric-foot">Sent back to fix their gear</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--amber)">
                         <div class="metric-label"><i class="fas fa-users"></i>Personnel</div>
                         <div class="metric-value" id="kUsers">0</div>
                         <div class="metric-foot"><span id="kActive" class="tnum">0</span> checkpoint(s) live</div>
                     </div>
-                    <div class="metric" style="--m-accent: var(--danger)">
-                        <div class="metric-label"><i class="fas fa-ban"></i>Access Denied</div>
-                        <div class="metric-value" id="kDenied">0</div>
-                        <div class="metric-foot">Blocked at the gate</div>
-                    </div>
-                    <div class="metric" style="--m-accent: var(--amber)">
-                        <div class="metric-label"><i class="fas fa-shield-halved"></i>Gate Decisions</div>
-                        <div class="metric-value" id="kRecords">0</div>
-                        <div class="metric-foot">Entry rulings on record</div>
-                    </div>
                 </div>
+
+                <!-- Attendance -->
+                <section class="card mb-5">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-id-badge"></i>Today's Gate Activity</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs" style="color:var(--faint)" id="attendCount"></span>
+                            <button id="exportButton" class="btn btn-outline btn-sm"><i class="fas fa-file-csv"></i>Export CSV</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Worker</th>
+                                    <th>Result</th>
+                                    <th>Missing PPE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attendBody">
+                                <tr><td colspan="4" class="cell-empty">Loading gate activity…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
 
                 <!-- Personnel -->
                 <section class="card">
@@ -83,14 +111,12 @@
                                     <th>Role</th>
                                     <th>Checkpoint</th>
                                     <th>Last Verdict</th>
-                                    <th style="text-align:center">Granted</th>
-                                    <th style="text-align:center">Denied</th>
                                     <th>Joined</th>
                                     <th style="text-align:right">Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="usersTableBody">
-                                <tr><td colspan="8" class="cell-empty">Loading personnel…</td></tr>
+                                <tr><td colspan="6" class="cell-empty">Loading personnel…</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -98,7 +124,8 @@
 
                 <p class="text-xs mt-5" style="color:var(--faint)">
                     <i class="fas fa-circle-info mr-1"></i>
-                    Compliance figures are computed from the permanent verification record, so they survive restarts.
+                    This page covers today. For compliance rates, trends and per-worker history,
+                    see <a href="analytics.html" style="color:var(--accent);font-weight:600">Analytics</a>.
                 </p>
             </div>
         </main>
@@ -115,14 +142,14 @@
         </div>
     </div>
 
-    <script src="js/config.js?v=20260803a"></script>
-    <script src="js/auth.js?v=20260803a"></script>
-    <script src="js/shell.js?v=20260803a"></script>
+    <script src="js/config.js?v=20260804b"></script>
+    <script src="js/auth.js?v=20260804b"></script>
+    <script src="js/shell.js?v=20260804b"></script>
     <script>
         Auth.requireAdmin();
         Shell.render('admin', {
             title: 'Site Overview',
-            subtitle: 'Compliance, personnel and access decisions across the site',
+            subtitle: 'Who is on site today, and what the gate has decided since midnight',
         });
 
         const el = (id) => document.getElementById(id);
@@ -154,10 +181,8 @@
                 const d = await res.json();
                 el('kUsers').textContent = d.total_users;
                 el('kActive').textContent = d.active_sessions;
-                el('kDenied').textContent = d.denied ?? 0;
-                el('kRecords').textContent = d.total_records ?? 0;
-                el('kRate').textContent = d.compliance_rate === null || d.compliance_rate === undefined
-                    ? '—' : `${d.compliance_rate}%`;
+                el('kToday').textContent = d.today?.decisions ?? 0;
+                el('kDeniedToday').textContent = d.today?.denied ?? 0;
             } catch (e) { /* best-effort */ }
         }
 
@@ -165,12 +190,12 @@
             try {
                 const res = await Auth.fetch('/api/admin/users');
                 if (!res.ok) {
-                    tbody.innerHTML = '<tr><td colspan="8" class="cell-empty" style="color:var(--danger)">Could not load personnel.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="cell-empty" style="color:var(--danger)">Could not load personnel.</td></tr>';
                     return;
                 }
                 const data = await res.json();
                 if (!data.users.length) {
-                    tbody.innerHTML = '<tr><td colspan="8" class="cell-empty">No personnel registered yet.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" class="cell-empty">No personnel registered yet.</td></tr>';
                     return;
                 }
 
@@ -185,8 +210,6 @@
                             ? '<span class="live-pill is-live" style="padding:3px 9px;font-size:.65rem"><span class="live-dot"></span>Live</span>'
                             : '<span class="badge badge-muted">Idle</span>'}</td>
                         <td>${VERDICT_BADGE[u.verdict] || VERDICT_BADGE.no_person}</td>
-                        <td style="text-align:center;font-weight:700;color:var(--ok)" class="tnum">${u.gate?.granted ?? 0}</td>
-                        <td style="text-align:center;font-weight:700;color:${(u.gate?.denied ?? 0) ? 'var(--danger)' : 'var(--faint)'}" class="tnum">${u.gate?.denied ?? 0}</td>
                         <td style="color:var(--muted);white-space:nowrap">${new Date(u.created_at).toLocaleDateString()}</td>
                         <td style="text-align:right;white-space:nowrap">
                             <button class="btn btn-outline btn-sm" data-log="${u.id}" data-name="${escapeHtml(u.name)}">Record</button>
@@ -194,7 +217,7 @@
                         </td>
                     </tr>`).join('');
             } catch (e) {
-                tbody.innerHTML = '<tr><td colspan="8" class="cell-empty" style="color:var(--danger)">Could not load personnel.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" class="cell-empty" style="color:var(--danger)">Could not load personnel.</td></tr>';
             }
         }
 
@@ -251,8 +274,73 @@
         logModal.addEventListener('click', (e) => { if (e.target === logModal) closeModal(); });
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 
-        function refresh() { loadUsers(); loadStats(); }
+        async function loadAttendance() {
+            const body = el('attendBody');
+            try {
+                const res = await Auth.fetch('/api/gate/attendance/today');
+                if (!res.ok) {
+                    body.innerHTML = '<tr><td colspan="4" class="cell-empty" style="color:var(--danger)">Could not load gate activity.</td></tr>';
+                    return;
+                }
+                const data = await res.json();
+                el('kPresent').textContent = data.present_count ?? 0;
+                el('attendCount').textContent = data.records.length
+                    ? `${data.records.length} scan${data.records.length > 1 ? 's' : ''} today` : '';
+
+                if (!data.records.length) {
+                    body.innerHTML = '<tr><td colspan="4" class="cell-empty">No badge scans yet today.</td></tr>';
+                    return;
+                }
+                body.innerHTML = data.records.map((r) => `
+                    <tr>
+                        <td style="white-space:nowrap;color:var(--muted)">${new Date(r.timestamp).toLocaleTimeString()}</td>
+                        <td style="font-weight:600;color:var(--ink)">${escapeHtml(r.name || '—')}</td>
+                        <td>${r.granted
+                            ? '<span class="badge badge-ok"><i class="fas fa-check"></i>Entered</span>'
+                            : '<span class="badge badge-danger"><i class="fas fa-xmark"></i>Turned away</span>'}</td>
+                        <td>${r.missing_ppe.length
+                            ? r.missing_ppe.map((p) => `<span class="badge badge-danger" style="margin:1px 2px">${escapeHtml(p)}</span>`).join('')
+                            : '<span style="color:var(--faint)">—</span>'}</td>
+                    </tr>`).join('');
+            } catch (e) {
+                body.innerHTML = '<tr><td colspan="4" class="cell-empty" style="color:var(--danger)">Could not load gate activity.</td></tr>';
+            }
+        }
+
+        function refresh() { loadUsers(); loadStats(); loadAttendance(); }
         el('refreshButton').addEventListener('click', refresh);
+
+        // The endpoint needs the JWT, which only Auth.fetch attaches — a plain
+        // <a href> download link can't send an Authorization header, so the
+        // file is fetched as a blob and "clicked" via a throwaway object URL.
+        el('exportButton').addEventListener('click', async () => {
+            const btn = el('exportButton');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Exporting…';
+            try {
+                const res = await Auth.fetch('/api/admin/export/attendance.csv');
+                if (!res.ok) throw new Error('Export failed');
+                const blob = await res.blob();
+                const disposition = res.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="([^"]+)"/);
+                const filename = match ? match[1] : 'safetyfirst-gate-report.csv';
+
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                alert('Could not export the report. Is the API running?');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        });
 
         refresh();
         setInterval(refresh, 5000);

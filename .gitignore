@@ -26,3 +26,14 @@ desktop.ini
 output/
 runs/
 .vercel
+# Added by code-review-graph
+.code-review-graph/
+
+# AI coding-tool local config (installed per-machine, not project state)
+.claude/
+.codebuddy/
+.cursor/
+.gemini/
+.qoder/
+.mcp.json
+opencode.jsonc
