@@ -21,10 +21,12 @@ def create_app():
     from admin import admin_bp
     from auth import auth_bp
     from detection import detection_bp
+    from gate import gate_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(detection_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(gate_bp)
 
     with app.app_context():
         db.create_all()

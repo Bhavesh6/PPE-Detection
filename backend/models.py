@@ -18,6 +18,30 @@ class User(db.Model):
     is_guest = db.Column(db.Boolean, default=False, nullable=False)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
+    # Worker profile — shown on the gate display when a badge is scanned.
+    employee_id = db.Column(db.String(40), nullable=True)
+    rfid_tag = db.Column(db.String(64), unique=True, nullable=True, index=True)
+    age = db.Column(db.Integer, nullable=True)
+    role = db.Column(db.String(80), nullable=True)
+    photo_url = db.Column(db.String(500), nullable=True)
+
+    @property
+    def initials(self):
+        parts = (self.name or "?").split()
+        return "".join(p[0].upper() for p in parts[:2]) or "?"
+
+    def to_worker_dict(self):
+        """Profile for the gate display — no credentials, no admin flags."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "initials": self.initials,
+            "employee_id": self.employee_id,
+            "age": self.age,
+            "role": self.role,
+            "photo_url": self.photo_url,
+        }
+
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
@@ -33,6 +57,42 @@ class User(db.Model):
             "email": self.email,
             "is_admin": self.is_admin,
             "is_guest": self.is_guest,
+            "initials": self.initials,
+            "employee_id": self.employee_id,
+            "role": self.role,
+            "age": self.age,
+            "photo_url": self.photo_url,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class AttendanceRecord(db.Model):
+    """One row per badge scan at the gate.
+
+    Kept separate from DetectionRecord: that logs what the camera saw, this
+    logs that a named person presented themselves and whether they were let
+    in. Attendance is the record a supervisor is asked for; detections are
+    the evidence behind it.
+    """
+
+    __tablename__ = "attendance_records"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False, index=True)
+    granted = db.Column(db.Boolean, default=False, nullable=False)
+    missing_ppe = db.Column(db.String(255), default="", nullable=False)
+
+    user = db.relationship("User", backref="attendance")
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "name": self.user.name if self.user else None,
+            "timestamp": self.timestamp.isoformat(),
+            "granted": self.granted,
+            "missing_ppe": [p for p in self.missing_ppe.split(",") if p],
         }
 
 
