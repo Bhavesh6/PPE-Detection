@@ -610,3 +610,17 @@ table.data tbody tr:hover { background: #fafbfd; }
   }
   .btn:active:not(:disabled) { transform: none; }
 }
+
+
+/* -- SEGMENTED FILTER -------------------------------- */
+/* Used wherever a list needs narrowing by a small fixed set of options. */
+.kind-group { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+.kind-btn {
+  padding: 5px 12px; font-size: .72rem; font-weight: 600;
+  background: var(--surface); color: var(--muted);
+  border: none; cursor: pointer;
+  transition: background-color .15s var(--ease-out), color .15s var(--ease-out);
+}
+.kind-btn + .kind-btn { border-left: 1px solid var(--border); }
+.kind-btn:hover { background: var(--surface-alt); color: var(--ink); }
+.kind-btn.is-active { background: var(--accent); color: #fff; }

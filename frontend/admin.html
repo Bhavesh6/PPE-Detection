@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260804b">
+    <link rel="stylesheet" href="css/app.css?v=20260805j">
     <style>
         .modal-backdrop {
             position: fixed; inset: 0; z-index: var(--z-modal);
@@ -99,6 +99,12 @@
                     <div class="card-head">
                         <span class="card-title"><i class="fas fa-id-card-clip"></i>Personnel &amp; Checkpoint Status</span>
                         <div class="flex items-center gap-2">
+                            <div class="kind-group" id="roleFilter">
+                                <button class="kind-btn is-active" data-role="all">All</button>
+                                <button class="kind-btn" data-role="admin">Admin</button>
+                                <button class="kind-btn" data-role="operator">Operator</button>
+                                <button class="kind-btn" data-role="guest">Guest</button>
+                            </div>
                             <span class="live-pill is-live"><span class="live-dot"></span>Auto-refresh</span>
                             <button id="refreshButton" class="btn btn-outline btn-sm"><i class="fas fa-rotate"></i>Refresh</button>
                         </div>
@@ -111,7 +117,7 @@
                                     <th>Role</th>
                                     <th>Checkpoint</th>
                                     <th>Last Verdict</th>
-                                    <th>Joined</th>
+                                    <th>Last seen</th>
                                     <th style="text-align:right">Actions</th>
                                 </tr>
                             </thead>
@@ -142,9 +148,9 @@
         </div>
     </div>
 
-    <script src="js/config.js?v=20260804b"></script>
-    <script src="js/auth.js?v=20260804b"></script>
-    <script src="js/shell.js?v=20260804b"></script>
+    <script src="js/config.js?v=20260805j"></script>
+    <script src="js/auth.js?v=20260805j"></script>
+    <script src="js/shell.js?v=20260805j"></script>
     <script>
         Auth.requireAdmin();
         Shell.render('admin', {
@@ -166,6 +172,23 @@
             return String(s ?? '').replace(/[&<>"']/g, (c) => (
                 { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
             ));
+        }
+
+        let activeRole = 'all';
+
+        // Relative time reads faster than a timestamp when the question is
+        // "is this person around right now".
+        function lastSeen(iso) {
+            if (!iso) return '<span style="color:var(--faint)">Never</span>';
+            const then = new Date(iso);
+            const mins = Math.floor((Date.now() - then.getTime()) / 60000);
+            if (mins < 1) return 'Just now';
+            if (mins < 60) return `${mins}m ago`;
+            const hrs = Math.floor(mins / 60);
+            if (hrs < 24) return `${hrs}h ago`;
+            const days = Math.floor(hrs / 24);
+            if (days < 30) return `${days}d ago`;
+            return then.toLocaleDateString();
         }
 
         function roleBadge(u) {
@@ -199,7 +222,16 @@
                     return;
                 }
 
-                tbody.innerHTML = data.users.map((u) => `
+                const shown = activeRole === 'all'
+                    ? data.users
+                    : data.users.filter((u) => u.role === activeRole);
+
+                if (!shown.length) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="cell-empty">No ${activeRole} accounts.</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = shown.map((u) => `
                     <tr>
                         <td>
                             <div style="font-weight:600;color:var(--ink)">${escapeHtml(u.name)}</div>
@@ -210,7 +242,7 @@
                             ? '<span class="live-pill is-live" style="padding:3px 9px;font-size:.65rem"><span class="live-dot"></span>Live</span>'
                             : '<span class="badge badge-muted">Idle</span>'}</td>
                         <td>${VERDICT_BADGE[u.verdict] || VERDICT_BADGE.no_person}</td>
-                        <td style="color:var(--muted);white-space:nowrap">${new Date(u.created_at).toLocaleDateString()}</td>
+                        <td style="color:var(--muted);white-space:nowrap">${lastSeen(u.last_seen)}</td>
                         <td style="text-align:right;white-space:nowrap">
                             <button class="btn btn-outline btn-sm" data-log="${u.id}" data-name="${escapeHtml(u.name)}">Record</button>
                             <button class="btn btn-outline btn-sm" data-delete="${u.id}" style="color:var(--danger);border-color:#fecaca">Remove</button>
@@ -309,6 +341,15 @@
 
         function refresh() { loadUsers(); loadStats(); loadAttendance(); }
         el('refreshButton').addEventListener('click', refresh);
+
+        el('roleFilter').addEventListener('click', (e) => {
+            const btn = e.target.closest('.kind-btn');
+            if (!btn) return;
+            activeRole = btn.dataset.role;
+            el('roleFilter').querySelectorAll('.kind-btn')
+                .forEach((b) => b.classList.toggle('is-active', b === btn));
+            loadUsers();
+        });
 
         // The endpoint needs the JWT, which only Auth.fetch attaches — a plain
         // <a href> download link can't send an Authorization header, so the

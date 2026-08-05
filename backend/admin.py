@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 from collections import Counter
 from datetime import datetime, time, timedelta, timezone
 from functools import wraps
@@ -31,7 +32,7 @@ def admin_required(fn):
     return wrapper
 
 
-def _user_summary(user, states):
+def _user_summary(user, states, last_seen=None):
     state = states.get(str(user.id))
     return {
         "id": user.id,
@@ -39,7 +40,16 @@ def _user_summary(user, states):
         "email": user.email,
         "is_admin": user.is_admin,
         "is_guest": user.is_guest,
+        "employee_id": user.employee_id,
+        "role_title": user.role,
+        # admin / operator / guest — what the console filters by. Distinct
+        # from `role_title`, which is the job ("Site Engineer").
+        "role": "admin" if user.is_admin else ("guest" if user.is_guest else "operator"),
         "created_at": user.created_at.isoformat(),
+        # Derived from the decision record rather than stored on the user:
+        # a column would need writing on every frame, and this is read far
+        # less often than it would be written.
+        "last_seen": last_seen.isoformat() if last_seen else None,
         "active": state["active"] if state else False,
         "live": state["live"] if state else dict(EMPTY_COUNTS),
         "totals": state["totals"] if state else dict(EMPTY_COUNTS),
@@ -53,7 +63,23 @@ def _user_summary(user, states):
 def list_users():
     users = User.query.order_by(User.created_at.desc()).all()
     states = get_all_states()
-    return jsonify({"success": True, "users": [_user_summary(u, states) for u in users]})
+
+    # One grouped query rather than a per-user lookup — this list is polled
+    # every few seconds, and N+1 queries here would grow with the roster.
+    seen_rows = (
+        db.session.query(
+            DetectionRecord.user_id,
+            db.func.max(DetectionRecord.timestamp),
+        )
+        .group_by(DetectionRecord.user_id)
+        .all()
+    )
+    last_seen = dict(seen_rows)
+
+    return jsonify({
+        "success": True,
+        "users": [_user_summary(u, states, last_seen.get(u.id)) for u in users],
+    })
 
 
 @admin_bp.route("/users/<int:user_id>/results", methods=["GET"])
@@ -102,8 +128,13 @@ def list_violations():
     # existing. The filter is indexed and matches nothing on most calls.
     evidence.purge_expired(db.session, DetectionRecord)
 
+    # Refusals and operator snapshots both belong here: they're the records
+    # that carry an image and warrant review. `kind` narrows it.
+    kind = request.args.get("kind", "all")
+    verdicts = {"denied": ["denied"], "snapshot": ["snapshot"]}.get(kind, ["denied", "snapshot"])
+
     query = (
-        DetectionRecord.query.filter_by(verdict="denied")
+        DetectionRecord.query.filter(DetectionRecord.verdict.in_(verdicts))
         .order_by(DetectionRecord.timestamp.desc())
     )
     total = query.count()
@@ -309,33 +340,162 @@ def analytics():
     })
 
 
-@admin_bp.route("/export/attendance.csv", methods=["GET"])
-@admin_required
-def export_attendance_csv():
-    """The report a site supervisor actually asks for: who was at the gate,
-    when, and whether they were let in — one row per badge scan."""
-    records = AttendanceRecord.query.order_by(AttendanceRecord.timestamp.desc()).all()
+REPORTS = {
+    "gate-activity": {
+        "label": "Gate Activity",
+        "summary": "Every badge scan: who presented a card, when, and whether they got in.",
+    },
+    "refusals": {
+        "label": "Refusals",
+        "summary": "Only entries that were turned away, with what was missing and the policy in force.",
+    },
+    "worker-compliance": {
+        "label": "Worker Compliance",
+        "summary": "One row per worker: how often they cleared, how often they were refused, and what they miss most.",
+    },
+}
 
+
+def _report_window():
+    """Parse ?from=&to= into naive UTC bounds.
+
+    `to` is treated as inclusive of the whole day: a supervisor asking for
+    the 5th to the 5th means that day, not the instant it began.
+    """
+    def parse(value):
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except (TypeError, ValueError):
+            return None
+
+    start = parse(request.args.get("from"))
+    end = parse(request.args.get("to"))
+    if end:
+        end = end + timedelta(days=1)
+    return start, end
+
+
+def _csv_response(rows, header, name, start, end):
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["Name", "Email", "Employee ID", "Role", "Timestamp", "Result", "Missing PPE"])
-    for r in records:
-        user = r.user
-        writer.writerow([
-            user.name if user else "Unknown",
-            user.email if user else "",
-            (user.employee_id or "") if user else "",
-            (user.role or "") if user else "",
-            r.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
-            "Granted" if r.granted else "Denied",
-            ", ".join(p for p in r.missing_ppe.split(",") if p),
-        ])
+    writer.writerow(header)
+    writer.writerows(rows)
 
-    filename = f"safetyfirst-gate-report-{datetime.now(timezone.utc):%Y%m%d-%H%M}.csv"
+    span = ""
+    if start or end:
+        span = f"-{(start or datetime.min):%Y%m%d}-to-{((end - timedelta(days=1)) if end else datetime.now(timezone.utc)):%Y%m%d}"
+    filename = f"safetyfirst-{name}{span or f'-{datetime.now(timezone.utc):%Y%m%d-%H%M}'}.csv"
+
     return Response(
         buf.getvalue(),
         mimetype="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@admin_bp.route("/reports", methods=["GET"])
+@admin_required
+def list_reports():
+    return jsonify({
+        "success": True,
+        "reports": [{"id": k, **v} for k, v in REPORTS.items()],
+    })
+
+
+@admin_bp.route("/reports/<report_id>.csv", methods=["GET"])
+@admin_required
+def export_report(report_id):
+    if report_id not in REPORTS:
+        return jsonify({"success": False, "message": "Unknown report"}), 404
+
+    start, end = _report_window()
+
+    def windowed(query, column):
+        if start:
+            query = query.filter(column >= start)
+        if end:
+            query = query.filter(column < end)
+        return query
+
+    if report_id == "gate-activity":
+        records = windowed(
+            AttendanceRecord.query, AttendanceRecord.timestamp
+        ).order_by(AttendanceRecord.timestamp.desc()).all()
+        rows = [[
+            r.user.name if r.user else "Unknown",
+            r.user.email if r.user else "",
+            (r.user.employee_id or "") if r.user else "",
+            (r.user.role or "") if r.user else "",
+            r.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+            "Granted" if r.granted else "Denied",
+            ", ".join(p for p in r.missing_ppe.split(",") if p),
+        ] for r in records]
+        return _csv_response(
+            rows,
+            ["Name", "Email", "Employee ID", "Role", "Timestamp", "Result", "Missing PPE"],
+            "gate-activity", start, end,
+        )
+
+    # Both remaining reports read the durable decision record.
+    records = windowed(
+        DetectionRecord.query, DetectionRecord.timestamp
+    ).order_by(DetectionRecord.timestamp.desc()).all()
+    users = {u.id: u for u in User.query.all()}
+
+    if report_id == "refusals":
+        rows = []
+        for r in records:
+            if r.verdict != "denied":
+                continue
+            user = users.get(r.user_id)
+            policy = json.loads(r.policy_json) if r.policy_json else {}
+            rows.append([
+                user.name if user else "Unknown",
+                (user.employee_id or "") if user else "",
+                r.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                ", ".join(r.missing_ppe.split(",")) if r.missing_ppe else "",
+                ", ".join(policy.get("required_ppe", [])) or "not recorded",
+                policy.get("confidence_threshold", ""),
+                "yes" if r.evidence_file else "no",
+            ])
+        return _csv_response(
+            rows,
+            ["Name", "Employee ID", "Timestamp", "Missing PPE",
+             "Policy Required", "Confidence Threshold", "Evidence Stored"],
+            "refusals", start, end,
+        )
+
+    # worker-compliance
+    tally = {}
+    for r in records:
+        if r.verdict not in ("granted", "denied"):
+            continue
+        t = tally.setdefault(r.user_id, {"granted": 0, "denied": 0, "missing": Counter()})
+        t[r.verdict] += 1
+        for item in r.missing_ppe.split(","):
+            if item:
+                t["missing"][item] += 1
+
+    rows = []
+    for user_id, t in tally.items():
+        user = users.get(user_id)
+        decided = t["granted"] + t["denied"]
+        worst = t["missing"].most_common(1)
+        rows.append([
+            user.name if user else "Unknown",
+            (user.employee_id or "") if user else "",
+            (user.role or "") if user else "",
+            t["granted"],
+            t["denied"],
+            f"{round((t['granted'] / decided) * 100)}%" if decided else "",
+            worst[0][0] if worst else "",
+        ])
+    rows.sort(key=lambda r: r[0].lower())
+    return _csv_response(
+        rows,
+        ["Name", "Employee ID", "Role", "Cleared", "Turned Away",
+         "Compliance Rate", "Most Often Missing"],
+        "worker-compliance", start, end,
     )
 
 

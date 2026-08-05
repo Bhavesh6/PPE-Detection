@@ -29,6 +29,10 @@ MAX_RESULTS_PER_USER = 50
 VERDICT_GRANTED = "granted"
 VERDICT_DENIED = "denied"
 VERDICT_NO_PERSON = "no_person"
+# An operator-captured frame, not a gate ruling. Kept out of granted/denied
+# so it never moves a compliance rate — a snapshot is an observation, and
+# counting it as a decision would let anyone inflate the numbers.
+VERDICT_SNAPSHOT = "snapshot"
 
 
 def evaluate_access(detections):
@@ -112,6 +116,11 @@ def _new_state():
         "verdict": VERDICT_NO_PERSON,
         "missing_ppe": [],
         "gate": {"granted": 0, "denied": 0},
+        # Most recent frame and its detections, held so a snapshot can be
+        # taken without waiting for the next one. One decoded frame per
+        # active session (~1MB); released on stop().
+        "last_frame": None,
+        "last_detections": [],
     }
 
 
@@ -183,6 +192,10 @@ def stop_detection():
     state["active"] = False
     state["verdict"] = VERDICT_NO_PERSON
     state["missing_ppe"] = []
+    # Don't hold a decoded frame — and someone's image — after the
+    # checkpoint stops.
+    state["last_frame"] = None
+    state["last_detections"] = []
     return jsonify({"success": True, "message": "Detection stopped"})
 
 
@@ -239,6 +252,51 @@ def get_history():
     })
 
 
+@detection_bp.route("/snapshot", methods=["POST"])
+@jwt_required()
+def snapshot():
+    """Capture the current frame on demand.
+
+    The gate photographs refusals by itself, but an operator sometimes needs
+    a record of something the policy doesn't cover — an unsafe act, damaged
+    gear, someone who talked their way through. Stored as a record with its
+    own verdict so it lands in the same reviewable log rather than a
+    separate pile of loose images.
+    """
+    user_id = get_jwt_identity()
+    state = _state_for(user_id)
+
+    frame = state.get("last_frame")
+    if frame is None:
+        return jsonify({"success": False, "message": "No frame available — is the checkpoint running?"}), 400
+
+    detections = state.get("last_detections", [])
+    required = site_settings.get("required_ppe")
+
+    record = DetectionRecord(
+        user_id=int(user_id),
+        detections_json=json.dumps(detections),
+        violation_count=sum(
+            1 for d in detections if d.get("detected") and d.get("type", "").startswith("NO-")
+        ),
+        verdict=VERDICT_SNAPSHOT,
+        missing_ppe="",
+        policy_json=json.dumps({
+            "required_ppe": list(required),
+            "confidence_threshold": site_settings.get("confidence_threshold"),
+        }),
+    )
+    db.session.add(record)
+    db.session.commit()
+
+    stored = evidence.save(_annotate(frame, detections, required), record.id)
+    if stored:
+        record.evidence_file = stored
+        db.session.commit()
+
+    return jsonify({"success": True, "record_id": record.id, "stored": bool(stored)})
+
+
 @detection_bp.route("/socket", methods=["POST"])
 @jwt_required()
 def process_socket_frame():
@@ -274,6 +332,9 @@ def process_socket_frame():
 
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         _update_counts(state, detections)
+
+        state["last_frame"] = frame
+        state["last_detections"] = detections
 
         required = site_settings.get("required_ppe")
         verdict, missing = evaluate_access(detections)

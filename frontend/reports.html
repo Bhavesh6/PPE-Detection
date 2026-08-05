@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reports — SafetyFirst Admin</title>
+    <meta name="description" content="Export gate activity, refusals and worker compliance for any date range.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260805j">
+    <style>
+        .report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+        .report-card {
+            text-align: left; cursor: pointer;
+            padding: 18px 20px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--surface);
+            transition: border-color .15s var(--ease-out), background-color .15s var(--ease-out),
+                        box-shadow .15s var(--ease-out);
+        }
+        .report-card:hover { box-shadow: var(--shadow); }
+        .report-card.is-on { border-color: #e0c3b6; background: var(--accent-soft); }
+        .report-icon {
+            width: 34px; height: 34px; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+            background: var(--surface-alt); color: var(--accent); margin-bottom: 12px;
+        }
+        .report-card.is-on .report-icon { background: var(--accent); color: #fff; }
+        .report-name { display: block; font-family: var(--font-head); font-weight: 700; font-size: 1rem; }
+        .report-desc { display: block; font-size: .78rem; color: var(--muted); margin-top: 5px; line-height: 1.5; }
+
+        .range-row { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; }
+        .range-field { display: flex; flex-direction: column; gap: 5px; }
+        .range-field label { font-size: .72rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+        .range-field input { width: 170px; }
+        .quick { display: flex; gap: 6px; flex-wrap: wrap; }
+        .quick button {
+            padding: 6px 12px; font-size: .76rem; font-weight: 600;
+            border: 1px solid var(--border); border-radius: 999px;
+            background: var(--surface); color: var(--muted); cursor: pointer;
+            transition: background-color .15s var(--ease-out), color .15s var(--ease-out);
+        }
+        .quick button:hover { background: var(--surface-alt); color: var(--ink); }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <section class="card mb-5">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-file-lines"></i>Choose a report</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="report-grid" id="reportGrid"></div>
+                    </div>
+                </section>
+
+                <section class="card mb-5">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-calendar-days"></i>Period</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="range-row">
+                            <div class="range-field">
+                                <label for="fromDate">From</label>
+                                <input type="date" id="fromDate" class="field">
+                            </div>
+                            <div class="range-field">
+                                <label for="toDate">To</label>
+                                <input type="date" id="toDate" class="field">
+                            </div>
+                            <div class="quick" id="quickRange">
+                                <button data-days="0">Today</button>
+                                <button data-days="7">Last 7 days</button>
+                                <button data-days="30">Last 30 days</button>
+                                <button data-days="-1">All time</button>
+                            </div>
+                        </div>
+                        <p class="text-xs" style="color:var(--faint);margin-top:12px">
+                            <i class="fas fa-circle-info mr-1"></i>
+                            Both dates are included. Leave them empty for everything on record.
+                        </p>
+                    </div>
+                </section>
+
+                <div class="save-bar" style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);box-shadow:var(--shadow)">
+                    <span class="text-sm" id="summary" style="color:var(--muted)">Select a report above.</span>
+                    <button id="downloadBtn" class="btn btn-primary btn-sm" disabled>
+                        <i class="fas fa-download"></i>Download CSV
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260805j"></script>
+    <script src="js/auth.js?v=20260805j"></script>
+    <script src="js/shell.js?v=20260805j"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('reports', {
+            title: 'Reports',
+            subtitle: 'Pull the record for a period, in a form a supervisor can file',
+        });
+
+        const el = (id) => document.getElementById(id);
+        const ICONS = {
+            'gate-activity': 'fa-id-badge',
+            'refusals': 'fa-ban',
+            'worker-compliance': 'fa-user-check',
+        };
+
+        let reports = [];
+        let selected = null;
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        function renderReports() {
+            el('reportGrid').innerHTML = reports.map((r) => `
+                <button type="button" class="report-card ${r.id === selected ? 'is-on' : ''}" data-id="${r.id}">
+                    <span class="report-icon"><i class="fas ${ICONS[r.id] || 'fa-file'}"></i></span>
+                    <span class="report-name">${escapeHtml(r.label)}</span>
+                    <span class="report-desc">${escapeHtml(r.summary)}</span>
+                </button>`).join('');
+        }
+
+        function refreshSummary() {
+            const btn = el('downloadBtn');
+            if (!selected) {
+                el('summary').textContent = 'Select a report above.';
+                btn.disabled = true;
+                return;
+            }
+            const r = reports.find((x) => x.id === selected);
+            const from = el('fromDate').value;
+            const to = el('toDate').value;
+            let period = 'all time';
+            if (from && to) period = `${from} to ${to}`;
+            else if (from) period = `${from} onwards`;
+            else if (to) period = `up to ${to}`;
+            el('summary').innerHTML = `<strong>${escapeHtml(r.label)}</strong> · ${escapeHtml(period)}`;
+            btn.disabled = false;
+        }
+
+        el('reportGrid').addEventListener('click', (e) => {
+            const card = e.target.closest('.report-card');
+            if (!card) return;
+            selected = card.dataset.id;
+            renderReports();
+            refreshSummary();
+        });
+
+        el('quickRange').addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn) return;
+            const days = Number(btn.dataset.days);
+            if (days < 0) {
+                el('fromDate').value = '';
+                el('toDate').value = '';
+            } else {
+                const iso = (d) => d.toISOString().slice(0, 10);
+                const today = new Date();
+                const start = new Date(today);
+                start.setDate(start.getDate() - days);
+                el('fromDate').value = iso(start);
+                el('toDate').value = iso(today);
+            }
+            refreshSummary();
+        });
+
+        ['fromDate', 'toDate'].forEach((id) => el(id).addEventListener('change', refreshSummary));
+
+        el('downloadBtn').addEventListener('click', async () => {
+            const btn = el('downloadBtn');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Building…';
+
+            const params = new URLSearchParams();
+            if (el('fromDate').value) params.set('from', el('fromDate').value);
+            if (el('toDate').value) params.set('to', el('toDate').value);
+            const qs = params.toString() ? `?${params}` : '';
+
+            try {
+                // Same blob dance as elsewhere: the endpoint is behind the
+                // admin JWT, which a plain download link cannot send.
+                const res = await Auth.fetch(`/api/admin/reports/${selected}.csv${qs}`);
+                if (!res.ok) throw new Error('Export failed');
+                const blob = await res.blob();
+                const match = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = match ? match[1] : `${selected}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                el('summary').innerHTML = '<span style="color:var(--danger);font-weight:600">Could not build the report.</span>';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        });
+
+        (async function load() {
+            try {
+                const res = await Auth.fetch('/api/admin/reports');
+                if (!res.ok) throw new Error('Request failed');
+                reports = (await res.json()).reports;
+                renderReports();
+            } catch (e) {
+                el('reportGrid').innerHTML = '<p class="text-sm" style="color:var(--danger)">Could not load report types.</p>';
+            }
+        })();
+    </script>
+</body>
+</html>

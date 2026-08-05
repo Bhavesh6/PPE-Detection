@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260804b">
+    <link rel="stylesheet" href="css/app.css?v=20260805j">
 </head>
 <body>
     <div class="app">
@@ -118,10 +118,10 @@
         </main>
     </div>
 
-    <script src="js/config.js?v=20260804b"></script>
-    <script src="js/auth.js?v=20260804b"></script>
-    <script src="js/shell.js?v=20260804b"></script>
-    <script src="js/camera.js?v=20260804b"></script>
+    <script src="js/config.js?v=20260805j"></script>
+    <script src="js/auth.js?v=20260805j"></script>
+    <script src="js/shell.js?v=20260805j"></script>
+    <script src="js/camera.js?v=20260805j"></script>
     <script>
         Auth.requireAuth();
         Shell.render('gate', {
@@ -133,6 +133,7 @@
         document.getElementById('topbarSlot').innerHTML = `
             <span class="live-pill is-off" id="livePill"><span class="live-dot"></span><span id="liveText">Offline</span></span>
             <button id="startButton" class="btn btn-ok btn-sm"><i class="fas fa-play"></i>Start Checkpoint</button>
+            <button id="snapButton" class="btn btn-outline btn-sm" disabled title="Store the current frame"><i class="fas fa-camera"></i>Snapshot</button>
             <button id="stopButton" class="btn btn-danger btn-sm" disabled><i class="fas fa-stop"></i>Stop</button>`;
 
         const el = (id) => document.getElementById(id);
@@ -304,6 +305,7 @@
                 isRunning = true;
                 el('startButton').disabled = true;
                 el('stopButton').disabled = false;
+                el('snapButton').disabled = false;
                 el('cameraPlaceholder').classList.add('hidden');
                 el('streamError').classList.add('hidden');
                 el('videoFeed').classList.remove('hidden');
@@ -340,6 +342,7 @@
 
             el('startButton').disabled = false;
             el('stopButton').disabled = true;
+            el('snapButton').disabled = true;
             el('videoFeed').classList.add('hidden');
             el('overlayCanvas').classList.add('hidden');
             el('cameraPlaceholder').classList.remove('hidden');
@@ -405,6 +408,30 @@
         el('startButton').addEventListener('click', start);
         el('stopButton').addEventListener('click', stop);
         el('retryButton').addEventListener('click', () => { stop().then(start); });
+
+        el('snapButton').addEventListener('click', async () => {
+            const btn = el('snapButton');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Saving…';
+            try {
+                const res = await Auth.fetch('/api/snapshot', { method: 'POST' });
+                const d = await res.json();
+                if (res.ok && d.success) {
+                    btn.innerHTML = '<i class="fas fa-check"></i>Saved';
+                } else {
+                    btn.innerHTML = '<i class="fas fa-xmark"></i>Failed';
+                }
+            } catch (e) {
+                btn.innerHTML = '<i class="fas fa-xmark"></i>Failed';
+            }
+            // Brief confirmation, then back to normal — a toast system would
+            // be more than this one button warrants.
+            setTimeout(() => {
+                btn.innerHTML = original;
+                btn.disabled = !isRunning;
+            }, 1600);
+        });
 
         // Show what this gate requires before anyone presses Start.
         loadRequirements();

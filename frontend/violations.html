@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Refusals — SafetyFirst Admin</title>
-    <meta name="description" content="Every refusal at the gate, with the frame that caused it.">
+    <title>Captures — SafetyFirst Admin</title>
+    <meta name="description" content="Refusals and operator snapshots, each with the frame behind it.">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260805h">
+    <link rel="stylesheet" href="css/app.css?v=20260805j">
     <style>
         .vio-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
         @media (max-width: 1100px) { .vio-layout { grid-template-columns: 1fr; } }
@@ -60,8 +60,15 @@
                     <!-- The log -->
                     <section class="card">
                         <div class="card-head">
-                            <span class="card-title"><i class="fas fa-ban"></i>Refusals</span>
-                            <span class="text-xs" style="color:var(--faint)" id="vioCount"></span>
+                            <span class="card-title"><i class="fas fa-images"></i>Captures</span>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs" style="color:var(--faint)" id="vioCount"></span>
+                                <div class="kind-group" id="kindGroup">
+                                    <button class="kind-btn is-active" data-kind="all">All</button>
+                                    <button class="kind-btn" data-kind="denied">Refusals</button>
+                                    <button class="kind-btn" data-kind="snapshot">Snapshots</button>
+                                </div>
+                            </div>
                         </div>
                         <div id="vioList">
                             <div class="empty-detail">Loading refusals…</div>
@@ -84,7 +91,7 @@
                         <div class="card-body" id="detailBody">
                             <div class="empty-detail">
                                 <i class="fas fa-hand-pointer" style="font-size:1.4rem"></i>
-                                <span>Select a refusal to see the frame that caused it.</span>
+                                <span>Select a capture to see its frame.</span>
                             </div>
                         </div>
                     </section>
@@ -92,26 +99,27 @@
 
                 <p class="text-xs mt-5" style="color:var(--faint)">
                     <i class="fas fa-circle-info mr-1"></i>
-                    Only refusals are photographed, and images are deleted after 30 days —
+                    Refusals are photographed automatically, snapshots on request. Images are deleted after 30 days —
                     the decision is kept permanently, the picture is not.
                 </p>
             </div>
         </main>
     </div>
 
-    <script src="js/config.js?v=20260805h"></script>
-    <script src="js/auth.js?v=20260805h"></script>
-    <script src="js/shell.js?v=20260805h"></script>
+    <script src="js/config.js?v=20260805j"></script>
+    <script src="js/auth.js?v=20260805j"></script>
+    <script src="js/shell.js?v=20260805j"></script>
     <script>
         Auth.requireAdmin();
         Shell.render('violations', {
-            title: 'Refusals',
-            subtitle: 'Every entry turned away, and the frame behind the decision',
+            title: 'Captures',
+            subtitle: 'Refusals and snapshots, each with the frame behind it',
         });
 
         const el = (id) => document.getElementById(id);
         let page = 1;
         const perPage = 20;
+        let kind = 'all';
         let rows = [];
         let selectedId = null;
         // Object URLs must be revoked or each viewed image leaks its blob
@@ -132,7 +140,7 @@
         function renderList() {
             const host = el('vioList');
             if (!rows.length) {
-                host.innerHTML = '<div class="empty-detail">No refusals recorded. Nobody has been turned away.</div>';
+                host.innerHTML = '<div class="empty-detail">Nothing captured yet. Refusals are stored automatically; snapshots when an operator takes one.</div>';
                 return;
             }
             host.innerHTML = rows.map((v) => {
@@ -145,10 +153,12 @@
                             <span class="vio-sub">${escapeHtml([v.worker.employee_id, v.worker.role].filter(Boolean).join(' · ') || '—')}</span>
                         </span>
                         <span style="text-align:right">
-                            ${badges(v.missing_ppe, 'badge-danger')}
+                            ${v.verdict === 'snapshot'
+                                ? '<span class="badge badge-info"><i class="fas fa-camera"></i>Snapshot</span>'
+                                : badges(v.missing_ppe, 'badge-danger')}
                             ${v.has_evidence
-                                ? '<i class="fas fa-camera" title="Frame stored" style="color:var(--muted);margin-left:6px"></i>'
-                                : '<i class="fas fa-camera-slash" title="No frame stored" style="color:var(--faint);margin-left:6px"></i>'}
+                                ? '<i class="fas fa-image" title="Frame stored" style="color:var(--muted);margin-left:6px"></i>'
+                                : '<i class="fas fa-ban" title="No frame stored" style="color:var(--faint);margin-left:6px"></i>'}
                         </span>
                     </div>`;
             }).join('');
@@ -167,9 +177,13 @@
                     <span class="evidence-msg">Loading frame…</span>
                 </div>
                 <dl style="margin-top:16px">
-                    <div class="fact"><dt>Worker</dt><dd>${escapeHtml(v.worker.name)}</dd></div>
+                    <div class="fact"><dt>Type</dt><dd>${v.verdict === 'snapshot'
+                        ? '<span class="badge badge-info"><i class="fas fa-camera"></i>Operator snapshot</span>'
+                        : '<span class="badge badge-danger"><i class="fas fa-ban"></i>Refused entry</span>'}</dd></div>
+                    <div class="fact"><dt>${v.verdict === 'snapshot' ? 'Captured by' : 'Worker'}</dt><dd>${escapeHtml(v.worker.name)}</dd></div>
                     <div class="fact"><dt>When</dt><dd>${new Date(v.timestamp).toLocaleString()}</dd></div>
-                    <div class="fact"><dt>Missing</dt><dd>${badges(v.missing_ppe, 'badge-danger')}</dd></div>
+                    ${v.verdict === 'snapshot' ? '' : `
+                    <div class="fact"><dt>Missing</dt><dd>${badges(v.missing_ppe, 'badge-danger')}</dd></div>`}
                     <div class="fact"><dt>Everything seen</dt><dd style="max-width:60%">${badges(detected, 'badge-muted')}</dd></div>
                     <div class="fact">
                         <dt>Policy in force</dt>
@@ -210,7 +224,7 @@
 
         async function load() {
             try {
-                const res = await Auth.fetch(`/api/admin/violations?page=${page}&per_page=${perPage}`);
+                const res = await Auth.fetch(`/api/admin/violations?page=${page}&per_page=${perPage}&kind=${kind}`);
                 if (!res.ok) throw new Error('Request failed');
                 const d = await res.json();
                 rows = d.violations;
@@ -225,6 +239,18 @@
                 el('vioList').innerHTML = '<div class="empty-detail" style="color:var(--danger)">Could not load refusals.</div>';
             }
         }
+
+        el('kindGroup').addEventListener('click', (e) => {
+            const btn = e.target.closest('.kind-btn');
+            if (!btn) return;
+            kind = btn.dataset.kind;
+            // Back to page 1 — page 4 of refusals may not exist once the
+            // list narrows to snapshots.
+            page = 1;
+            el('kindGroup').querySelectorAll('.kind-btn')
+                .forEach((b) => b.classList.toggle('is-active', b === btn));
+            load();
+        });
 
         el('prevBtn').addEventListener('click', () => { if (page > 1) { page--; load(); } });
         el('nextBtn').addEventListener('click', () => { page++; load(); });
