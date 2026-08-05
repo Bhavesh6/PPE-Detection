@@ -240,6 +240,7 @@
             if (JSON.stringify(list) === JSON.stringify(requiredPpe)) return;
             requiredPpe = list;
             renderChecks();
+            if (cam) cam.requiredPpe = requiredPpe;
         }
 
         function setCheck(item, state) {
@@ -334,6 +335,9 @@
             try { await Auth.fetch('/api/start', { method: 'POST' }); } catch (e) { /* ignore */ }
 
             cam = new CameraFeed(el('videoFeed'), el('captureCanvas'), null);
+            // Only box up equipment this site requires — a red "NO-Mask" over
+            // someone's face where masks aren't required reads as a refusal.
+            cam.requiredPpe = requiredPpe;
             const ok = await cam.start();
             if (!ok) {
                 el('kStartMsg').textContent = 'Camera unavailable. Check it is connected and permission was granted.';

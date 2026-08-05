@@ -213,6 +213,16 @@
             if (JSON.stringify(list) === JSON.stringify(requiredPpe)) return;
             requiredPpe = list;
             renderCheckList();
+            // The overlay filters by the same policy.
+            if (cameraFeedInstance) cameraFeedInstance.requiredPpe = requiredPpe;
+        }
+
+        // Mirrors CameraFeed.isRelevant so the log and the overlay agree.
+        function isRelevantDetection(type) {
+            if (type === 'Person') return true;
+            if (!requiredPpe.length) return true;
+            const item = type.startsWith('NO-') ? type.slice(3) : type;
+            return requiredPpe.includes(item);
         }
 
         async function loadRequirements() {
@@ -305,6 +315,9 @@
                 if (!cameraFeedInstance) {
                     cameraFeedInstance = new CameraFeed(el('videoFeed'), el('captureCanvas'), null);
                 }
+                // Seed the policy the camera filters by — syncRequirements may
+                // have run before this instance existed.
+                cameraFeedInstance.requiredPpe = requiredPpe;
                 const ok = await cameraFeedInstance.start();
                 if (!ok) {
                     el('streamError').classList.remove('hidden');
@@ -369,6 +382,10 @@
                     const lines = [];
                     data.results.forEach((r) => {
                         r.detections.forEach((d) => {
+                            // Same filter as the overlay: don't log equipment
+                            // this site doesn't require, or the feed reads as
+                            // a list of violations that aren't violations here.
+                            if (!isRelevantDetection(d.type)) return;
                             const violation = d.type.startsWith('NO-');
                             lines.push(`<div class="log-line">
                                 <span class="log-time">${r.timestamp}</span>

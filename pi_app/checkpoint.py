@@ -543,6 +543,21 @@ class CheckpointApp:
             else:
                 row.set_state("bad" if item in snap["missing"] else "ok")
 
+    def _is_relevant(self, label: str) -> bool:
+        """Whether this site's policy cares about a detected class.
+
+        The model reports everything it knows. Boxing a red "NO-Mask" over
+        someone's face where masks aren't required tells them they've failed
+        a check that doesn't exist here.
+        """
+        if label == "Person":
+            return True
+        required = self.state.required
+        if not required:
+            return True
+        item = label[3:] if label.startswith("NO-") else label
+        return item in required
+
     def _draw_boxes(self, frame, detections):
         for det in detections:
             box = det.get("box")
@@ -550,6 +565,8 @@ class CheckpointApp:
                 continue
             x1, y1, x2, y2 = box
             label = det.get("type", "")
+            if not self._is_relevant(label):
+                continue
             colour = (BOX_VIOLATION if label.startswith("NO-")
                       else BOX_PERSON if label == "Person" else BOX_OK)
             cv2.rectangle(frame, (x1, y1), (x2, y2), colour, 2)

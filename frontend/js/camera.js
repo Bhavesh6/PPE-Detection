@@ -9,6 +9,9 @@ class CameraFeed {
         this.ctx = this.canvas.getContext('2d');
         this.apiBaseUrl = window.API_BASE_URL;
         this.processingFrame = false;
+        // Set by the page from the site policy; empty means "not known yet",
+        // in which case nothing is filtered out.
+        this.requiredPpe = [];
         this.frameInterval = 500; // Send a frame every 500ms
         this.intervalId = null;
         this.overlayCanvas = document.getElementById('overlayCanvas');
@@ -121,6 +124,20 @@ class CameraFeed {
             });
     }
 
+    /* Detections the current site policy actually cares about.
+
+       The model reports every class it knows, but drawing all of them means
+       a site that doesn't require masks still paints a red "NO-Mask" alarm
+       over someone's face — accusing them of breaking a rule that doesn't
+       exist here. People are shown always; equipment only when required. */
+    isRelevant(type) {
+        if (type === 'Person') return true;
+        const required = this.requiredPpe;
+        if (!required || !required.length) return true;   // policy unknown yet
+        const item = type.startsWith('NO-') ? type.slice(3) : type;
+        return required.includes(item);
+    }
+
     drawBoundingBoxes(detections) {
         if (!this.overlayCtx || !this.overlayCanvas) return;
 
@@ -129,6 +146,7 @@ class CameraFeed {
 
         detections.forEach(det => {
             if (!det.box) return;
+            if (!this.isRelevant(det.type)) return;
 
             const [x1, y1, x2, y2] = det.box;
             const width = x2 - x1;
