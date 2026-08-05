@@ -8,6 +8,7 @@ import numpy as np
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+import evidence
 import site_settings
 from extensions import db
 from models import DetectionRecord
@@ -51,6 +52,46 @@ def evaluate_access(detections):
     ]
     verdict = VERDICT_DENIED if missing else VERDICT_GRANTED
     return verdict, missing
+
+
+def _annotate(frame, detections, required):
+    """Burn the boxes into the stored frame.
+
+    A bare photograph shows a person; a photograph with the model's own
+    boxes on it shows the reasoning. Drawn here rather than relying on the
+    browser overlay so the evidence stands on its own — it has to make
+    sense to someone opening the file months later with no app around it.
+
+    Only policy-relevant classes are drawn, matching what the operator saw
+    live: boxing gear the site never required would misrepresent the
+    grounds for refusal.
+    """
+    if frame is None:
+        return None
+
+    canvas = frame.copy()
+    for det in detections:
+        box = det.get("box")
+        label = det.get("type", "")
+        if not box:
+            continue
+        item = label[3:] if label.startswith("NO-") else label
+        if label != "Person" and required and item not in required:
+            continue
+
+        x1, y1, x2, y2 = box
+        colour = (0, 0, 220) if label.startswith("NO-") else (
+            (40, 200, 40) if label != "Person" else (200, 160, 40)
+        )
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), colour, 2)
+        cv2.putText(canvas, f"{label} {det.get('confidence', 0):.0%}",
+                    (x1, max(y1 - 8, 14)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    colour, 2, cv2.LINE_AA)
+
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    cv2.putText(canvas, stamp, (10, canvas.shape[0] - 12),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2, cv2.LINE_AA)
+    return canvas
 
 
 def _get_model():
@@ -234,6 +275,7 @@ def process_socket_frame():
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         _update_counts(state, detections)
 
+        required = site_settings.get("required_ppe")
         verdict, missing = evaluate_access(detections)
         previous_verdict = state["verdict"]
         state["verdict"] = verdict
@@ -267,9 +309,23 @@ def process_socket_frame():
                 violation_count=violation_count,
                 verdict=verdict,
                 missing_ppe=",".join(missing),
+                policy_json=json.dumps({
+                    "required_ppe": list(required),
+                    "confidence_threshold": site_settings.get("confidence_threshold"),
+                }),
             )
             db.session.add(record)
             db.session.commit()
+
+            # Keep the frame behind a refusal so the log can be reviewed —
+            # and contested. Grants aren't photographed. Written after the
+            # commit so the record id can name the file, and never allowed
+            # to fail the decision.
+            if verdict == VERDICT_DENIED:
+                stored = evidence.save(_annotate(frame, detections, required), record.id)
+                if stored:
+                    record.evidence_file = stored
+                    db.session.commit()
 
         return jsonify({
             "success": True,
@@ -280,7 +336,7 @@ def process_socket_frame():
             "missing_ppe": missing,
             # The gate device renders its requirement list from this, so a
             # policy change reaches the panel without restarting it.
-            "required_ppe": list(site_settings.get("required_ppe")),
+            "required_ppe": list(required),
         })
 
     except Exception as exc:  # noqa: BLE001 - surfaced to the caller as JSON

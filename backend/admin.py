@@ -4,9 +4,10 @@ from collections import Counter
 from datetime import datetime, time, timedelta, timezone
 from functools import wraps
 
-from flask import Blueprint, Response, jsonify, request
+from flask import Blueprint, Response, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+import evidence
 import site_settings
 from detection import get_all_states, remove_state
 from extensions import db
@@ -87,6 +88,72 @@ def delete_user(user_id):
     db.session.commit()
     remove_state(str(user_id))
     return jsonify({"success": True, "message": "User deleted"})
+
+
+@admin_bp.route("/violations", methods=["GET"])
+@admin_required
+def list_violations():
+    """Refusals, newest first, with the worker attached."""
+    page = max(int(request.args.get("page", 1)), 1)
+    per_page = min(int(request.args.get("per_page", 20)), 100)
+
+    # Expire old images here rather than on a scheduler — this app has no
+    # background worker, and the retention promise shouldn't depend on one
+    # existing. The filter is indexed and matches nothing on most calls.
+    evidence.purge_expired(db.session, DetectionRecord)
+
+    query = (
+        DetectionRecord.query.filter_by(verdict="denied")
+        .order_by(DetectionRecord.timestamp.desc())
+    )
+    total = query.count()
+    rows = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    users = {}
+    if rows:
+        ids = {r.user_id for r in rows}
+        users = {u.id: u for u in User.query.filter(User.id.in_(ids)).all()}
+
+    items = []
+    for r in rows:
+        user = users.get(r.user_id)
+        data = r.to_dict()
+        data["worker"] = {
+            "id": r.user_id,
+            "name": user.name if user else "Unknown",
+            "employee_id": (user.employee_id or "") if user else "",
+            "role": (user.role or "") if user else "",
+            "initials": user.initials if user else "?",
+        }
+        items.append(data)
+
+    return jsonify({
+        "success": True,
+        "violations": items,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+    })
+
+
+@admin_bp.route("/violations/<int:record_id>/evidence", methods=["GET"])
+@admin_required
+def violation_evidence(record_id):
+    """Serve the stored frame for one refusal.
+
+    Routed through the app rather than served statically so the image is
+    behind the same admin check as the record — someone's face at a moment
+    they were turned away isn't public just because the URL is guessable.
+    """
+    record = db.session.get(DetectionRecord, record_id)
+    if record is None or not record.evidence_file:
+        return jsonify({"success": False, "message": "No evidence for this record"}), 404
+
+    path = evidence.path_for(record.evidence_file)
+    if path is None:
+        return jsonify({"success": False, "message": "Evidence image is no longer stored"}), 404
+
+    return send_file(path, mimetype="image/jpeg")
 
 
 @admin_bp.route("/settings", methods=["GET"])

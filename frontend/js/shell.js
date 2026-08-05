@@ -13,6 +13,7 @@ const Shell = {
     { id: 'history', href: 'history.html', icon: 'fa-clock-rotate-left', label: 'My Records', memberOnly: true },
     { section: 'Administration', adminOnly: true },
     { id: 'admin', href: 'admin.html', icon: 'fa-gauge-high', label: 'Overview', adminOnly: true },
+    { id: 'violations', href: 'violations.html', icon: 'fa-ban', label: 'Refusals', adminOnly: true },
     { id: 'analytics', href: 'analytics.html', icon: 'fa-chart-simple', label: 'Analytics', adminOnly: true },
     { id: 'settings', href: 'settings.html', icon: 'fa-sliders', label: 'Checkpoint Policy', adminOnly: true },
     { section: 'Device', deviceOnly: true },

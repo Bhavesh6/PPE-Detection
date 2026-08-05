@@ -37,3 +37,6 @@ runs/
 .qoder/
 .mcp.json
 opencode.jsonc
+
+# Stored refusal frames — personal data, not source
+backend/instance/

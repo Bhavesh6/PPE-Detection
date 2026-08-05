@@ -39,6 +39,23 @@ class Config:
 
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
+    # Where refusal evidence frames are written. Kept on disk rather than in
+    # the database: these are ~50KB JPEGs written on every refusal, and
+    # storing them as BLOBs bloats the backups that exist to protect the
+    # decision record itself. Same ephemeral-filesystem caveat as SQLite —
+    # point EVIDENCE_DIR at a mounted volume in production or the images
+    # vanish on redeploy while the records that reference them survive.
+    EVIDENCE_DIR = os.environ.get(
+        "EVIDENCE_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "evidence"),
+    )
+
+    # Refusal images are personal data — someone's face, tied to a name and a
+    # timestamp. They age out on a timer so the system isn't quietly building
+    # a permanent photographic record of every worker's bad day. The decision
+    # itself is kept; only the image expires.
+    EVIDENCE_RETENTION_DAYS = int(os.environ.get("EVIDENCE_RETENTION_DAYS", "30"))
+
     # Comma-separated list of allowed frontend origins for CORS.
     CORS_ORIGINS = [
         origin.strip()

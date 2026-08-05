@@ -134,6 +134,16 @@ class DetectionRecord(db.Model):
     # Comma-separated required PPE that was missing, e.g. "Hardhat,Safety Vest".
     missing_ppe = db.Column(db.String(255), default="", nullable=False)
 
+    # What the site required at the moment of this decision. Without it a
+    # trend spanning a policy change silently mixes different rules, and an
+    # old refusal can't be explained by today's settings.
+    policy_json = db.Column(db.Text, nullable=True)
+
+    # Filename of the frame that produced a refusal, relative to
+    # EVIDENCE_DIR. Null for grants (nothing to answer for) and for records
+    # whose image has aged out — the decision outlives the photograph.
+    evidence_file = db.Column(db.String(120), nullable=True)
+
     def to_dict(self):
         return {
             "id": self.id,
@@ -142,4 +152,6 @@ class DetectionRecord(db.Model):
             "violation_count": self.violation_count,
             "verdict": self.verdict,
             "missing_ppe": [p for p in self.missing_ppe.split(",") if p],
+            "policy": json.loads(self.policy_json) if self.policy_json else None,
+            "has_evidence": bool(self.evidence_file),
         }
