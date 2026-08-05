@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkpoint Policy — SafetyFirst Admin</title>
+    <meta name="description" content="Configure what the checkpoint requires before it grants access.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260805d">
+    <style>
+        .req-item {
+            display: flex; align-items: center; gap: 13px;
+            padding: 14px 16px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: border-color .15s var(--ease-out), background-color .15s var(--ease-out);
+        }
+        .req-item + .req-item { margin-top: 10px; }
+        .req-item:hover { background: var(--surface-alt); }
+        .req-item.is-on { border-color: #e0c3b6; background: var(--accent-soft); }
+        .req-item input { width: 17px; height: 17px; accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+        /* display:block on both — as inline spans they share a line and the
+           description runs on from the name. */
+        .req-name { display: block; font-weight: 600; font-size: .9rem; }
+        .req-note { display: block; font-size: .74rem; color: var(--muted); margin-top: 2px; }
+
+        .slider-row { display: flex; align-items: center; gap: 16px; }
+        .slider-row input[type=range] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+        .slider-val {
+            font-family: var(--font-head); font-weight: 700; font-size: 1.5rem;
+            min-width: 68px; text-align: right; font-variant-numeric: tabular-nums;
+        }
+        .scale { display: flex; justify-content: space-between; font-size: .72rem; color: var(--faint); margin-top: 6px; }
+
+        .save-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 14px; flex-wrap: wrap;
+            padding: 14px 16px;
+            border: 1px solid var(--border); border-radius: var(--radius-md);
+            background: var(--surface); box-shadow: var(--shadow);
+        }
+        .save-note { font-size: .82rem; color: var(--muted); }
+        .save-note.is-dirty { color: var(--accent); font-weight: 600; }
+        .save-note.is-saved { color: var(--ok); font-weight: 600; }
+        .save-note.is-error { color: var(--danger); font-weight: 600; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                    <!-- What the gate demands -->
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-helmet-safety"></i>Required Equipment</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-xs" style="color:var(--muted);margin:0 0 14px">
+                                Anyone missing one of these is turned away. Only equipment the
+                                model can actually recognise is listed — a requirement it cannot
+                                see would refuse everyone.
+                            </p>
+                            <div id="reqList"></div>
+                            <p id="reqError" class="text-xs hidden" style="color:var(--danger);margin-top:10px"></p>
+                        </div>
+                    </section>
+
+                    <!-- How sure the model must be -->
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-sliders"></i>Detection Confidence</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-xs" style="color:var(--muted);margin:0 0 18px">
+                                How certain the model must be before a detection counts. Raise it
+                                to cut false refusals; lower it to catch marginal cases.
+                            </p>
+                            <div class="slider-row">
+                                <input type="range" id="confRange" min="5" max="95" step="5" value="25">
+                                <span class="slider-val" id="confVal">0.25</span>
+                            </div>
+                            <div class="scale">
+                                <span>0.05 — catches more, more false alarms</span>
+                                <span>0.95 — very strict</span>
+                            </div>
+                            <p class="text-xs" style="color:var(--faint);margin-top:16px">
+                                <i class="fas fa-circle-info mr-1"></i>
+                                Takes effect on the next frame — no restart needed.
+                            </p>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="save-bar">
+                    <span class="save-note" id="saveNote">Loading current policy…</span>
+                    <div class="flex gap-2">
+                        <button id="resetBtn" class="btn btn-outline btn-sm"><i class="fas fa-rotate-left"></i>Reset to defaults</button>
+                        <button id="saveBtn" class="btn btn-primary btn-sm" disabled><i class="fas fa-check"></i>Save policy</button>
+                    </div>
+                </div>
+
+                <p class="text-xs mt-5" style="color:var(--faint)">
+                    <i class="fas fa-circle-info mr-1"></i>
+                    Policy applies to every checkpoint on this site, including the gate device.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260805d"></script>
+    <script src="js/auth.js?v=20260805d"></script>
+    <script src="js/shell.js?v=20260805d"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('settings', {
+            title: 'Checkpoint Policy',
+            subtitle: 'What the gate demands before it lets anyone through',
+        });
+
+        const el = (id) => document.getElementById(id);
+
+        // Why each requirement exists, so an admin isn't just toggling
+        // labels they have to guess the meaning of.
+        const NOTES = {
+            'Hardhat': 'Head protection — required on nearly every active site.',
+            'Safety Vest': 'High-visibility clothing, so plant operators can see people.',
+            'Mask': 'Respiratory protection — dust, silica, fumes.',
+        };
+
+        let detectable = [];
+        let saved = null;   // last known server state
+        let current = null; // what's on screen
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        function renderRequirements() {
+            el('reqList').innerHTML = detectable.map((item) => {
+                const on = current.required_ppe.includes(item);
+                return `
+                    <label class="req-item ${on ? 'is-on' : ''}" data-item="${escapeHtml(item)}">
+                        <input type="checkbox" ${on ? 'checked' : ''} data-req="${escapeHtml(item)}">
+                        <span>
+                            <span class="req-name">${escapeHtml(item)}</span>
+                            <span class="req-note">${escapeHtml(NOTES[item] || '')}</span>
+                        </span>
+                    </label>`;
+            }).join('');
+        }
+
+        function isDirty() {
+            if (!saved || !current) return false;
+            return JSON.stringify(saved) !== JSON.stringify(current);
+        }
+
+        function refreshSaveState(message, cls) {
+            const note = el('saveNote');
+            if (message) {
+                note.textContent = message;
+                note.className = `save-note ${cls || ''}`;
+            } else if (isDirty()) {
+                note.textContent = 'Unsaved changes';
+                note.className = 'save-note is-dirty';
+            } else {
+                note.textContent = 'Policy is up to date';
+                note.className = 'save-note';
+            }
+            el('saveBtn').disabled = !isDirty();
+        }
+
+        function setConfidence(value) {
+            current.confidence_threshold = value;
+            el('confRange').value = Math.round(value * 100);
+            el('confVal').textContent = value.toFixed(2);
+        }
+
+        async function load() {
+            try {
+                const res = await Auth.fetch('/api/admin/settings');
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+                detectable = d.detectable_ppe;
+                saved = JSON.parse(JSON.stringify(d.settings));
+                current = JSON.parse(JSON.stringify(d.settings));
+                window.__defaults = d.defaults;
+                renderRequirements();
+                setConfidence(current.confidence_threshold);
+                refreshSaveState();
+            } catch (e) {
+                refreshSaveState('Could not load the current policy.', 'is-error');
+            }
+        }
+
+        el('reqList').addEventListener('change', (e) => {
+            const box = e.target.closest('[data-req]');
+            if (!box) return;
+            const item = box.dataset.req;
+            if (box.checked) {
+                if (!current.required_ppe.includes(item)) current.required_ppe.push(item);
+            } else {
+                current.required_ppe = current.required_ppe.filter((i) => i !== item);
+            }
+            // Keep the model's order so the gate and this list agree.
+            current.required_ppe = detectable.filter((i) => current.required_ppe.includes(i));
+            box.closest('.req-item').classList.toggle('is-on', box.checked);
+
+            // Zero requirements would let everyone through — the server
+            // rejects it, so say so here rather than on a failed save.
+            const empty = current.required_ppe.length === 0;
+            el('reqError').classList.toggle('hidden', !empty);
+            if (empty) el('reqError').textContent = 'At least one requirement is needed — otherwise the gate grants everyone.';
+            el('saveBtn').disabled = empty || !isDirty();
+            refreshSaveState();
+            if (empty) el('saveBtn').disabled = true;
+        });
+
+        el('confRange').addEventListener('input', (e) => {
+            setConfidence(Number(e.target.value) / 100);
+            refreshSaveState();
+        });
+
+        el('saveBtn').addEventListener('click', async () => {
+            const btn = el('saveBtn');
+            btn.disabled = true;
+            refreshSaveState('Saving…');
+            try {
+                const res = await Auth.fetch('/api/admin/settings', {
+                    method: 'PUT',
+                    body: JSON.stringify(current),
+                });
+                const d = await res.json();
+                if (!res.ok || !d.success) {
+                    refreshSaveState(d.message || 'Could not save.', 'is-error');
+                    btn.disabled = false;
+                    return;
+                }
+                saved = JSON.parse(JSON.stringify(d.settings));
+                current = JSON.parse(JSON.stringify(d.settings));
+                renderRequirements();
+                setConfidence(current.confidence_threshold);
+                refreshSaveState('Saved — the gate is using this now', 'is-saved');
+            } catch (e) {
+                refreshSaveState('Could not reach the server.', 'is-error');
+                btn.disabled = false;
+            }
+        });
+
+        el('resetBtn').addEventListener('click', () => {
+            if (!window.__defaults) return;
+            current = JSON.parse(JSON.stringify(window.__defaults));
+            renderRequirements();
+            setConfidence(current.confidence_threshold);
+            el('reqError').classList.add('hidden');
+            refreshSaveState();
+        });
+
+        load();
+    </script>
+</body>
+</html>

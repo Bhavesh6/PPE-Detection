@@ -54,18 +54,22 @@ def _color_for_class(class_name):
     return BOX_COLORS["other"]
 
 
-def process_frame(frame, model, draw=True):
+def process_frame(frame, model, draw=True, conf=0.25):
     """Run detection on a single BGR frame.
 
     Returns (annotated_frame_or_None, detections). Set draw=False to skip
     drawing boxes/labels when the caller only needs the detection list
     (e.g. an API endpoint that returns JSON to the browser, which draws
     the overlay itself).
+
+    `conf` is the minimum confidence a detection needs to count. It's a
+    parameter rather than a constant because it's site policy: raising it
+    suppresses false violations at the cost of missing marginal real ones.
     """
     if frame is None or model is None:
         return None, []
 
-    results = model(frame, conf=0.25, iou=0.45, verbose=False)
+    results = model(frame, conf=conf, iou=0.45, verbose=False)
 
     detections = []
     for result in results:

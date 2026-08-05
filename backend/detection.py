@@ -8,6 +8,7 @@ import numpy as np
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+import site_settings
 from extensions import db
 from models import DetectionRecord
 from ppe_detection import load_model, process_frame
@@ -23,10 +24,6 @@ _user_state = {}
 _state_lock = threading.Lock()
 
 MAX_RESULTS_PER_USER = 50
-
-# PPE the checkpoint requires before it will grant access. The trained model
-# emits a matching "NO-<item>" class for each of these when it's missing.
-REQUIRED_PPE = ("Hardhat", "Safety Vest")
 
 VERDICT_GRANTED = "granted"
 VERDICT_DENIED = "denied"
@@ -45,8 +42,11 @@ def evaluate_access(detections):
     if "Person" not in present:
         return VERDICT_NO_PERSON, []
 
+    # Read per-call rather than at import: an administrator can change what
+    # the gate demands while it's running, and the next frame should honour it.
+    required = site_settings.get("required_ppe")
     missing = [
-        item for item in REQUIRED_PPE
+        item for item in required
         if f"NO-{item}" in present or item not in present
     ]
     verdict = VERDICT_DENIED if missing else VERDICT_GRANTED
@@ -159,7 +159,7 @@ def get_status():
         "verdict": state["verdict"],
         "missing_ppe": state["missing_ppe"],
         "gate": state["gate"],
-        "required_ppe": list(REQUIRED_PPE),
+        "required_ppe": list(site_settings.get("required_ppe")),
     })
 
 
@@ -227,7 +227,9 @@ def process_socket_frame():
 
         # draw=False: the browser already has the raw frame on <video> and
         # draws its own overlay from the returned box coordinates.
-        _, detections = process_frame(frame, model, draw=False)
+        _, detections = process_frame(
+            frame, model, draw=False, conf=site_settings.get("confidence_threshold")
+        )
 
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         _update_counts(state, detections)

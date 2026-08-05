@@ -66,6 +66,28 @@ class User(db.Model):
         }
 
 
+class SiteSetting(db.Model):
+    """Checkpoint policy an administrator can change without a redeploy.
+
+    Values are JSON-encoded so a setting can be a list (which PPE is
+    required) or a number (confidence threshold) without a column per
+    setting. Reads are cached in the detection layer — /api/socket runs
+    per frame, and a database round-trip there would cost more than the
+    inference does.
+    """
+
+    __tablename__ = "site_settings"
+
+    key = db.Column(db.String(60), primary_key=True)
+    value_json = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                           onupdate=lambda: datetime.now(timezone.utc))
+
+    @property
+    def value(self):
+        return json.loads(self.value_json)
+
+
 class AttendanceRecord(db.Model):
     """One row per badge scan at the gate.
 

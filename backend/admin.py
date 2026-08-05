@@ -7,6 +7,7 @@ from functools import wraps
 from flask import Blueprint, Response, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+import site_settings
 from detection import get_all_states, remove_state
 from extensions import db
 from models import AttendanceRecord, DetectionRecord, User
@@ -86,6 +87,33 @@ def delete_user(user_id):
     db.session.commit()
     remove_state(str(user_id))
     return jsonify({"success": True, "message": "User deleted"})
+
+
+@admin_bp.route("/settings", methods=["GET"])
+@admin_required
+def read_settings():
+    """Current checkpoint policy, plus what the model is capable of.
+
+    The capability list ships with the settings so the UI can't offer a
+    requirement the model has no class for — a requirement nothing can
+    satisfy would refuse everyone, permanently.
+    """
+    return jsonify({
+        "success": True,
+        "settings": site_settings.get_all(),
+        "detectable_ppe": list(site_settings.DETECTABLE_PPE),
+        "defaults": site_settings.DEFAULTS,
+    })
+
+
+@admin_bp.route("/settings", methods=["PUT"])
+@admin_required
+def write_settings():
+    changes = request.get_json(silent=True) or {}
+    settings, error = site_settings.update(changes)
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+    return jsonify({"success": True, "settings": settings})
 
 
 @admin_bp.route("/analytics", methods=["GET"])
