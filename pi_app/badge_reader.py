@@ -19,6 +19,7 @@ import os
 import queue
 import sys
 import threading
+import time
 
 
 class BadgeReader:
@@ -69,23 +70,52 @@ class MFRC522Reader(BadgeReader):
 
         self._reader = SimpleMFRC522()
 
+    # How long the same card is ignored after a scan. Long enough that
+    # holding a card against the reader is one scan, short enough that
+    # someone refused for a missing hardhat can fix it and re-present the
+    # same badge without waiting.
+    REPEAT_LOCKOUT_SECONDS = 3.0
+
     def _loop(self) -> None:
         last_tag = None
+        last_at = 0.0
+
         while self._running:
             try:
-                # Blocks until a card is present, so no busy-wait.
-                tag_id, _text = self._reader.read()
+                # Deliberately the non-blocking read. read() blocks until a
+                # card appears, which would make stop() unable to end this
+                # thread and would hold the SPI bus while GPIO.cleanup() runs.
+                tag_id, _text = self._reader.read_no_block()
             except Exception:  # noqa: BLE001 - a bad read shouldn't kill the gate
+                # Sleep on the error path too: a persistently failing bus
+                # would otherwise spin this loop at full CPU.
+                time.sleep(0.2)
+                continue
+
+            now = time.monotonic()
+
+            if tag_id is None:
+                # Card withdrawn — the next presentation counts as new even
+                # if it's the same badge.
+                last_tag = None
+                time.sleep(0.08)
                 continue
 
             tag = str(tag_id).strip()
-            # A card held against the reader reads continuously; only emit on
-            # a new card so one presentation isn't a dozen scans.
-            if tag and tag != last_tag:
+            if not tag:
+                time.sleep(0.08)
+                continue
+
+            # Dedupe on time, not identity alone. Keying only on "different
+            # from last tag" means a badge can never be scanned twice in a
+            # row — so a worker turned away, who then fixes their gear and
+            # re-presents the same card, is met with silence.
+            if tag != last_tag or now - last_at >= self.REPEAT_LOCKOUT_SECONDS:
                 last_tag = tag
+                last_at = now
                 self.tags.put(tag)
-            elif not tag:
-                last_tag = None
+
+            time.sleep(0.08)
 
     def stop(self) -> None:
         super().stop()
