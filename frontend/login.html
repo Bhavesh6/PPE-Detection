@@ -3,139 +3,140 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sign In - Safety First</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Sign in — SafetyFirst</title>
+    <meta name="description" content="Sign in to the SafetyFirst compliance console, or try the checkpoint as a guest.">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260803a">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260804b">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        h1, h2 { font-family: 'Montserrat', 'Inter', sans-serif; }
-
-        .btn-primary {
-            background: #d97706;
-            transition: background-color 0.15s ease;
+        /* Same language as the public site: warm paper, serif headline,
+           burnt clay. A sign-in page that looks like a different product is
+           where trust quietly leaks away. */
+        body {
+            min-height: 100dvh;
+            display: flex; align-items: center; justify-content: center;
+            padding: 32px 20px;
+            background: var(--bg);
         }
-        .btn-primary:hover:not(:disabled) { background: #b45309; }
-        .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-
+        .auth { width: 100%; max-width: 430px; }
+        .auth-brand {
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            margin-bottom: 26px; text-decoration: none;
+        }
+        .auth-mark {
+            width: 34px; height: 34px; border-radius: 9px;
+            background: var(--accent); color: #fff;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .auth-word { font-family: var(--font-head); font-weight: 700; font-size: 1.2rem; color: var(--ink); }
+        .auth-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .auth-tabs { display: flex; border-bottom: 1px solid var(--border); }
         .auth-tab {
-            transition: color 0.15s ease, border-color 0.15s ease;
+            flex: 1; padding: 15px 0; font-size: .88rem; font-weight: 600;
+            background: none; border: none; cursor: pointer;
             border-bottom: 2px solid transparent;
+            transition: color .18s var(--ease-out), border-color .18s var(--ease-out);
         }
-        .auth-tab[aria-selected="true"] {
-            color: #0f172a;
-            border-color: #d97706;
+        .auth-tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+        .auth-tab[aria-selected="false"] { color: var(--faint); }
+        .auth-tab[aria-selected="false"]:hover { color: var(--muted); }
+        .auth-body { padding: 26px 26px 28px; }
+        .auth-title { font-family: var(--font-head); font-size: 1.35rem; margin: 0 0 4px; }
+        .auth-sub { font-size: .86rem; color: var(--muted); margin: 0 0 20px; }
+        .rule { display: flex; align-items: center; gap: 12px; margin: 20px 0; }
+        .rule::before, .rule::after { content: ''; height: 1px; background: var(--border); flex: 1; }
+        .rule span { font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+        .rule.hidden { display: none; }
+        .foot-note { text-align: center; font-size: .78rem; color: var(--faint); margin-top: 10px; }
+        .back { display: block; text-align: center; margin-top: 22px; font-size: .86rem; color: var(--muted); text-decoration: none; }
+        .back:hover { color: var(--ink); }
+        .stack > * + * { margin-top: 14px; }
+        .stack.hidden { display: none; }
+        .remember-row {
+            display: flex; align-items: center; gap: 9px;
+            font-size: .84rem; color: var(--muted); cursor: pointer;
         }
-        .auth-tab[aria-selected="false"] {
-            color: #94a3b8;
-        }
-        .auth-tab[aria-selected="false"]:hover {
-            color: #475569;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            * { transition-duration: 0.01ms !important; }
-        }
+        .remember-row input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
     </style>
 </head>
-<body class="bg-slate-900 min-h-screen flex items-center justify-center px-4 py-10">
-
-    <div class="w-full max-w-md">
-        <a href="index.html" class="flex items-center justify-center mb-8">
-            <div class="w-10 h-10 bg-amber-500 rounded-md flex items-center justify-center mr-2">
-                <i class="fas fa-hard-hat text-slate-900 text-xl"></i>
-            </div>
-            <span class="text-2xl font-bold text-white">Safety <span class="text-amber-500">First</span></span>
+<body>
+    <div class="auth">
+        <a href="index.html" class="auth-brand">
+            <span class="auth-mark"><i class="fas fa-hard-hat"></i></span>
+            <span class="auth-word">SafetyFirst</span>
         </a>
 
-        <div class="bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
-            <!-- Tabs -->
-            <div class="flex border-b border-gray-200" role="tablist">
-                <button type="button" id="tabSignIn" class="auth-tab flex-1 py-4 text-sm font-semibold" role="tab" aria-selected="true" aria-controls="loginForm">
-                    Sign In
-                </button>
-                <button type="button" id="tabSignUp" class="auth-tab flex-1 py-4 text-sm font-semibold" role="tab" aria-selected="false" aria-controls="signupForm">
-                    Create Account
-                </button>
+        <div class="auth-card">
+            <div class="auth-tabs" role="tablist">
+                <button type="button" id="tabSignIn" class="auth-tab" role="tab" aria-selected="true" aria-controls="loginForm">Sign in</button>
+                <button type="button" id="tabSignUp" class="auth-tab" role="tab" aria-selected="false" aria-controls="signupForm">Create account</button>
             </div>
 
-            <div class="p-8">
-                <div id="googleButton" class="mb-4"></div>
-                <div id="googleDivider" class="hidden items-center gap-3 my-5">
-                    <div class="h-px bg-gray-200 flex-1"></div>
-                    <span class="text-xs text-gray-400 uppercase">or</span>
-                    <div class="h-px bg-gray-200 flex-1"></div>
-                </div>
+            <div class="auth-body">
+                <h1 class="auth-title">Welcome back</h1>
+                <p class="auth-sub">Open the compliance console and your own records.</p>
+
+                <div id="googleButton"></div>
+                <div id="googleDivider" class="rule hidden"><span>or</span></div>
 
                 <div id="formError" class="alert alert-danger hidden" style="margin-bottom:16px"></div>
 
-                <!-- Sign In panel -->
-                <form id="loginForm" role="tabpanel" aria-labelledby="tabSignIn" class="space-y-4">
+                <form id="loginForm" class="stack" role="tabpanel" aria-labelledby="tabSignIn">
                     <div>
-                        <label class="field-label">Email</label>
-                        <input type="email" id="loginEmail" required autocomplete="email"
-                               class="field">
+                        <label class="field-label" for="loginEmail">Email</label>
+                        <input type="email" id="loginEmail" class="field" required autocomplete="email">
                     </div>
                     <div>
-                        <label class="field-label">Password</label>
-                        <input type="password" id="loginPassword" required autocomplete="current-password"
-                               class="field">
+                        <label class="field-label" for="loginPassword">Password</label>
+                        <input type="password" id="loginPassword" class="field" required autocomplete="current-password">
                     </div>
-                    <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width:100%">
-                        Sign In
-                    </button>
+                    <label class="remember-row">
+                        <input type="checkbox" id="rememberMe" checked>
+                        <span>Keep me signed in on this device</span>
+                    </label>
+                    <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width:100%">Sign in</button>
                 </form>
 
-                <!-- Sign Up panel -->
-                <form id="signupForm" role="tabpanel" aria-labelledby="tabSignUp" class="hidden space-y-4">
+                <form id="signupForm" class="stack hidden" role="tabpanel" aria-labelledby="tabSignUp">
                     <div>
-                        <label class="field-label">Full name</label>
-                        <input type="text" id="signupName" required autocomplete="name"
-                               class="field">
+                        <label class="field-label" for="signupName">Full name</label>
+                        <input type="text" id="signupName" class="field" required autocomplete="name">
                     </div>
                     <div>
-                        <label class="field-label">Email</label>
-                        <input type="email" id="signupEmail" required autocomplete="email"
-                               class="field">
+                        <label class="field-label" for="signupEmail">Email</label>
+                        <input type="email" id="signupEmail" class="field" required autocomplete="email">
                     </div>
                     <div>
-                        <label class="field-label">Password</label>
-                        <input type="password" id="signupPassword" required minlength="8" autocomplete="new-password"
-                               class="field">
-                        <p class="text-xs text-gray-400 mt-1">At least 8 characters</p>
+                        <label class="field-label" for="signupPassword">Password</label>
+                        <input type="password" id="signupPassword" class="field" required minlength="8" autocomplete="new-password">
+                        <p style="font-size:.76rem;color:var(--faint);margin-top:6px">At least 8 characters</p>
                     </div>
-                    <button type="submit" id="signupSubmitBtn" class="btn btn-primary" style="width:100%">
-                        Create Account
-                    </button>
+                    <button type="submit" id="signupSubmitBtn" class="btn btn-primary" style="width:100%">Create account</button>
                 </form>
 
-                <div class="flex items-center gap-3 my-5">
-                    <div class="h-px bg-gray-200 flex-1"></div>
-                    <span class="text-xs text-gray-400 uppercase">or</span>
-                    <div class="h-px bg-gray-200 flex-1"></div>
-                </div>
+                <div class="rule"><span>or</span></div>
 
-                <button id="guestBtn" type="button"
-                        class="btn btn-outline" style="width:100%">
-                    Continue as Guest
-                </button>
-                <p class="text-center text-xs text-gray-400 mt-2">Try live detection now — no account needed, nothing is saved.</p>
+                <button id="guestBtn" type="button" class="btn btn-outline" style="width:100%">Continue as guest</button>
+                <p class="foot-note">Try the checkpoint now — no account needed, nothing saved.</p>
             </div>
         </div>
 
-        <p class="text-center text-sm text-gray-400 mt-6">
-            <a href="index.html" class="hover:text-amber-400"><i class="fas fa-arrow-left mr-1"></i>Back to home</a>
-        </p>
+        <a href="index.html" class="back"><i class="fas fa-arrow-left" style="margin-right:6px"></i>Back to home</a>
     </div>
 
-    <script src="js/config.js?v=20260803a"></script>
-    <script src="js/auth.js?v=20260803a"></script>
+    <script src="js/config.js?v=20260804b"></script>
+    <script src="js/auth.js?v=20260804b"></script>
     <script>
-        Auth.redirectIfLoggedIn('visit-site.html');
+        Auth.redirectIfLoggedIn();
 
         const formError = document.getElementById('formError');
         function showError(message) {
@@ -250,7 +251,7 @@
                     showError(data.message || 'Invalid email or password');
                     return;
                 }
-                Auth.setSession(data.token, data.user);
+                Auth.setSession(data.token, data.user, document.getElementById('rememberMe').checked);
                 window.location.href = data.user.is_admin ? 'admin.html' : 'visit-site.html';
             } catch (err) {
                 showError('Could not reach the server. Is the API running?');

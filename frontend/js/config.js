@@ -45,6 +45,22 @@ const PRODUCTION_API = '';
     );
   }
 
+  // Is this the gate device, or somebody's browser?
+  //   ?device=1  marks this browser as the checkpoint device and sticks.
+  //   ?device=0  clears it.
+  // The Pi kiosk is launched once with ?device=1; every other browser stays
+  // a plain client and never sees the device-only screens.
+  const deviceFlag = params.get('device');
+  if (deviceFlag !== null) {
+    try {
+      if (deviceFlag === '0') localStorage.removeItem('ppe_device');
+      else localStorage.setItem('ppe_device', '1');
+    } catch (e) { /* private mode */ }
+  }
+  let isDevice = false;
+  try { isDevice = localStorage.getItem('ppe_device') === '1'; } catch (e) { /* private mode */ }
+  window.IS_DEVICE = isDevice;
+
   // Warn loudly in the console if the camera can't possibly work here.
   const secure = window.isSecureContext ||
     ['localhost', '127.0.0.1'].includes(window.location.hostname);

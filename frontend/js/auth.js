@@ -3,13 +3,21 @@
 const AUTH_TOKEN_KEY = 'ppe_auth_token';
 const AUTH_USER_KEY = 'ppe_auth_user';
 
+// Session lives in localStorage ("Remember me" — survives closing the
+// browser) or sessionStorage (cleared the moment the tab/browser closes).
+// Whichever store actually holds a session is the one read back, so this
+// doesn't need to remember which mode was used at login.
 const Auth = {
+    _store() {
+        return localStorage.getItem(AUTH_TOKEN_KEY) ? localStorage : sessionStorage;
+    },
+
     getToken() {
-        return localStorage.getItem(AUTH_TOKEN_KEY);
+        return this._store().getItem(AUTH_TOKEN_KEY);
     },
 
     getUser() {
-        const raw = localStorage.getItem(AUTH_USER_KEY);
+        const raw = this._store().getItem(AUTH_USER_KEY);
         return raw ? JSON.parse(raw) : null;
     },
 
@@ -17,14 +25,20 @@ const Auth = {
         return !!this.getToken();
     },
 
-    setSession(token, user) {
-        localStorage.setItem(AUTH_TOKEN_KEY, token);
-        localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+    setSession(token, user, remember = true) {
+        const store = remember ? localStorage : sessionStorage;
+        const other = remember ? sessionStorage : localStorage;
+        other.removeItem(AUTH_TOKEN_KEY);
+        other.removeItem(AUTH_USER_KEY);
+        store.setItem(AUTH_TOKEN_KEY, token);
+        store.setItem(AUTH_USER_KEY, JSON.stringify(user));
     },
 
     logout() {
         localStorage.removeItem(AUTH_TOKEN_KEY);
         localStorage.removeItem(AUTH_USER_KEY);
+        sessionStorage.removeItem(AUTH_TOKEN_KEY);
+        sessionStorage.removeItem(AUTH_USER_KEY);
         window.location.href = 'login.html';
     },
 
@@ -36,10 +50,14 @@ const Auth = {
         }
     },
 
-    // Redirect away from login/signup if already logged in.
+    // Redirect away from login/signup if already logged in. With no explicit
+    // destination, sends each role to its own landing page — an admin who
+    // wanders back to /login.html should land back in the console, not get
+    // shown the same gate-operator screen everyone else gets.
     redirectIfLoggedIn(destination) {
         if (this.isLoggedIn()) {
-            window.location.href = destination || 'visit-site.html';
+            const user = this.getUser();
+            window.location.href = destination || (user && user.is_admin ? 'admin.html' : 'visit-site.html');
         }
     },
 

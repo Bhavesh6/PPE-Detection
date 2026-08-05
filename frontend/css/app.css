@@ -1,59 +1,58 @@
 /* =====================================================
    SafetyFirst — Console Design System
-   Industrial access-control / PPE compliance platform.
-   Restrained, dense, navy + amber. No gradients, no glow.
+   Shares one language with the public site: warm paper,
+   burnt clay, Fraunces headlines over Inter. The console is
+   denser than the marketing page, never a different product.
    ===================================================== */
 
 :root {
-  /* structure */
-  --navy:        #0f172a;
-  --navy-mid:    #1e293b;
-  --navy-soft:   #334155;
-
   /* ink */
-  --ink:         #0f172a;
-  --ink-strong:  #334155;
-  --muted:       #64748b;
-  --faint:       #94a3b8;
+  --ink:         #17181b;
+  --ink-strong:  #33363c;
+  --muted:       #52565e;
+  --faint:       #8b9099;
   --on-dark:     #ffffff;
-  --on-dark-dim: #cbd5e1;
+  --on-dark-dim: #cfd2d6;
 
-  /* surfaces */
-  --bg:          #f6f8fb;
+  /* surfaces — warm paper, not cool grey */
+  --bg:          #faf9f7;
   --surface:     #ffffff;
-  --surface-alt: #f1f5f9;
+  --surface-alt: #f4f2ee;
 
   /* borders */
-  --border:      #dce3ec;
-  --border-firm: #cbd5e1;
+  --border:      #e4e2dd;
+  --border-firm: #d4d1ca;
 
-  /* accent — used sparingly */
-  --amber:       #d97706;
-  --amber-dark:  #b45309;
-  --amber-soft:  #fef3c7;
+  /* accent — burnt clay, shared with the public site */
+  --accent:      #b4441f;
+  --accent-dark: #923516;
+  --accent-soft: #fbf1ec;
+
+  /* kept as aliases so existing rules and inline styles resolve */
+  --navy:        #17181b;
+  --navy-mid:    #33363c;
+  --navy-soft:   #52565e;
+  --amber:       #b4441f;
+  --amber-dark:  #923516;
+  --amber-soft:  #fbf1ec;
 
   /* semantic */
-  --ok:          #15803d;
-  --ok-soft:     #dcfce7;
-  --danger:      #dc2626;
-  --danger-soft: #fee2e2;
-  --info:        #1d4ed8;
-  --info-soft:   #dbeafe;
+  --ok:          #2f6b46;
+  --ok-soft:     #e8f2ec;
+  --danger:      #b3271e;
+  --danger-soft: #fbeceb;
+  --info:        #2c5282;
+  --info-soft:   #e9eff6;
 
-  --radius:      6px;
-  --radius-md:   10px;
+  --radius:      10px;
+  --radius-md:   18px;
 
-  /* Shadows are tinted with the navy hue rather than neutral black, so they
-     read as depth in this palette instead of grey haze. */
-  --shadow-sm:   0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06);
-  --shadow:      0 6px 22px rgba(15,23,42,.08);
-  --shadow-lift: 0 2px 4px rgba(15,23,42,.04), 0 12px 28px rgba(15,23,42,.10);
+  /* Warm-tinted elevation — a neutral grey shadow on warm paper reads as
+     dirt rather than distance. */
+  --shadow-sm:   0 1px 3px rgba(60,40,30,.05);
+  --shadow:      0 2px 6px rgba(60,40,30,.05), 0 12px 28px -12px rgba(60,40,30,.14);
+  --shadow-lift: 0 4px 10px rgba(60,40,30,.06), 0 30px 70px -24px rgba(60,40,30,.26);
 
-  /* The stock CSS easings are too weak to feel intentional. These are the
-     stronger variants — ease-out for anything entering (starts fast, so the
-     UI answers instantly), ease-in-out for things moving on screen.
-     ease-in is deliberately absent: it stalls at the exact moment the user
-     is watching, which reads as lag. */
   --ease-out:    cubic-bezier(.23, 1, .32, 1);
   --ease-in-out: cubic-bezier(.77, 0, .175, 1);
 
@@ -61,13 +60,12 @@
   --dur-fast:    180ms;
   --dur-modal:   220ms;
 
-  --font-head:   'Montserrat', 'Inter', sans-serif;
-  --font-body:   'Inter', sans-serif;
+  --font-head:   'Fraunces', Georgia, serif;
+  --font-body:   'Inter', system-ui, sans-serif;
 
-  --sidebar-w:   232px;
-  --topbar-h:    60px;
+  --sidebar-w:   248px;
+  --topbar-h:    64px;
 
-  /* z-index scale */
   --z-sticky:    20;
   --z-drawer:    40;
   --z-modal:     60;
@@ -87,7 +85,7 @@ body {
   background: var(--bg);
   color: var(--ink-strong);
 }
-h1, h2, h3, h4 { font-family: var(--font-head); color: var(--ink); }
+h1, h2, h3, h4 { font-family: var(--font-head); color: var(--ink); font-weight: 600; letter-spacing: -.01em; }
 .tnum { font-variant-numeric: tabular-nums; }
 
 a:focus-visible,
@@ -105,8 +103,10 @@ select:focus-visible {
 .sidebar {
   width: var(--sidebar-w);
   flex-shrink: 0;
-  background: var(--navy);
-  color: var(--on-dark);
+  background: var(--surface-alt);
+  color: var(--ink);
+  border-right: 1px solid var(--border);
+  border-top: 3px solid var(--border);
   display: flex;
   flex-direction: column;
   position: fixed;
@@ -114,13 +114,62 @@ select:focus-visible {
   z-index: var(--z-drawer);
   transition: transform .2s ease;
 }
+/* A quiet, permanent tell for which kind of session this is — colour alone,
+   no extra chrome, so it doesn't compete with the nav for attention. */
+.sidebar[data-role="admin"] { border-top-color: var(--accent); }
+.sidebar[data-role="operator"] { border-top-color: var(--info); }
+.sidebar[data-role="guest"] { border-top-color: var(--faint); }
+
+.guest-banner {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 24px;
+  background: var(--surface-alt);
+  border-bottom: 1px solid var(--border);
+  font-size: .82rem; color: var(--muted);
+}
+.guest-banner i.fa-flask { color: var(--accent); }
+.guest-banner span { flex: 1; }
+.guest-banner a {
+  display: inline-flex; align-items: center; gap: 6px;
+  color: var(--accent); font-weight: 600; text-decoration: none;
+  white-space: nowrap;
+}
+.guest-banner a:hover { text-decoration: underline; }
+.guest-banner a i { font-size: .7rem; transition: transform .15s var(--ease-out); }
+.guest-banner a:hover i { transform: translateX(2px); }
+@media (max-width: 640px) {
+  .guest-banner { padding: 10px 16px; }
+  .guest-banner span { display: none; }
+}
+.sidebar-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 16px 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
 .sidebar-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 18px 20px;
-  border-bottom: 1px solid rgba(255,255,255,.08);
+  flex: 1;
+  min-width: 0;
 }
+.sidebar-collapse-btn {
+  width: 28px; height: 28px; flex-shrink: 0;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-size: .74rem;
+  transition: background-color .15s var(--ease-out), color .15s var(--ease-out);
+}
+.sidebar-collapse-btn:hover { background: var(--surface-alt); color: var(--ink); }
+.sidebar-collapse-btn i { transition: transform .2s var(--ease-out); }
+.sidebar-collapse-btn:hover i { transform: scale(1.15); }
+.sidebar-collapse-btn:active i { transform: scale(.9); }
 .sidebar-mark {
   width: 34px; height: 34px;
   border-radius: var(--radius);
@@ -129,7 +178,7 @@ select:focus-visible {
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.sidebar-name { font-family: var(--font-head); font-weight: 700; font-size: .95rem; line-height: 1.1; }
+.sidebar-name { font-family: var(--font-head); font-weight: 700; color: var(--ink); font-size: .95rem; line-height: 1.1; }
 .sidebar-sub { font-size: .58rem; letter-spacing: .18em; text-transform: uppercase; color: var(--amber); font-weight: 700; }
 
 .sidebar-nav { padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
@@ -142,27 +191,29 @@ select:focus-visible {
   padding: 9px 12px;
   border-radius: var(--radius);
   font-size: .85rem; font-weight: 500;
-  color: var(--on-dark-dim);
+  color: var(--muted);
   transition: background-color .15s ease, color .15s ease;
   position: relative;
 }
-.nav-item i { width: 16px; text-align: center; font-size: .82rem; }
-.nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
-.nav-item.is-active { background: rgba(217,119,6,.14); color: #fff; }
+.nav-item i { width: 16px; text-align: center; font-size: .82rem; transition: transform .15s var(--ease-out); }
+.nav-item:hover i { transform: translateX(2px); }
+.nav-item.is-active i { color: var(--accent); }
+.nav-item:hover { background: rgba(23,24,27,.05); color: var(--ink); }
+.nav-item.is-active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .nav-item.is-active::before {
   content: ''; position: absolute; left: 0; top: 6px; bottom: 6px;
   width: 3px; border-radius: 0 2px 2px 0; background: var(--amber);
 }
 
-.sidebar-foot { padding: 14px 12px; border-top: 1px solid rgba(255,255,255,.08); }
+.sidebar-foot { padding: 14px 12px; border-top: 1px solid var(--border); }
 .sidebar-user { display: flex; align-items: center; gap: 10px; padding: 4px 8px 12px; }
 .avatar {
   width: 30px; height: 30px; border-radius: var(--radius);
-  background: var(--navy-soft); color: #fff;
+  background: var(--accent); color: #fff;
   display: flex; align-items: center; justify-content: center;
   font-size: .72rem; font-weight: 700; flex-shrink: 0;
 }
-.sidebar-user-name { font-size: .8rem; font-weight: 600; color: #fff; line-height: 1.2; }
+.sidebar-user-name { font-size: .8rem; font-weight: 600; color: var(--ink); line-height: 1.2; }
 .sidebar-user-role { font-size: .66rem; color: var(--faint); }
 
 .main {
@@ -186,8 +237,6 @@ select:focus-visible {
 .topbar-sub { font-size: .72rem; color: var(--muted); }
 .content { padding: 24px; flex: 1; }
 
-.menu-toggle { display: none; }
-
 /* -- LIVE PILL --------------------------------------- */
 .live-pill {
   display: inline-flex; align-items: center; gap: 7px;
@@ -199,7 +248,7 @@ select:focus-visible {
   background: var(--surface);
 }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
-.live-pill.is-live { color: var(--ok); border-color: #bbf7d0; background: var(--ok-soft); }
+.live-pill.is-live { color: var(--ok); border-color: #c3ddcd; background: var(--ok-soft); }
 .live-pill.is-live .live-dot { background: var(--ok); animation: blip 2s infinite; }
 .live-pill.is-off { color: var(--muted); }
 @keyframes blip { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
@@ -209,6 +258,7 @@ select:focus-visible {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
 }
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -223,6 +273,34 @@ select:focus-visible {
 }
 .card-body { padding: 16px; }
 
+/* -- PROFILE CARD ------------------------------------ */
+.profile-card {
+  display: flex; align-items: center; gap: 18px;
+  padding: 22px 24px;
+}
+.profile-photo {
+  width: 64px; height: 64px; flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent); color: #fff;
+  background-size: cover; background-position: center;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-head); font-weight: 700; font-size: 1.4rem;
+}
+.profile-id { flex: 1; min-width: 0; }
+.profile-id h1 { font-size: 1.3rem; margin-bottom: 6px; }
+.profile-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  font-size: .82rem; color: var(--muted);
+}
+.profile-meta span:empty { display: none; }
+.profile-present { text-align: center; padding-left: 18px; border-left: 1px solid var(--border); flex-shrink: 0; }
+.profile-present-value { font-family: var(--font-head); font-weight: 700; font-size: 1.7rem; color: var(--ink); line-height: 1; }
+.profile-present-label { font-size: .68rem; color: var(--faint); margin-top: 4px; white-space: nowrap; }
+@media (max-width: 640px) {
+  .profile-card { flex-wrap: wrap; }
+  .profile-present { border-left: none; border-top: 1px solid var(--border); padding: 12px 0 0; width: 100%; text-align: left; }
+}
+
 /* -- METRIC RAIL ------------------------------------- */
 .metrics {
   display: grid;
@@ -231,8 +309,9 @@ select:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
-.metric { padding: 16px 18px; position: relative; }
+.metric { padding: 18px 20px; position: relative; }
 .metric + .metric { border-left: 1px solid var(--border); }
 .metric::before {
   content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
@@ -258,7 +337,7 @@ select:focus-visible {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   padding: 9px 18px;
   border: 1px solid transparent;
-  border-radius: var(--radius);
+  border-radius: 999px;
   font-size: .84rem; font-weight: 600;
   cursor: pointer; line-height: 1;
   transition:
@@ -268,12 +347,15 @@ select:focus-visible {
     transform var(--dur-press) var(--ease-out);
   min-height: 38px;
 }
+.btn i { transition: transform .18s var(--ease-out); }
+.btn:hover:not(:disabled) i { transform: scale(1.12); }
+.btn:active:not(:disabled) i { transform: scale(.94); }
 /* Press feedback: the control visibly answers the click. Subtle on purpose —
    0.97 reads as "pressed", anything lower reads as a bouncy toy. */
 .btn:active:not(:disabled) { transform: scale(.97); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
-.btn-primary { background: var(--amber); color: #fff; }
-.btn-primary:hover:not(:disabled) { background: var(--amber-dark); }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-dark); }
 .btn-navy { background: var(--navy); color: #fff; }
 .btn-navy:hover:not(:disabled) { background: var(--navy-mid); }
 .btn-ok { background: var(--ok); color: #fff; }
@@ -292,11 +374,11 @@ select:focus-visible {
   letter-spacing: .04em; text-transform: uppercase;
   border: 1px solid transparent; white-space: nowrap;
 }
-.badge-ok { background: var(--ok-soft); color: var(--ok); border-color: #bbf7d0; }
-.badge-danger { background: var(--danger-soft); color: var(--danger); border-color: #fecaca; }
+.badge-ok { background: var(--ok-soft); color: var(--ok); border-color: #c3ddcd; }
+.badge-danger { background: var(--danger-soft); color: var(--danger); border-color: #f0cac7; }
 .badge-muted { background: var(--surface-alt); color: var(--muted); border-color: var(--border); }
-.badge-amber { background: var(--amber-soft); color: var(--amber-dark); border-color: #fde68a; }
-.badge-info { background: var(--info-soft); color: var(--info); border-color: #bfdbfe; }
+.badge-amber { background: var(--accent-soft); color: var(--accent); border-color: #ecccbf; }
+.badge-info { background: var(--info-soft); color: var(--info); border-color: #c6d4e4; }
 
 /* -- TABLES ------------------------------------------ */
 .table-wrap { overflow-x: auto; }
@@ -406,16 +488,88 @@ table.data tbody tr:hover { background: #fafbfd; }
   gap: 10px; color: #64748b; text-align: center; padding: 20px;
 }
 
+/* -- SIDEBAR TOGGLE ---------------------------------- */
+/* Desktop: the button shrinks the sidebar to an icon-only rail — same pattern
+   as Notion, Linear, Gmail. Navigation stays reachable and in the same place,
+   it just loses its labels, rather than vanishing and having to be summoned
+   back from a corner button. Narrow: off-canvas drawer, unrelated mechanism. */
+:root { --sidebar-w-collapsed: 72px; }
+
+.sidebar { transition: width .22s var(--ease-out), transform .22s var(--ease-out); }
+.main { transition: margin-left .22s var(--ease-out); }
+
+@media (min-width: 1025px) {
+  .app.is-collapsed .sidebar { width: var(--sidebar-w-collapsed); }
+  .app.is-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
+
+  /* Labels fade, icons stay centered in the narrow rail. */
+  .app.is-collapsed .sidebar-brand-text,
+  .app.is-collapsed .sidebar-section,
+  .app.is-collapsed .nav-label,
+  .app.is-collapsed .sidebar-user-text,
+  .app.is-collapsed .btn-label { display: none; }
+
+  /* The rail is 72px — brand and its collapse button no longer fit side by
+     side, so they stack instead of trying to shrink into one row. */
+  .app.is-collapsed .sidebar-brand-row { flex-direction: column; gap: 10px; padding: 14px 0; }
+  .app.is-collapsed .sidebar-brand { justify-content: center; }
+  .app.is-collapsed .nav-item { justify-content: center; padding-left: 0; padding-right: 0; gap: 0; }
+  .app.is-collapsed .nav-item.is-active::before { left: 0; }
+  .app.is-collapsed .sidebar-user { justify-content: center; padding-left: 0; padding-right: 0; }
+  .app.is-collapsed .sidebar-foot .btn { padding-left: 0; padding-right: 0; }
+}
+
+/* The topbar hamburger only exists to open the off-canvas mobile drawer —
+   on desktop the sidebar is always at least a visible rail, so its own
+   internal button is reachable and this one would be redundant. */
+.menu-toggle-mobile { display: none; }
+@media (max-width: 1024px) {
+  .menu-toggle-mobile { display: inline-flex; }
+}
+
+/* Tap-outside-to-close backdrop, narrow screens only. */
+.nav-scrim {
+  position: fixed; inset: 0;
+  z-index: calc(var(--z-drawer) - 1);
+  background: rgba(23, 24, 27, .38);
+}
+@media (min-width: 1025px) { .nav-scrim { display: none; } }
+
 /* -- RESPONSIVE -------------------------------------- */
 @media (max-width: 1024px) {
   .sidebar { transform: translateX(-100%); box-shadow: var(--shadow); }
   .sidebar.is-open { transform: translateX(0); }
+  .app.is-collapsed .sidebar { transform: translateX(-100%); }
   .main { margin-left: 0; }
-  .menu-toggle { display: inline-flex; }
 }
 @media (max-width: 640px) {
   .content { padding: 16px; }
-  .topbar { padding: 0 16px; }
+  /* .topbar's desktop rule is a fixed `height`, sized for one line of
+     content. Title + subtitle + live pill + Start/Stop don't fit on one
+     line at phone width — with a fixed height that content doesn't wrap
+     onto a taller box, it overflows and visually overlaps whatever
+     comes next (the guest banner, most visibly). Auto height + wrap
+     fixes it structurally; hiding the subtitle removes the main space
+     hog so it rarely even needs to wrap. */
+  .topbar {
+    height: auto;
+    min-height: var(--topbar-h);
+    flex-wrap: wrap;
+    row-gap: 8px;
+    padding: 10px 16px;
+  }
+  .topbar-sub { display: none; }
+  .topbar h1 { font-size: .92rem; }
+  /* Live pill + Start/Stop is also injected as one unwrapped flex row
+     (#topbarSlot, set inline by each page's JS) — same overflow risk on
+     its own line if it doesn't fit either. */
+  #topbarSlot { flex-wrap: wrap; justify-content: flex-end; row-gap: 8px; }
+  /* auto-fit/minmax(180px) can still fit 2 columns at widths where 2x180px
+     plus the grid gap and item padding is a hair over what's actually
+     available, clipping the right-hand tile at the viewport edge instead
+     of dropping to 1 column. Forcing 1 column below 640px removes the
+     ambiguity entirely rather than tuning the minmax value. */
+  .metrics { grid-template-columns: 1fr; }
   .metric + .metric { border-left: none; border-top: 1px solid var(--border); }
 }
 

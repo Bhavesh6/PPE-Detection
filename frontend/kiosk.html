@@ -8,8 +8,8 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260803a">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260804b">
     <style>
         /* A gate display is read standing up, from two or three metres away,
            often in bright daylight. Everything here is scaled and contrasted
@@ -37,7 +37,7 @@
             display: flex; align-items: center; justify-content: center;
             font-size: 1.2rem;
         }
-        .k-name { font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 1.15rem; letter-spacing: -.01em; }
+        .k-name { font-family: 'Fraunces', Georgia, serif; font-weight: 800; font-size: 1.15rem; letter-spacing: -.01em; }
         .k-sub { font-size: .62rem; letter-spacing: .22em; text-transform: uppercase; color: var(--amber); font-weight: 700; }
         .k-meta { display: flex; align-items: center; gap: 22px; }
         .k-clock { font-variant-numeric: tabular-nums; font-size: 1.5rem; font-weight: 600; letter-spacing: -.01em; }
@@ -48,6 +48,15 @@
         }
         .k-status i { font-size: .55rem; }
         .k-status.is-live { color: #4ade80; }
+
+        .k-exit {
+            width: 40px; height: 40px; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+            color: #334155; font-size: 1rem;
+            border: 1px solid rgba(255,255,255,.07);
+            transition: color 180ms var(--ease-out), border-color 180ms var(--ease-out);
+        }
+        .k-exit:hover, .k-exit:focus-visible { color: #94a3b8; border-color: rgba(255,255,255,.2); }
 
         .k-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
 
@@ -70,7 +79,7 @@
             transition: background-color 260ms var(--ease-out);
         }
         .k-word {
-            font-family: 'Montserrat', sans-serif; font-weight: 800;
+            font-family: 'Fraunces', Georgia, serif; font-weight: 800;
             font-size: clamp(2.6rem, 6vw, 5.5rem);
             line-height: .98; letter-spacing: -.03em;
             color: #64748b;
@@ -118,7 +127,7 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             gap: 26px; text-align: center; padding: 32px; cursor: pointer;
         }
-        .k-start h1 { font-size: clamp(1.8rem, 4vw, 3rem); font-weight: 800; }
+        .k-start h1 { font-size: clamp(1.8rem, 4vw, 3rem); font-weight: 800; color: #fff; }
         .k-start p { color: #94a3b8; font-size: 1.1rem; max-width: 34rem; }
         .k-start-cta {
             margin-top: 8px; padding: 20px 46px; border-radius: 12px;
@@ -149,6 +158,12 @@
             <div class="k-meta">
                 <span class="k-status" id="kStatus"><i class="fas fa-circle"></i><span id="kStatusText">Offline</span></span>
                 <span class="k-clock" id="kClock">--:--</span>
+                <!-- Deliberately low-contrast: an operator needs a way out,
+                     a worker at the gate shouldn't be invited to press it.
+                     Esc does the same thing. -->
+                <a href="pi-home.html" class="k-exit" id="kExit" title="Exit checkpoint (Esc)" aria-label="Exit checkpoint">
+                    <i class="fas fa-xmark"></i>
+                </a>
             </div>
         </header>
 
@@ -190,9 +205,9 @@
         <button class="k-start-cta" id="kStartBtn">Activate Checkpoint</button>
     </div>
 
-    <script src="js/config.js?v=20260803a"></script>
-    <script src="js/auth.js?v=20260803a"></script>
-    <script src="js/camera.js?v=20260803a"></script>
+    <script src="js/config.js?v=20260804b"></script>
+    <script src="js/auth.js?v=20260804b"></script>
+    <script src="js/camera.js?v=20260804b"></script>
     <script>
         const el = (id) => document.getElementById(id);
         let poll = null, cam = null, lastVerdict = null;
@@ -317,6 +332,12 @@
                 navigator.wakeLock.request('screen').catch(() => { /* not critical */ });
             }
         }
+
+        // Esc leaves the checkpoint. Without this the page is a trap: no nav,
+        // no cursor, nothing to click.
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') window.location.href = 'pi-home.html';
+        });
 
         el('kStartBtn').addEventListener('click', activate);
         el('kStart').addEventListener('click', (e) => { if (e.target === el('kStart')) activate(); });
