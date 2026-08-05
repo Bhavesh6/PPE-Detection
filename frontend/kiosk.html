@@ -183,18 +183,8 @@
                     <div class="k-word" id="kWord">Step Up</div>
                     <div class="k-note" id="kNote">Stand in front of the camera to be checked.</div>
                 </div>
-                <div class="k-checks">
-                    <div class="k-check" data-state="idle" id="kHardhat">
-                        <span class="k-check-icon"><i class="fas fa-hard-hat"></i></span>
-                        <span class="k-check-name">Hardhat</span>
-                        <span class="k-check-mark" id="kHardhatMark"><i class="fas fa-minus"></i></span>
-                    </div>
-                    <div class="k-check" data-state="idle" id="kVest">
-                        <span class="k-check-icon"><i class="fas fa-vest"></i></span>
-                        <span class="k-check-name">Safety Vest</span>
-                        <span class="k-check-mark" id="kVestMark"><i class="fas fa-minus"></i></span>
-                    </div>
-                </div>
+                <!-- Built from the site's configured policy, not hardcoded. -->
+                <div class="k-checks" id="kChecks"></div>
             </section>
         </div>
     </div>
@@ -224,10 +214,45 @@
             el('kStatusText').textContent = text;
         }
 
-        function setCheck(rowId, markId, state) {
-            el(rowId).dataset.state = state;
+        // Requirements come from the site's policy, so this gate display
+        // never advertises something the gate no longer checks.
+        let requiredPpe = [];
+
+        const PPE_ICONS = {
+            'Hardhat': 'fa-hard-hat',
+            'Safety Vest': 'fa-vest',
+            'Mask': 'fa-head-side-mask',
+        };
+
+        const slug = (item) => item.replace(/[^a-z0-9]/gi, '');
+
+        function renderChecks() {
+            el('kChecks').innerHTML = requiredPpe.map((item) => `
+                <div class="k-check" data-state="idle" id="k-${slug(item)}">
+                    <span class="k-check-icon"><i class="fas ${PPE_ICONS[item] || 'fa-shield-halved'}"></i></span>
+                    <span class="k-check-name">${item}</span>
+                    <span class="k-check-mark" id="kmark-${slug(item)}"><i class="fas fa-minus"></i></span>
+                </div>`).join('');
+        }
+
+        function syncRequirements(list) {
+            if (!Array.isArray(list)) return;
+            if (JSON.stringify(list) === JSON.stringify(requiredPpe)) return;
+            requiredPpe = list;
+            renderChecks();
+        }
+
+        function setCheck(item, state) {
+            const row = el(`k-${slug(item)}`);
+            const mark = el(`kmark-${slug(item)}`);
+            if (!row || !mark) return;
+            row.dataset.state = state;
             const icon = state === 'ok' ? 'fa-check' : state === 'bad' ? 'fa-xmark' : 'fa-minus';
-            el(markId).innerHTML = `<i class="fas ${icon}"></i>`;
+            mark.innerHTML = `<i class="fas ${icon}"></i>`;
+        }
+
+        function setAllChecks(state) {
+            requiredPpe.forEach((item) => setCheck(item, state));
         }
 
         function render(verdict, missing) {
@@ -236,22 +261,19 @@
                 panel.dataset.state = 'granted';
                 el('kWord').textContent = 'Access Granted';
                 el('kNote').textContent = 'All required equipment detected. You may enter.';
-                setCheck('kHardhat', 'kHardhatMark', 'ok');
-                setCheck('kVest', 'kVestMark', 'ok');
+                setAllChecks('ok');
             } else if (verdict === 'denied') {
                 panel.dataset.state = 'denied';
                 el('kWord').textContent = 'Access Denied';
                 el('kNote').textContent = missing.length
                     ? `Put on: ${missing.join(' and ')}.`
                     : 'Required equipment not detected.';
-                setCheck('kHardhat', 'kHardhatMark', missing.includes('Hardhat') ? 'bad' : 'ok');
-                setCheck('kVest', 'kVestMark', missing.includes('Safety Vest') ? 'bad' : 'ok');
+                requiredPpe.forEach((item) => setCheck(item, missing.includes(item) ? 'bad' : 'ok'));
             } else {
                 panel.dataset.state = 'idle';
                 el('kWord').textContent = 'Step Up';
                 el('kNote').textContent = 'Stand in front of the camera to be checked.';
-                setCheck('kHardhat', 'kHardhatMark', 'idle');
-                setCheck('kVest', 'kVestMark', 'idle');
+                setAllChecks('idle');
             }
 
             // Speak only on a change, so it doesn't chatter every poll.
@@ -285,6 +307,7 @@
                 const res = await Auth.fetch('/api/status');
                 if (!res.ok) return;
                 const d = await res.json();
+                syncRequirements(d.required_ppe || []);
                 render(d.verdict, d.missing_ppe || []);
             } catch (e) { /* transient */ }
         }

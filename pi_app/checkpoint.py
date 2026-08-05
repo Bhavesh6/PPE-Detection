@@ -102,6 +102,9 @@ class State:
     detections: list = field(default_factory=list)
     verdict: str = "no_person"
     missing: list = field(default_factory=list)
+    # What this site requires, as reported by the server. Not hardcoded —
+    # an administrator can change the policy while the gate is running.
+    required: list = field(default_factory=lambda: ["Hardhat", "Safety Vest"])
     connected: bool = False
     message: str = ""
     running: bool = True
@@ -254,6 +257,8 @@ def capture_loop(state: State, api: ApiClient) -> None:
                     state.detections = result.get("detections", [])
                     state.verdict = result.get("verdict", "no_person")
                     state.missing = result.get("missing_ppe", [])
+                    if result.get("required_ppe"):
+                        state.required = result["required_ppe"]
 
     cap.release()
 
@@ -386,12 +391,12 @@ class CheckpointApp:
                              anchor="w", justify="left", font=t.body)
 
         # --- requirements
+        # Built from whatever the server says this site requires, and rebuilt
+        # if that changes, so the gate never lists gear it no longer checks.
         self.checks_box = tk.Frame(panel, bg=ui.PANEL)
         self.checks = {}
-        for item in ("Hardhat", "Safety Vest"):
-            row = CheckRow(self.checks_box, item, t)
-            row.pack(fill="x", pady=4)
-            self.checks[item] = row
+        self._checks_for = None
+        self._build_checks(list(state.required))
 
         # --- footer: meter + hint
         foot = tk.Frame(panel, bg=ui.PANEL)
@@ -402,6 +407,19 @@ class CheckpointApp:
         self.hint = tk.Label(foot, text="", bg=ui.PANEL, fg=ui.FAINT,
                              anchor="w", font=t.eyebrow)
         self.hint.pack(fill="x")
+
+    def _build_checks(self, items: list) -> None:
+        """(Re)create the requirement rows for the current site policy."""
+        if items == self._checks_for:
+            return
+        for row in self.checks.values():
+            row.destroy()
+        self.checks = {}
+        for item in items:
+            row = CheckRow(self.checks_box, item, self.type)
+            row.pack(fill="x", pady=4)
+            self.checks[item] = row
+        self._checks_for = list(items)
 
     # ---------------------------------------------------------------- layout
     def _fit_text(self, event) -> None:
@@ -515,6 +533,10 @@ class CheckpointApp:
                 text=f"SCAN AGAIN WHEN READY  ·  CLEARS IN {snap['hold_left']}s",
                 fg=ui.BAD_DIM)
 
+        # Rebuild first in case an administrator changed the policy since the
+        # last frame; set_state below then applies to the current rows.
+        self._build_checks(snap["required"])
+
         for item, row in self.checks.items():
             if mode == PROFILE and snap["verdict"] == "no_person":
                 row.set_state("idle")
@@ -601,6 +623,7 @@ class CheckpointApp:
                 "detections": list(self.state.detections),
                 "verdict": self.state.verdict,
                 "missing": list(self.state.missing),
+                "required": list(self.state.required),
                 "connected": self.state.connected,
                 "message": self.state.message,
                 "mode": mode,

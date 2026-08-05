@@ -86,18 +86,12 @@
                             <div class="card-head">
                                 <span class="card-title"><i class="fas fa-list-check"></i>Entry Requirements</span>
                             </div>
-                            <div class="card-body" style="padding-top:4px;padding-bottom:4px">
-                                <div class="check-row" data-state="idle" id="checkHardhat">
-                                    <span class="check-name">
-                                        <span class="check-icon"><i class="fas fa-hard-hat"></i></span>Hardhat
-                                    </span>
-                                    <span class="badge badge-muted" id="badgeHardhat">Waiting</span>
-                                </div>
-                                <div class="check-row" data-state="idle" id="checkVest">
-                                    <span class="check-name">
-                                        <span class="check-icon"><i class="fas fa-vest"></i></span>Safety Vest
-                                    </span>
-                                    <span class="badge badge-muted" id="badgeVest">Waiting</span>
+                            <!-- Rendered from the site's configured policy, not
+                                 hardcoded — the list has to change when an
+                                 administrator changes what the gate requires. -->
+                            <div class="card-body" style="padding-top:4px;padding-bottom:4px" id="checkList">
+                                <div class="check-row" data-state="idle">
+                                    <span class="check-name">Loading requirements…</span>
                                 </div>
                             </div>
                         </section>
@@ -171,16 +165,63 @@
             el('liveText').textContent = text;
         }
 
-        function setCheck(rowId, badgeId, state, label, badgeClass) {
-            el(rowId).dataset.state = state;
-            const badge = el(badgeId);
+        // The site's configured requirements, filled in from /api/status.
+        let requiredPpe = [];
+
+        const PPE_ICONS = {
+            'Hardhat': 'fa-hard-hat',
+            'Safety Vest': 'fa-vest',
+            'Mask': 'fa-head-side-mask',
+        };
+
+        function slug(item) {
+            return item.replace(/[^a-z0-9]/gi, '');
+        }
+
+        function renderCheckList() {
+            const host = el('checkList');
+            if (!requiredPpe.length) {
+                host.innerHTML = '<div class="check-row" data-state="idle"><span class="check-name">No requirements configured.</span></div>';
+                return;
+            }
+            host.innerHTML = requiredPpe.map((item) => `
+                <div class="check-row" data-state="idle" id="check-${slug(item)}">
+                    <span class="check-name">
+                        <span class="check-icon"><i class="fas ${PPE_ICONS[item] || 'fa-shield-halved'}"></i></span>${item}
+                    </span>
+                    <span class="badge badge-muted" id="badge-${slug(item)}">Waiting</span>
+                </div>`).join('');
+        }
+
+        function setCheck(item, state, label, badgeClass) {
+            const row = el(`check-${slug(item)}`);
+            const badge = el(`badge-${slug(item)}`);
+            if (!row || !badge) return;
+            row.dataset.state = state;
             badge.className = `badge ${badgeClass}`;
             badge.textContent = label;
         }
 
         function resetChecks() {
-            setCheck('checkHardhat', 'badgeHardhat', 'idle', 'Waiting', 'badge-muted');
-            setCheck('checkVest', 'badgeVest', 'idle', 'Waiting', 'badge-muted');
+            requiredPpe.forEach((item) => setCheck(item, 'idle', 'Waiting', 'badge-muted'));
+        }
+
+        // Only rebuild when the list actually differs — re-rendering on every
+        // poll would wipe the Detected/Missing badges twice a second.
+        function syncRequirements(list) {
+            if (!Array.isArray(list)) return;
+            if (JSON.stringify(list) === JSON.stringify(requiredPpe)) return;
+            requiredPpe = list;
+            renderCheckList();
+        }
+
+        async function loadRequirements() {
+            try {
+                const res = await Auth.fetch('/api/status');
+                if (!res.ok) return;
+                const data = await res.json();
+                syncRequirements(data.required_ppe || []);
+            } catch (e) { /* the poll will pick it up once the API is reachable */ }
         }
 
         function renderVerdict(verdict, missing) {
@@ -215,16 +256,13 @@
 
         function applyChecks(verdict, missing) {
             if (verdict === 'no_person') return resetChecks();
-            const missHardhat = missing.includes('Hardhat');
-            const missVest = missing.includes('Safety Vest');
-            setCheck('checkHardhat', 'badgeHardhat',
-                missHardhat ? 'bad' : 'ok',
-                missHardhat ? 'Missing' : 'Detected',
-                missHardhat ? 'badge-danger' : 'badge-ok');
-            setCheck('checkVest', 'badgeVest',
-                missVest ? 'bad' : 'ok',
-                missVest ? 'Missing' : 'Detected',
-                missVest ? 'badge-danger' : 'badge-ok');
+            requiredPpe.forEach((item) => {
+                const isMissing = missing.includes(item);
+                setCheck(item,
+                    isMissing ? 'bad' : 'ok',
+                    isMissing ? 'Missing' : 'Detected',
+                    isMissing ? 'badge-danger' : 'badge-ok');
+            });
         }
 
         function speak(msg) {
@@ -316,6 +354,11 @@
                     el('mGranted').textContent = data.gate?.granted ?? 0;
                     el('mDenied').textContent = data.gate?.denied ?? 0;
 
+                    // Re-render if an administrator changed the policy while
+                    // this checkpoint was running, so the panel never claims
+                    // to require something the gate no longer checks.
+                    syncRequirements(data.required_ppe);
+
                     const missing = data.missing_ppe || [];
                     renderVerdict(data.verdict, missing);
                     applyChecks(data.verdict, missing);
@@ -345,6 +388,9 @@
         el('startButton').addEventListener('click', start);
         el('stopButton').addEventListener('click', stop);
         el('retryButton').addEventListener('click', () => { stop().then(start); });
+
+        // Show what this gate requires before anyone presses Start.
+        loadRequirements();
     </script>
 </body>
 </html>

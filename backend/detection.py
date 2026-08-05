@@ -278,6 +278,9 @@ def process_socket_frame():
             "detections": detections,
             "verdict": verdict,
             "missing_ppe": missing,
+            # The gate device renders its requirement list from this, so a
+            # policy change reaches the panel without restarting it.
+            "required_ppe": list(site_settings.get("required_ppe")),
         })
 
     except Exception as exc:  # noqa: BLE001 - surfaced to the caller as JSON
