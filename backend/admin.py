@@ -8,11 +8,12 @@ from functools import wraps
 from flask import Blueprint, Response, jsonify, request, send_file
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+import audit
 import evidence
 import site_settings
 from detection import get_all_states, remove_state
 from extensions import db
-from models import AttendanceRecord, DetectionRecord, User
+from models import AttendanceRecord, AuditEvent, DetectionRecord, User
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -109,10 +110,25 @@ def delete_user(user_id):
     if user is None:
         return jsonify({"success": False, "message": "User not found"}), 404
 
+    # Read before deletion — after the commit there's nothing left to name.
+    removed = {
+        "name": user.name,
+        "email": user.email,
+        "employee_id": user.employee_id,
+        "was_admin": user.is_admin,
+    }
+    record_count = DetectionRecord.query.filter_by(user_id=user_id).count()
+
     DetectionRecord.query.filter_by(user_id=user_id).delete()
     db.session.delete(user)
     db.session.commit()
     remove_state(str(user_id))
+
+    audit.record(
+        audit.USER_DELETED,
+        f"Deleted {removed['name']} ({removed['email']}) and {record_count} gate record(s)",
+        detail=removed,
+    )
     return jsonify({"success": True, "message": "User deleted"})
 
 
@@ -187,6 +203,30 @@ def violation_evidence(record_id):
     return send_file(path, mimetype="image/jpeg")
 
 
+@admin_bp.route("/audit", methods=["GET"])
+@admin_required
+def list_audit():
+    """The trail of changes to how the gate behaves.
+
+    Read-only by design: there is no endpoint to edit or delete entries,
+    because a log an administrator can quietly rewrite proves nothing.
+    """
+    page = max(int(request.args.get("page", 1)), 1)
+    per_page = min(int(request.args.get("per_page", 50)), 200)
+
+    query = AuditEvent.query.order_by(AuditEvent.timestamp.desc())
+    total = query.count()
+    rows = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    return jsonify({
+        "success": True,
+        "events": [e.to_dict() for e in rows],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+    })
+
+
 @admin_bp.route("/settings", methods=["GET"])
 @admin_required
 def read_settings():
@@ -208,9 +248,19 @@ def read_settings():
 @admin_required
 def write_settings():
     changes = request.get_json(silent=True) or {}
+    # Captured before the write, since the audit entry has to say what
+    # changed rather than just what it ended up as.
+    before = site_settings.get_all()
+
     settings, error = site_settings.update(changes)
     if error:
         return jsonify({"success": False, "message": error}), 400
+
+    audit.record(
+        audit.POLICY_CHANGED,
+        audit.describe_policy_change(before, settings),
+        detail={"before": before, "after": settings},
+    )
     return jsonify({"success": True, "settings": settings})
 
 

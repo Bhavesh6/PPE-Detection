@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Change Log — SafetyFirst Admin</title>
+    <meta name="description" content="Who changed the checkpoint's settings, and when.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260805m">
+    <style>
+        /* A timeline rather than a table: these entries are read in order,
+           and the spine makes the sequence the primary thing. */
+        .trail { position: relative; padding: 4px 0 4px 30px; }
+        .trail::before {
+            content: ''; position: absolute; left: 9px; top: 12px; bottom: 12px;
+            width: 2px; background: var(--border);
+        }
+        .entry { position: relative; padding: 14px 0; }
+        .entry + .entry { border-top: 1px solid var(--border); }
+        .entry::before {
+            content: ''; position: absolute; left: -25px; top: 20px;
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--surface); border: 2px solid var(--border);
+        }
+        .entry[data-weakened="true"]::before { border-color: var(--danger); background: var(--danger-soft); }
+        .entry-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+        .entry-actor { font-weight: 600; font-size: .9rem; }
+        .entry-when { font-size: .74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+        .entry-summary { font-size: .86rem; color: var(--muted); margin-top: 3px; }
+        .entry-detail {
+            margin-top: 8px; font-size: .76rem; color: var(--faint);
+            background: var(--surface-alt); border-radius: var(--radius);
+            padding: 8px 11px; display: none; white-space: pre-wrap;
+            font-family: ui-monospace, monospace;
+        }
+        .entry.is-open .entry-detail { display: block; }
+        .entry-toggle {
+            background: none; border: none; cursor: pointer; padding: 0;
+            font-size: .74rem; font-weight: 600; color: var(--accent); margin-top: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-clock-rotate-left"></i>Changes</span>
+                        <span class="text-xs" style="color:var(--faint)" id="auditCount"></span>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-xs" style="color:var(--muted);margin:0 0 14px">
+                            Every change to what the gate requires, and to who can use it.
+                            Gate decisions themselves are recorded separately under
+                            <a href="violations.html" style="color:var(--accent);font-weight:600">Captures</a>.
+                        </p>
+                        <div class="trail" id="trail">
+                            <div style="color:var(--faint);font-size:.86rem">Loading…</div>
+                        </div>
+                    </div>
+                    <div class="card-head" style="border-bottom:none;border-top:1px solid var(--border)">
+                        <span class="text-xs" style="color:var(--faint)" id="pageInfo"></span>
+                        <div class="flex gap-2">
+                            <button id="prevBtn" class="btn btn-outline btn-sm">Previous</button>
+                            <button id="nextBtn" class="btn btn-outline btn-sm">Next</button>
+                        </div>
+                    </div>
+                </section>
+
+                <p class="text-xs mt-5" style="color:var(--faint)">
+                    <i class="fas fa-lock mr-1"></i>
+                    This log is append-only — there is no way to edit or delete an entry,
+                    including for administrators.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260805m"></script>
+    <script src="js/auth.js?v=20260805m"></script>
+    <script src="js/shell.js?v=20260805m"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('audit', {
+            title: 'Change Log',
+            subtitle: 'Who changed how the gate behaves, and when',
+        });
+
+        const el = (id) => document.getElementById(id);
+        let page = 1;
+        const perPage = 50;
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        const ACTION_LABEL = {
+            'policy.changed': 'Checkpoint policy',
+            'user.deleted': 'Personnel',
+            'worker.updated': 'Personnel',
+        };
+
+        // A change that reduces what the gate demands is the one worth
+        // spotting in a long list, so it gets marked rather than blending in.
+        function weakensGate(e) {
+            if (e.action !== 'policy.changed') return false;
+            return /stopped requiring/.test(e.summary || '');
+        }
+
+        function render(events) {
+            const host = el('trail');
+            if (!events.length) {
+                host.innerHTML = '<div style="color:var(--faint);font-size:.86rem">'
+                    + 'No changes recorded yet. Settings changes will appear here.</div>';
+                return;
+            }
+            host.innerHTML = events.map((e) => {
+                const when = new Date(e.timestamp);
+                const detail = e.detail ? JSON.stringify(e.detail, null, 2) : '';
+                return `
+                    <div class="entry" data-weakened="${weakensGate(e)}">
+                        <div class="entry-head">
+                            <span class="entry-actor">${escapeHtml(e.actor_name)}</span>
+                            <span class="badge badge-muted" style="font-size:.62rem">${escapeHtml(ACTION_LABEL[e.action] || e.action)}</span>
+                            <span class="entry-when">${when.toLocaleString()}</span>
+                        </div>
+                        <div class="entry-summary">${escapeHtml(e.summary)}</div>
+                        ${detail ? `<button type="button" class="entry-toggle">Show exact values</button>
+                        <div class="entry-detail">${escapeHtml(detail)}</div>` : ''}
+                    </div>`;
+            }).join('');
+        }
+
+        el('trail').addEventListener('click', (e) => {
+            const btn = e.target.closest('.entry-toggle');
+            if (!btn) return;
+            const entry = btn.closest('.entry');
+            const open = entry.classList.toggle('is-open');
+            btn.textContent = open ? 'Hide exact values' : 'Show exact values';
+        });
+
+        async function load() {
+            try {
+                const res = await Auth.fetch(`/api/admin/audit?page=${page}&per_page=${perPage}`);
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+                render(d.events);
+
+                const totalPages = Math.max(Math.ceil(d.total / perPage), 1);
+                el('auditCount').textContent = d.total ? `${d.total} recorded` : '';
+                el('pageInfo').textContent = `Page ${d.page} of ${totalPages}`;
+                el('prevBtn').disabled = page <= 1;
+                el('nextBtn').disabled = page >= totalPages;
+            } catch (e) {
+                el('trail').innerHTML = '<div style="color:var(--danger);font-size:.86rem">Could not load the change log.</div>';
+            }
+        }
+
+        el('prevBtn').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+        el('nextBtn').addEventListener('click', () => { page++; load(); });
+
+        load();
+    </script>
+</body>
+</html>

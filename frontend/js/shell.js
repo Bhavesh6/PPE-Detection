@@ -17,6 +17,7 @@ const Shell = {
     { id: 'reports', href: 'reports.html', icon: 'fa-file-lines', label: 'Reports', adminOnly: true },
     { id: 'analytics', href: 'analytics.html', icon: 'fa-chart-simple', label: 'Analytics', adminOnly: true },
     { id: 'settings', href: 'settings.html', icon: 'fa-sliders', label: 'Checkpoint Policy', adminOnly: true },
+    { id: 'audit', href: 'audit.html', icon: 'fa-scroll', label: 'Change Log', adminOnly: true },
     { section: 'Device', deviceOnly: true },
     { id: 'pihome', href: 'pi-home.html', icon: 'fa-tablet-screen-button', label: 'Device Home', deviceOnly: true },
     { id: 'kiosk', href: 'kiosk.html', icon: 'fa-expand', label: 'Checkpoint Display', deviceOnly: true },

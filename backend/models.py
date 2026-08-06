@@ -155,3 +155,42 @@ class DetectionRecord(db.Model):
             "policy": json.loads(self.policy_json) if self.policy_json else None,
             "has_evidence": bool(self.evidence_file),
         }
+
+
+class AuditEvent(db.Model):
+    """Who changed what, and when.
+
+    The gate's own decisions are already recorded, but the settings that
+    govern those decisions were not. Someone could lower the required
+    equipment to nothing, walk people through, and set it back, and no
+    record anywhere would show it — which makes every compliance figure
+    downstream unfalsifiable.
+
+    Append-only by intent: there is no endpoint that edits or deletes these.
+    """
+
+    __tablename__ = "audit_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                          nullable=False, index=True)
+
+    # Kept alongside the id so the trail still reads correctly after the
+    # account is deleted — "user 7 did this" is useless once 7 is gone.
+    actor_id = db.Column(db.Integer, nullable=True, index=True)
+    actor_name = db.Column(db.String(120), nullable=False, default="Unknown")
+
+    action = db.Column(db.String(60), nullable=False, index=True)
+    summary = db.Column(db.String(255), nullable=False, default="")
+    detail_json = db.Column(db.Text, nullable=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp.isoformat(),
+            "actor_id": self.actor_id,
+            "actor_name": self.actor_name,
+            "action": self.action,
+            "summary": self.summary,
+            "detail": json.loads(self.detail_json) if self.detail_json else None,
+        }
