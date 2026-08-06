@@ -1,6 +1,7 @@
 import base64
 import json
 import threading
+import time
 from datetime import datetime, timezone
 
 import cv2
@@ -34,6 +35,10 @@ VERDICT_NO_PERSON = "no_person"
 # counting it as a decision would let anyone inflate the numbers.
 VERDICT_SNAPSHOT = "snapshot"
 
+# Frames of inference timing kept per session — enough to smooth out a
+# single slow frame, short enough to still show a real slowdown.
+INFERENCE_WINDOW = 30
+
 
 def evaluate_access(detections):
     """Decide whether the gate should open for the person in this frame.
@@ -56,6 +61,44 @@ def evaluate_access(detections):
     ]
     verdict = VERDICT_DENIED if missing else VERDICT_GRANTED
     return verdict, missing
+
+
+def _record_inference(state, elapsed_ms):
+    """Track a rolling window of inference times.
+
+    A window rather than a running average: an average over a long session
+    hides the slowdown you actually care about, because thousands of good
+    frames drown out the recent bad ones.
+
+    The first inference of a session is discarded. It runs one-off setup —
+    memory arenas, kernel selection — and measures far slower than anything
+    after it: on this machine ~11,800ms against a steady ~170ms. Averaged
+    in, it would report a fraction of a frame per second for the first
+    half-minute of every session and libel a model that's running fine.
+    """
+    if not state["inference_warmed"]:
+        state["inference_warmed"] = True
+        return
+
+    samples = state["inference_ms"]
+    samples.append(elapsed_ms)
+    if len(samples) > INFERENCE_WINDOW:
+        del samples[:-INFERENCE_WINDOW]
+
+
+def _inference_stats(state):
+    samples = state["inference_ms"]
+    if not samples:
+        return {"avg_ms": None, "last_ms": None, "fps": None, "samples": 0}
+    avg = sum(samples) / len(samples)
+    return {
+        "avg_ms": round(avg, 1),
+        "last_ms": round(samples[-1], 1),
+        # What the model could sustain if nothing else were in the way —
+        # not the rate the browser is actually sending frames at.
+        "fps": round(1000.0 / avg, 1) if avg > 0 else None,
+        "samples": len(samples),
+    }
 
 
 def _annotate(frame, detections, required):
@@ -121,6 +164,8 @@ def _new_state():
         # active session (~1MB); released on stop().
         "last_frame": None,
         "last_detections": [],
+        "inference_ms": [],
+        "inference_warmed": False,
     }
 
 
@@ -196,6 +241,10 @@ def stop_detection():
     # checkpoint stops.
     state["last_frame"] = None
     state["last_detections"] = []
+    # Timings belong to the run that produced them; carrying them into the
+    # next session would report a speed that machine isn't achieving now.
+    state["inference_ms"] = []
+    state["inference_warmed"] = False
     return jsonify({"success": True, "message": "Detection stopped"})
 
 
@@ -214,6 +263,7 @@ def get_status():
         "missing_ppe": state["missing_ppe"],
         "gate": state["gate"],
         "required_ppe": list(site_settings.get("required_ppe")),
+        "inference": _inference_stats(state),
     })
 
 
@@ -326,9 +376,17 @@ def process_socket_frame():
 
         # draw=False: the browser already has the raw frame on <video> and
         # draws its own overlay from the returned box coordinates.
+        #
+        # Timed around the model call only — decode and JSON aren't inference,
+        # and lumping them in would flatter or blame the model for work it
+        # didn't do. This is the number that should change when the AI HAT
+        # takes over from the CPU.
+        inference_started = time.perf_counter()
         _, detections = process_frame(
             frame, model, draw=False, conf=site_settings.get("confidence_threshold")
         )
+        inference_ms = (time.perf_counter() - inference_started) * 1000.0
+        _record_inference(state, inference_ms)
 
         timestamp = datetime.now(timezone.utc).strftime("%H:%M:%S")
         _update_counts(state, detections)
@@ -398,6 +456,7 @@ def process_socket_frame():
             # The gate device renders its requirement list from this, so a
             # policy change reaches the panel without restarting it.
             "required_ppe": list(required),
+            "inference": _inference_stats(state),
         })
 
     except Exception as exc:  # noqa: BLE001 - surfaced to the caller as JSON

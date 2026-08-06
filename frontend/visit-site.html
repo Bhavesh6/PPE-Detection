@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260805j">
+    <link rel="stylesheet" href="css/app.css?v=20260805k">
 </head>
 <body>
     <div class="app">
@@ -62,7 +62,15 @@
                     <section class="card lg:col-span-2">
                         <div class="card-head">
                             <span class="card-title"><i class="fas fa-video"></i>Checkpoint Camera</span>
-                            <span class="badge badge-muted" id="camBadge">Standby</span>
+                            <div class="flex items-center gap-2">
+                                <!-- Model throughput. Worth showing on its own terms, and it
+                                     becomes the number that proves on-device inference is
+                                     working once the AI HAT takes over from the CPU. -->
+                                <span class="badge badge-muted" id="perfBadge" title="Model inference speed" hidden>
+                                    <i class="fas fa-gauge-high"></i><span id="perfText">—</span>
+                                </span>
+                                <span class="badge badge-muted" id="camBadge">Standby</span>
+                            </div>
                         </div>
                         <div class="video-stage">
                             <div class="video-idle" id="cameraPlaceholder">
@@ -118,10 +126,10 @@
         </main>
     </div>
 
-    <script src="js/config.js?v=20260805j"></script>
-    <script src="js/auth.js?v=20260805j"></script>
-    <script src="js/shell.js?v=20260805j"></script>
-    <script src="js/camera.js?v=20260805j"></script>
+    <script src="js/config.js?v=20260805k"></script>
+    <script src="js/auth.js?v=20260805k"></script>
+    <script src="js/shell.js?v=20260805k"></script>
+    <script src="js/camera.js?v=20260805k"></script>
     <script>
         Auth.requireAuth();
         Shell.render('gate', {
@@ -216,6 +224,23 @@
             renderCheckList();
             // The overlay filters by the same policy.
             if (cameraFeedInstance) cameraFeedInstance.requiredPpe = requiredPpe;
+        }
+
+        function renderPerf(stats) {
+            const badge = el('perfBadge');
+            if (!stats || !stats.samples) {
+                badge.hidden = true;
+                return;
+            }
+            badge.hidden = false;
+            el('perfText').textContent = `${stats.fps} fps · ${stats.avg_ms} ms`;
+            // Colour by what the number means for a gate: below ~5 fps a
+            // person can walk through between frames.
+            badge.className = 'badge ' + (
+                stats.fps >= 10 ? 'badge-ok' : stats.fps >= 5 ? 'badge-amber' : 'badge-danger'
+            );
+            badge.title = `Model inference only, averaged over the last ${stats.samples} frames `
+                        + `(most recent ${stats.last_ms} ms). Excludes network and browser time.`;
         }
 
         // Mirrors CameraFeed.isRelevant so the log and the overlay agree.
@@ -343,6 +368,7 @@
             el('startButton').disabled = false;
             el('stopButton').disabled = true;
             el('snapButton').disabled = true;
+            el('perfBadge').hidden = true;
             el('videoFeed').classList.add('hidden');
             el('overlayCanvas').classList.add('hidden');
             el('cameraPlaceholder').classList.remove('hidden');
@@ -369,6 +395,7 @@
                     el('mViolationsTotal').textContent = data.totals?.violations ?? 0;
                     el('mGranted').textContent = data.gate?.granted ?? 0;
                     el('mDenied').textContent = data.gate?.denied ?? 0;
+                    renderPerf(data.inference);
 
                     // Re-render if an administrator changed the policy while
                     // this checkpoint was running, so the panel never claims
