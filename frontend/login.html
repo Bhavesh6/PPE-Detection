@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260805m">
+    <link rel="stylesheet" href="css/app.css?v=20260806b">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         /* Same language as the public site: warm paper, serif headline,
@@ -126,15 +126,15 @@
                 <div class="rule"><span>or</span></div>
 
                 <button id="guestBtn" type="button" class="btn btn-outline" style="width:100%">Continue as guest</button>
-                <p class="foot-note">Try the checkpoint now — no account needed, nothing saved.</p>
+                <p class="foot-note">Try the checkpoint now — no account needed, no password to remember.</p>
             </div>
         </div>
 
         <a href="index.html" class="back"><i class="fas fa-arrow-left" style="margin-right:6px"></i>Back to home</a>
     </div>
 
-    <script src="js/config.js?v=20260805m"></script>
-    <script src="js/auth.js?v=20260805m"></script>
+    <script src="js/config.js?v=20260806b"></script>
+    <script src="js/auth.js?v=20260806b"></script>
     <script>
         Auth.redirectIfLoggedIn();
 
@@ -234,6 +234,11 @@
             e.preventDefault();
             clearError();
             const submitBtn = document.getElementById('loginSubmitBtn');
+            // Captured live rather than retyped below — a hand-typed reset
+            // string ("Sign In") previously drifted from the real markup
+            // ("Sign in") and the button's casing changed permanently after
+            // the first failed attempt.
+            const originalLabel = submitBtn.textContent;
             submitBtn.disabled = true;
             submitBtn.textContent = 'Signing in...';
 
@@ -257,7 +262,7 @@
                 showError('Could not reach the server. Is the API running?');
             } finally {
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Sign In';
+                submitBtn.textContent = originalLabel;
             }
         });
 
@@ -266,6 +271,7 @@
             e.preventDefault();
             clearError();
             const submitBtn = document.getElementById('signupSubmitBtn');
+            const originalLabel = submitBtn.textContent;
             submitBtn.disabled = true;
             submitBtn.textContent = 'Creating account...';
 
@@ -290,7 +296,7 @@
                 showError('Could not reach the server. Is the API running?');
             } finally {
                 submitBtn.disabled = false;
-                submitBtn.textContent = 'Create Account';
+                submitBtn.textContent = originalLabel;
             }
         });
     </script>

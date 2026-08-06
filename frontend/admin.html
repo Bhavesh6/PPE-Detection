@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260805m">
+    <link rel="stylesheet" href="css/app.css?v=20260806b">
     <style>
         .modal-backdrop {
             position: fixed; inset: 0; z-index: var(--z-modal);
@@ -148,9 +148,9 @@
         </div>
     </div>
 
-    <script src="js/config.js?v=20260805m"></script>
-    <script src="js/auth.js?v=20260805m"></script>
-    <script src="js/shell.js?v=20260805m"></script>
+    <script src="js/config.js?v=20260806b"></script>
+    <script src="js/auth.js?v=20260806b"></script>
+    <script src="js/shell.js?v=20260806b"></script>
     <script>
         Auth.requireAdmin();
         Shell.render('admin', {
@@ -360,7 +360,10 @@
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Exporting…';
             try {
-                const res = await Auth.fetch('/api/admin/export/attendance.csv');
+                // The dedicated /export/attendance.csv route was folded into
+                // /reports/<id>.csv when Reports shipped; this button was
+                // missed in that change and was 404ing silently until now.
+                const res = await Auth.fetch('/api/admin/reports/gate-activity.csv');
                 if (!res.ok) throw new Error('Export failed');
                 const blob = await res.blob();
                 const disposition = res.headers.get('Content-Disposition') || '';

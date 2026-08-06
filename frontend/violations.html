@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/app.css?v=20260805m">
+    <link rel="stylesheet" href="css/app.css?v=20260806b">
     <style>
         .vio-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
         @media (max-width: 1100px) { .vio-layout { grid-template-columns: 1fr; } }
@@ -26,8 +26,12 @@
         .vio-row:hover { background: var(--surface-alt); }
         .vio-row.is-active { background: var(--accent-soft); border-left-color: var(--accent); }
         .vio-time { font-size: .74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-        .vio-name { font-weight: 600; font-size: .88rem; }
-        .vio-sub { font-size: .72rem; color: var(--faint); }
+        /* display:block on both — as inline spans (inside a plain span, not
+           a flex/grid parent) they share a line and the sub-line runs on
+           from the name. Same bug shape already fixed in settings.html,
+           reports.html and pi-home.html this session; missed here. */
+        .vio-name { display: block; font-weight: 600; font-size: .88rem; }
+        .vio-sub { display: block; font-size: .72rem; color: var(--faint); }
 
         .evidence-frame {
             position: relative;
@@ -106,9 +110,9 @@
         </main>
     </div>
 
-    <script src="js/config.js?v=20260805m"></script>
-    <script src="js/auth.js?v=20260805m"></script>
-    <script src="js/shell.js?v=20260805m"></script>
+    <script src="js/config.js?v=20260806b"></script>
+    <script src="js/auth.js?v=20260806b"></script>
+    <script src="js/shell.js?v=20260806b"></script>
     <script>
         Auth.requireAdmin();
         Shell.render('violations', {

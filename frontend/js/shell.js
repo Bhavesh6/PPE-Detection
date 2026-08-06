@@ -125,7 +125,7 @@ const Shell = {
       guestBanner.className = 'guest-banner';
       guestBanner.innerHTML = `
         <i class="fas fa-flask" aria-hidden="true"></i>
-        <span>You're trying SafetyFirst as a guest — nothing here is saved to an account.</span>
+        <span>You're trying SafetyFirst as a guest — this session can't be signed back into, but gate activity is still recorded like any other visit.</span>
         <a href="login.html?mode=signup">Create an account<i class="fas fa-arrow-right" aria-hidden="true"></i></a>`;
     }
 
