@@ -403,7 +403,8 @@
             <p style="color:var(--ink-soft);margin-top:16px">
                 Every decision is written down against a name, so a supervisor asked
                 what controls were in place has an answer made of records rather than
-                recollection.
+                recollection. A refusal keeps the frame that produced it — the model's
+                own boxes, burned in — so the answer isn't just a claim, it's a photograph.
             </p>
         </div>
         <figure>
@@ -475,23 +476,30 @@
                 <ul>
                     <li>Frame-by-frame verification</li>
                     <li>Named worker on screen</li>
+                    <li>Live model speed, in frames per second</li>
+                    <li>Manual snapshot, on demand</li>
                     <li>Spoken alert on refusal</li>
                 </ul>
             </article>
             <article class="surface">
-                <h3>Compliance Console</h3>
+                <h3>Admin Console</h3>
                 <p>What a supervisor opens on a Monday morning.</p>
                 <ul>
-                    <li>Site-wide compliance rate</li>
-                    <li>Who is on site today</li>
-                    <li>Per-person decision history</li>
+                    <li>Site-wide status: who's in, who's been turned away</li>
+                    <li>Refusals with the photograph that caused them</li>
+                    <li>Missing-PPE breakdown and time-of-day trends</li>
+                    <li>Per-worker compliance scorecard</li>
+                    <li>What's required, changeable without a redeploy</li>
+                    <li>A record of who changed it, and when</li>
+                    <li>Named reports, exportable for a chosen date range</li>
                 </ul>
             </article>
             <article class="surface">
-                <h3>Worker Records</h3>
+                <h3>My Profile</h3>
                 <p>What each person can see about themselves.</p>
                 <ul>
                     <li>Personal compliance rate</li>
+                    <li>Days present at the gate</li>
                     <li>Every entry decision, timestamped</li>
                     <li>Survives restarts</li>
                 </ul>
@@ -553,22 +561,27 @@
                     <li>PPE verified from any camera</li>
                     <li>Badge identifies the worker</li>
                     <li>Attendance marked on entry</li>
-                    <li>Permanent compliance record</li>
+                    <li>Refusals photographed, not just logged</li>
+                    <li>Required PPE set live, no redeploy</li>
+                    <li>Every policy change on the record</li>
+                    <li>Analytics, scorecards and named reports</li>
                 </ul>
             </div>
             <div class="phase">
                 <div class="phase-tag">Next</div>
                 <h3>The hardware</h3>
                 <ul>
+                    <li>RFID and the Pi app, on real hardware</li>
                     <li>Relay driving a real gate</li>
                     <li>On-device inference via AI HAT</li>
-                    <li>Supervisor alerts on refusal</li>
+                    <li>Live site location over GPS</li>
                 </ul>
             </div>
             <div class="phase">
                 <div class="phase-tag">Then</div>
                 <h3>The site</h3>
                 <ul>
+                    <li>Local queue when the link drops, synced after</li>
                     <li>Several gates, one console</li>
                     <li>Offline operation underground</li>
                     <li>Shift and contractor reporting</li>
@@ -628,8 +641,8 @@
 
 
 
-<script src="js/config.js?v=20260806b"></script>
-<script src="js/auth.js?v=20260806b"></script>
+<script src="js/config.js?v=20260807a"></script>
+<script src="js/auth.js?v=20260807a"></script>
 <script>
     // A signed-in visitor landing back on the marketing page shouldn't be
     // offered "Sign in" again — that's the one link on this page that
