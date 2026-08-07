@@ -151,6 +151,15 @@
         @media (max-width: 900px) {
             .k-body { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
         }
+        /* .k-bar is a nowrap flex row (brand left, clock/status/exit right) sized
+           for kiosk touchscreens (800x480 and up). At phone width the two sides
+           don't fit and html/body are overflow:hidden for the fullscreen kiosk
+           chrome, so the overflow isn't a scrollbar — it's clipped and gone.
+           Wrapping to two lines keeps everything visible instead. */
+        @media (max-width: 480px) {
+            .k-bar { flex-wrap: wrap; row-gap: 10px; padding: 14px 18px; }
+            .k-meta { gap: 14px; }
+        }
         @media (prefers-reduced-motion: reduce) {
             .k-start-cta:active { transform: none; }
         }
