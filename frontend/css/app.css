@@ -575,6 +575,15 @@ table.data tbody tr:hover { background: #fafbfd; }
      ambiguity entirely rather than tuning the minmax value. */
   .metrics { grid-template-columns: 1fr; }
   .metric + .metric { border-left: none; border-top: 1px solid var(--border); }
+
+  /* Same unwrapped-flex-row shape as .topbar above: a card-head packs a
+     title plus a right-side control cluster (kind-group filters, a live
+     pill, export/refresh buttons) in one nowrap row. A wide cluster
+     (admin.html's 4-button role filter, violations.html's 3-button kind
+     filter) doesn't fit next to the title at phone width and pushes the
+     whole page into horizontal scroll instead of dropping to new lines. */
+  .card-head { flex-wrap: wrap; row-gap: 8px; }
+  .card-head > div { flex-wrap: wrap; row-gap: 8px; }
 }
 
 /* -- TOUCH TARGETS ----------------------------------- */
