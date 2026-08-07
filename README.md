@@ -60,6 +60,14 @@ section to get it running.
   page has the history and a "simulate" trigger for testing without real
   sensor hardware, which posts to the same endpoint the ESP32-main board
   will use once it exists — nothing here changes when it arrives.
+- Threshold-based sensor readings: a device can report a raw value (e.g.
+  gas ppm) instead of deciding severity itself — the backend classifies it
+  against an admin-configured per-kind threshold (warning/critical level,
+  unit, and whether higher or lower is worse) and raises the same alert a
+  breach would. A kind with no threshold set just has its readings logged.
+  Configured on the Alerts page, alongside a small live readout of the
+  latest value per sensor. [`esp32-sim/`](esp32-sim/) can exercise this
+  without any real sensor.
 
 **Designed, not yet built:**
 
@@ -150,9 +158,9 @@ backend/
   app.py              Flask app factory, CORS, JWT/DB setup, startup migrations
   config.py            Env-driven settings (DB URL, secrets, evidence dir, CORS)
   extensions.py         SQLAlchemy + JWTManager instances
-  models.py              User, AttendanceRecord, DetectionRecord, SiteSetting, AuditEvent, SensorAlert
+  models.py              User, AttendanceRecord, DetectionRecord, SiteSetting, AuditEvent, SensorAlert, SensorReading
   auth.py                 /api/auth/* — signup, login, Google Sign-In, guest sessions
-  gate.py                  /api/gate/* — badge lookup, attendance, GPS report, alert report (device-facing)
+  gate.py                  /api/gate/* — badge lookup, attendance, GPS/alert/sensor-reading report (device-facing)
   detection.py              /api/start /stop /status /socket, /api/alerts/* — the live PPE-check loop
   admin.py                   /api/admin/* — personnel, settings, evidence, reports, audit, location, alerts
   site_settings.py             Live, cached, validated checkpoint policy (required PPE, confidence, location)

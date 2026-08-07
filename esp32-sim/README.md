@@ -8,9 +8,11 @@ of the Pi.
 
 `alert_sim/alert_sim.ino` signs in the same way `pi_app/checkpoint.py`
 does, then waits for a command typed into the Arduino IDE's Serial Monitor
-and reports a simulated alert to `/api/gate/alerts` — the same endpoint the
-real ESP32-main sensor board will use once it's built. Nothing on the
-backend changes on that day; this sketch is disposable, the endpoint isn't.
+and reports either a pre-decided alert (`/api/gate/alerts`) or a raw sensor
+value (`/api/gate/sensors`, classified against a threshold you configure on
+the Alerts page) — the same two endpoints the real ESP32-main sensor board
+will use once it's built. Nothing on the backend changes on that day; this
+sketch is disposable, the endpoints aren't.
 
 ## Setup
 
@@ -38,11 +40,20 @@ backend changes on that day; this sketch is disposable, the endpoint isn't.
 Type one of these into the Serial Monitor and press Enter:
 
 ```
-gas       critical gas alert — holds the gate, per detection.evaluate_access()
-smoke     critical smoke alert
-warn      a non-critical warning — heads-up only, doesn't hold the gate
-status    reprint WiFi / sign-in state
+gas                     critical gas alert — holds the gate, per detection.evaluate_access()
+smoke                   critical smoke alert
+warn                    a non-critical warning — heads-up only, doesn't hold the gate
+reading <kind> <value>  a raw value, e.g. "reading gas 450" — set a threshold for
+                        <kind> on the Alerts page first, or this just logs quietly
+status                  reprint WiFi / sign-in state
 ```
+
+The `reading` command is the more realistic one for how the real board will
+actually behave — reporting numbers, not deciding severity itself. Configure
+a threshold on the Alerts page (e.g. gas: warning at 400, critical at 800,
+unit ppm, direction "above"), then send `reading gas 450` for a warning and
+`reading gas 900` for a critical, and watch the same gate-holding/popup
+behavior trigger from a number instead of a hardcoded severity string.
 
 Then check the web admin console's **Alerts** page (or any open admin/
 operator tab — a critical one pops up as a banner everywhere) — if it shows

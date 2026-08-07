@@ -62,6 +62,23 @@
         .sim-field label { font-size: .72rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
         .sim-field input, .sim-field select { min-width: 160px; }
 
+        .reading-row, .threshold-row {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            padding: 10px 0; font-size: .84rem;
+        }
+        .reading-row + .reading-row, .threshold-row + .threshold-row { border-top: 1px solid var(--border); }
+        .reading-row .kind, .threshold-row .kind { font-weight: 600; min-width: 90px; }
+        .reading-row .val { font-variant-numeric: tabular-nums; color: var(--ink); }
+        .reading-row .age { font-size: .72rem; color: var(--faint); margin-left: auto; }
+        .threshold-row .levels { flex: 1; color: var(--muted); min-width: 160px; }
+        .threshold-row .row-actions { display: flex; gap: 10px; margin-left: auto; }
+        .threshold-row .row-actions button {
+            background: none; border: none; cursor: pointer; padding: 0;
+            font-size: .78rem; font-weight: 600; color: var(--accent);
+        }
+        .threshold-row .row-actions button.danger { color: var(--faint); }
+        .threshold-row .row-actions button.danger:hover { color: var(--danger); }
+
         @media (max-width: 640px) {
             /* Three 160px-min fields side by side don't fit a phone width,
                so they were wrapping one-per-line at a partial width each —
@@ -69,7 +86,7 @@
                width per field reads as a normal mobile form instead. */
             .sim-row { flex-direction: column; align-items: stretch; }
             .sim-field, .sim-field input, .sim-field select { width: 100%; min-width: 0; }
-            #simBtn { width: 100%; justify-content: center; }
+            #simBtn, #thSaveBtn { width: 100%; justify-content: center; }
         }
     </style>
 </head>
@@ -119,6 +136,62 @@
                         <p id="simMsg" class="text-xs hidden" style="margin-top:10px"></p>
                     </div>
                 </section>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-gauge-high"></i>Live Readings</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-xs" style="color:var(--muted);margin:0 0 10px">
+                                The latest value reported for each sensor kind, whether or not it's
+                                currently breaching a threshold.
+                            </p>
+                            <div id="readingsList"></div>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-sliders"></i>Sensor Thresholds</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-xs" style="color:var(--muted);margin:0 0 10px">
+                                A sensor kind with no threshold set just has its readings logged —
+                                nothing alerts until one exists. A breach raises the same alert the
+                                Simulate button above does.
+                            </p>
+                            <div id="thresholdList" class="mb-3"></div>
+                            <div class="sim-row">
+                                <div class="sim-field">
+                                    <label for="thKind">Kind</label>
+                                    <input type="text" id="thKind" class="field" placeholder="e.g. gas">
+                                </div>
+                                <div class="sim-field">
+                                    <label for="thWarning">Warning at</label>
+                                    <input type="number" id="thWarning" class="field" placeholder="e.g. 400" step="any">
+                                </div>
+                                <div class="sim-field">
+                                    <label for="thCritical">Critical at</label>
+                                    <input type="number" id="thCritical" class="field" placeholder="e.g. 800" step="any">
+                                </div>
+                                <div class="sim-field">
+                                    <label for="thUnit">Unit</label>
+                                    <input type="text" id="thUnit" class="field" placeholder="ppm" style="min-width:90px">
+                                </div>
+                                <div class="sim-field">
+                                    <label for="thDirection">Direction</label>
+                                    <select id="thDirection" class="field">
+                                        <option value="above">Above — higher is worse</option>
+                                        <option value="below">Below — lower is worse</option>
+                                    </select>
+                                </div>
+                                <button id="thSaveBtn" class="btn btn-primary btn-sm"><i class="fas fa-check"></i>Save</button>
+                            </div>
+                            <p id="thMsg" class="text-xs hidden" style="margin-top:10px"></p>
+                        </div>
+                    </section>
+                </div>
 
                 <section class="card">
                     <div class="card-head">
@@ -295,9 +368,166 @@
             }
         });
 
+        // ---- live readings ----
+        function relativeTime(iso) {
+            const ms = Date.now() - new Date(iso).getTime();
+            if (ms < 60000) return 'just now';
+            if (ms < 3600000) return `${Math.round(ms / 60000)}m ago`;
+            if (ms < 86400000) return `${Math.round(ms / 3600000)}h ago`;
+            return new Date(iso).toLocaleString();
+        }
+
+        async function loadReadings() {
+            try {
+                const res = await Auth.fetch('/api/alerts/readings');
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+                const rows = d.readings || [];
+                el('readingsList').innerHTML = rows.length
+                    ? rows.map((r) => `
+                        <div class="reading-row">
+                            <span class="kind">${escapeHtml(r.kind)}</span>
+                            <span class="val">${r.value}${escapeHtml(r.unit || '')}</span>
+                            <span class="age">${relativeTime(r.updated_at)}</span>
+                        </div>`).join('')
+                    : '<p class="text-xs" style="color:var(--faint)">No sensor has reported a reading yet.</p>';
+            } catch (e) { /* next poll retries */ }
+        }
+
+        // ---- sensor thresholds ----
+        // Kept as the full object from the server and re-sent whole on every
+        // save — site_settings.update() replaces sensor_thresholds entirely
+        // rather than merging keys, same as required_ppe already works, so
+        // editing one kind without wiping the others means round-tripping
+        // all of them.
+        let thresholds = {};
+
+        function renderThresholds() {
+            const kinds = Object.keys(thresholds);
+            el('thresholdList').innerHTML = kinds.length
+                ? kinds.map((kind) => {
+                    const t = thresholds[kind];
+                    const cmp = t.direction === 'below' ? '≤' : '≥';
+                    const parts = [];
+                    if (t.warning_at !== null && t.warning_at !== undefined) parts.push(`warning ${cmp} ${t.warning_at}${t.unit || ''}`);
+                    if (t.critical_at !== null && t.critical_at !== undefined) parts.push(`critical ${cmp} ${t.critical_at}${t.unit || ''}`);
+                    return `
+                        <div class="threshold-row">
+                            <span class="kind">${escapeHtml(kind)}</span>
+                            <span class="levels">${escapeHtml(parts.join(' · '))}</span>
+                            <span class="row-actions">
+                                <button type="button" data-edit="${escapeHtml(kind)}">Edit</button>
+                                <button type="button" class="danger" data-remove="${escapeHtml(kind)}">Remove</button>
+                            </span>
+                        </div>`;
+                }).join('')
+                : '<p class="text-xs" style="color:var(--faint)">No thresholds configured — readings are logged, nothing alerts yet.</p>';
+        }
+
+        async function loadThresholds() {
+            try {
+                const res = await Auth.fetch('/api/admin/settings');
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+                thresholds = d.settings.sensor_thresholds || {};
+                renderThresholds();
+            } catch (e) {
+                el('thresholdList').innerHTML = '<p class="text-xs" style="color:var(--danger)">Could not load thresholds.</p>';
+            }
+        }
+
+        function showThresholdMsg(text, ok) {
+            const msg = el('thMsg');
+            msg.textContent = text;
+            msg.className = 'text-xs';
+            msg.style.color = ok ? 'var(--ok)' : 'var(--danger)';
+            msg.classList.remove('hidden');
+        }
+
+        async function saveThresholds() {
+            const res = await Auth.fetch('/api/admin/settings', {
+                method: 'PUT',
+                body: JSON.stringify({ sensor_thresholds: thresholds }),
+            });
+            const d = await res.json();
+            if (!res.ok || !d.success) {
+                showThresholdMsg(d.message || 'Could not save.', false);
+                return false;
+            }
+            thresholds = d.settings.sensor_thresholds || {};
+            renderThresholds();
+            return true;
+        }
+
+        el('thSaveBtn').addEventListener('click', async () => {
+            const kind = el('thKind').value.trim();
+            const warningRaw = el('thWarning').value;
+            const criticalRaw = el('thCritical').value;
+            if (!kind) return showThresholdMsg('Kind is required.', false);
+            if (warningRaw === '' && criticalRaw === '') {
+                return showThresholdMsg('Set at least a warning or critical level.', false);
+            }
+            const btn = el('thSaveBtn');
+            btn.disabled = true;
+            const previous = thresholds;
+            thresholds = {
+                ...thresholds,
+                [kind]: {
+                    warning_at: warningRaw === '' ? null : Number(warningRaw),
+                    critical_at: criticalRaw === '' ? null : Number(criticalRaw),
+                    unit: el('thUnit').value.trim(),
+                    direction: el('thDirection').value,
+                },
+            };
+            const ok = await saveThresholds();
+            btn.disabled = false;
+            if (ok) {
+                showThresholdMsg(`Saved — ${kind} readings are now checked against this.`, true);
+                el('thKind').value = '';
+                el('thWarning').value = '';
+                el('thCritical').value = '';
+                el('thUnit').value = '';
+            } else {
+                thresholds = previous; // the failed attempt shouldn't linger in the in-memory copy
+            }
+        });
+
+        el('thresholdList').addEventListener('click', async (e) => {
+            const editBtn = e.target.closest('[data-edit]');
+            const removeBtn = e.target.closest('[data-remove]');
+
+            if (editBtn) {
+                const kind = editBtn.dataset.edit;
+                const t = thresholds[kind];
+                el('thKind').value = kind;
+                el('thWarning').value = t.warning_at ?? '';
+                el('thCritical').value = t.critical_at ?? '';
+                el('thUnit').value = t.unit || '';
+                el('thDirection').value = t.direction || 'above';
+                el('thKind').focus();
+                return;
+            }
+
+            if (removeBtn) {
+                const kind = removeBtn.dataset.remove;
+                const previous = thresholds;
+                const { [kind]: _dropped, ...rest } = thresholds;
+                thresholds = rest;
+                if (!(await saveThresholds())) {
+                    thresholds = previous;
+                    renderThresholds();
+                } else {
+                    showThresholdMsg(`Removed — ${kind} readings will be logged but won't alert.`, true);
+                }
+            }
+        });
+
         loadActive();
         loadHistory();
+        loadReadings();
+        loadThresholds();
         setInterval(loadActive, 6000);
+        setInterval(loadReadings, 6000);
     </script>
 </body>
 </html>

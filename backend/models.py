@@ -157,6 +157,32 @@ class DetectionRecord(db.Model):
         }
 
 
+class SensorReading(db.Model):
+    """The latest raw value reported for a sensor kind — not a history, just
+    "what does this sensor say right now" for a small live readout. One row
+    per kind, overwritten on every report. The durable record is
+    SensorAlert, created only when a reading actually crosses a threshold —
+    this table exists so the console can show a value even when nothing's
+    wrong, which SensorAlert alone can't do.
+    """
+
+    __tablename__ = "sensor_readings"
+
+    kind = db.Column(db.String(40), primary_key=True)
+    value = db.Column(db.Float, nullable=False)
+    unit = db.Column(db.String(20), nullable=True)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                           onupdate=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            "kind": self.kind,
+            "value": self.value,
+            "unit": self.unit,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class SensorAlert(db.Model):
     """A sensor-reported site hazard (gas, smoke, ...) — not a PPE decision.
 

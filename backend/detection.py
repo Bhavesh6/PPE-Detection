@@ -360,6 +360,19 @@ def active_alerts():
     })
 
 
+@detection_bp.route("/alerts/readings", methods=["GET"])
+@jwt_required()
+def sensor_readings():
+    """The latest value reported for every sensor kind, whether or not it's
+    currently breaching a threshold — a small live readout, not just the
+    alert list. Not admin-gated for the same reason /alerts/active isn't.
+    """
+    from models import SensorReading
+
+    rows = SensorReading.query.order_by(SensorReading.kind).all()
+    return jsonify({"success": True, "readings": [r.to_dict() for r in rows]})
+
+
 @detection_bp.route("/alerts/<int:alert_id>/acknowledge", methods=["POST"])
 @jwt_required()
 def acknowledge_alert(alert_id):

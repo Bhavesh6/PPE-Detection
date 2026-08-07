@@ -32,6 +32,11 @@ DEFAULTS = {
     # `source` says which, and the console decides whether to keep polling
     # for fresher fixes from that alone.
     "site_location": {"label": "", "lat": None, "lng": None, "source": None, "updated_at": None},
+    # Empty until an admin configures one — a sensor kind with no threshold
+    # just has its readings logged (see alerts.report_reading), raising
+    # nothing. Keyed by kind, e.g. {"gas": {"warning_at": 400,
+    # "critical_at": 800, "unit": "ppm", "direction": "above"}}.
+    "sensor_thresholds": {},
 }
 
 _cache = {}
@@ -94,6 +99,42 @@ def update(changes):
         if not 0.05 <= conf <= 0.95:
             return None, "confidence_threshold must be between 0.05 and 0.95"
         clean["confidence_threshold"] = round(conf, 2)
+
+    if "sensor_thresholds" in changes:
+        thresholds = changes["sensor_thresholds"]
+        if not isinstance(thresholds, dict):
+            return None, "sensor_thresholds must be an object"
+
+        def _level(cfg, key, kind):
+            raw = cfg.get(key)
+            if raw in (None, ""):
+                return None
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                raise ValueError(f"{key} for {kind} must be a number")
+
+        clean_thresholds = {}
+        try:
+            for kind, cfg in thresholds.items():
+                if not isinstance(cfg, dict):
+                    return None, f"threshold for {kind} must be an object"
+                direction = cfg.get("direction", "above")
+                if direction not in ("above", "below"):
+                    return None, f"direction for {kind} must be 'above' or 'below'"
+                warning_at = _level(cfg, "warning_at", kind)
+                critical_at = _level(cfg, "critical_at", kind)
+                if warning_at is None and critical_at is None:
+                    return None, f"{kind} needs at least a warning or critical level"
+                clean_thresholds[str(kind).strip()[:40]] = {
+                    "warning_at": warning_at,
+                    "critical_at": critical_at,
+                    "unit": str(cfg.get("unit") or "").strip()[:20],
+                    "direction": direction,
+                }
+        except ValueError as exc:
+            return None, str(exc)
+        clean["sensor_thresholds"] = clean_thresholds
 
     if not clean:
         return None, "No recognised settings supplied"
