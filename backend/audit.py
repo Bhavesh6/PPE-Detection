@@ -21,6 +21,7 @@ POLICY_CHANGED = "policy.changed"
 USER_DELETED = "user.deleted"
 WORKER_UPDATED = "worker.updated"
 LOCATION_CHANGED = "location.changed"
+ALERT_ACKNOWLEDGED = "alert.acknowledged"
 
 
 def record(action, summary, detail=None, actor=None):

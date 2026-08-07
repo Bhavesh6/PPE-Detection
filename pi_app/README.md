@@ -154,6 +154,21 @@ double-write, which is cheaper than building idempotency for a report
 field nobody reads twice. `python doctor.py` reports a non-empty backlog
 as a warning.
 
+## Sensor alerts
+
+A critical alert (gas, etc.) holds the gate — it overrides PPE compliance
+entirely, and this app shows it as a distinct amber "paused" state, not
+the red "denied" one, since it isn't a ruling on whoever's at the badge
+reader. It's checked even while idle (polled every 3s alongside the
+on-site headcount), so the screen shows "Gate Paused" before anyone
+badges in, not only mid-check.
+
+No gas/smoke sensor is wired directly to the Pi — that hardware lives on
+the (not yet built) ESP32-main sensor board, which will `POST` to
+`/api/gate/alerts` once it exists. Until then, alerts only come from the
+admin console's **Alerts** page, which has a "simulate" button hitting the
+same endpoint — useful for testing this behavior without any hardware.
+
 ## Troubleshooting
 
 **"Camera 0 not available"** — list what the Pi can see with

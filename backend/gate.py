@@ -9,6 +9,7 @@ from datetime import datetime, time, timezone
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+import alerts
 import site_settings
 from extensions import db
 from models import AttendanceRecord, User
@@ -148,3 +149,26 @@ def report_location():
     if error:
         return jsonify({"success": False, "message": error}), 400
     return jsonify({"success": True, "location": location})
+
+
+@gate_bp.route("/alerts", methods=["POST"])
+@jwt_required()
+def report_alert():
+    """A sensor reporting a site hazard.
+
+    Not admin-gated — same reasoning as /location: this is a device
+    reporting a fact, not someone changing a policy. There's no sensor
+    hardware wired up yet, so this endpoint currently has two callers in
+    practice: the admin console's "Simulate Alert" button (for testing/
+    demos) and, once the ESP32-main sensor board exists, that board
+    itself — both hit the same endpoint the same way, so nothing here
+    changes when the real hardware arrives.
+    """
+    data = request.get_json(silent=True) or {}
+    alert, error = alerts.report(
+        data.get("kind"), data.get("severity"),
+        message=data.get("message"), source=data.get("source"),
+    )
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+    return jsonify({"success": True, "alert": alert}), 201

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alerts — SafetyFirst Admin</title>
+    <meta name="description" content="Sensor-reported hazards, whether they're holding the gate, and the full history.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+    <style>
+        .active-list { display: flex; flex-direction: column; gap: 10px; }
+        .active-row {
+            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            padding: 13px 16px;
+            border-radius: var(--radius);
+            border: 1px solid #fcd9a8;
+            background: var(--hazard-soft);
+        }
+        .active-row.is-warning { border-color: #ecccbf; background: var(--accent-soft); }
+        .active-row .msg { flex: 1; min-width: 200px; font-size: .86rem; color: var(--ink); }
+        .active-row .msg strong { font-weight: 700; }
+        .active-row .when { font-size: .72rem; color: var(--faint); }
+
+        .trail { position: relative; padding: 4px 0 4px 30px; }
+        .trail::before {
+            content: ''; position: absolute; left: 9px; top: 12px; bottom: 12px;
+            width: 2px; background: var(--border);
+        }
+        .entry { position: relative; padding: 14px 0; }
+        .entry + .entry { border-top: 1px solid var(--border); }
+        .entry::before {
+            content: ''; position: absolute; left: -25px; top: 20px;
+            width: 10px; height: 10px; border-radius: 50%;
+            background: var(--surface); border: 2px solid var(--border);
+        }
+        .entry[data-severity="critical"]::before { border-color: var(--hazard); background: var(--hazard-soft); }
+        .entry-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+        .entry-kind { font-weight: 600; font-size: .9rem; }
+        .entry-when { font-size: .74rem; color: var(--faint); font-variant-numeric: tabular-nums; }
+        .entry-summary { font-size: .86rem; color: var(--muted); margin-top: 3px; }
+        .entry-ack { font-size: .76rem; color: var(--faint); margin-top: 4px; }
+
+        .sim-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+        .sim-field { display: flex; flex-direction: column; gap: 5px; }
+        .sim-field label { font-size: .72rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+        .sim-field input, .sim-field select { min-width: 160px; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <section class="card mb-5" id="activeCard" hidden>
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-triangle-exclamation"></i>Active now</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="active-list" id="activeList"></div>
+                    </div>
+                </section>
+
+                <section class="card mb-5">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-vial"></i>Simulate an alert</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-xs" style="color:var(--muted);margin:0 0 14px">
+                            No sensor hardware is wired up yet — this posts to the same endpoint a real
+                            device will once the ESP32 sensor board exists, so nothing changes here when
+                            it arrives. A critical alert holds the gate immediately.
+                        </p>
+                        <div class="sim-row">
+                            <div class="sim-field">
+                                <label for="simKind">Kind</label>
+                                <input type="text" id="simKind" class="field" placeholder="e.g. gas, smoke" value="gas">
+                            </div>
+                            <div class="sim-field">
+                                <label for="simSeverity">Severity</label>
+                                <select id="simSeverity" class="field">
+                                    <option value="critical">Critical — holds the gate</option>
+                                    <option value="warning">Warning — heads-up only</option>
+                                </select>
+                            </div>
+                            <div class="sim-field" style="flex:1">
+                                <label for="simMessage">Message</label>
+                                <input type="text" id="simMessage" class="field" placeholder="Optional detail, e.g. sensor location">
+                            </div>
+                            <button id="simBtn" class="btn btn-primary btn-sm"><i class="fas fa-bolt"></i>Fire test alert</button>
+                        </div>
+                        <p id="simMsg" class="text-xs hidden" style="margin-top:10px"></p>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-clock-rotate-left"></i>History</span>
+                        <span class="text-xs" style="color:var(--faint)" id="histCount"></span>
+                    </div>
+                    <div class="card-body">
+                        <div class="trail" id="trail">
+                            <div style="color:var(--faint);font-size:.86rem">Loading…</div>
+                        </div>
+                    </div>
+                    <div class="card-head" style="border-bottom:none;border-top:1px solid var(--border)">
+                        <span class="text-xs" style="color:var(--faint)" id="pageInfo"></span>
+                        <div class="flex gap-2">
+                            <button id="prevBtn" class="btn btn-outline btn-sm">Previous</button>
+                            <button id="nextBtn" class="btn btn-outline btn-sm">Next</button>
+                        </div>
+                    </div>
+                </section>
+
+                <p class="text-xs mt-5" style="color:var(--faint)">
+                    <i class="fas fa-circle-info mr-1"></i>
+                    A critical alert overrides PPE compliance entirely — someone in full gear still isn't
+                    safe to admit into a gas leak. Clearing one here is logged in the
+                    <a href="audit.html" style="color:var(--accent);font-weight:600">Change Log</a> too.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260807a"></script>
+    <script src="js/auth.js?v=20260807a"></script>
+    <script src="js/shell.js?v=20260807a"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('alerts', {
+            title: 'Alerts',
+            subtitle: 'Sensor-reported hazards — active status and full history',
+        });
+
+        const el = (id) => document.getElementById(id);
+        let page = 1;
+        const perPage = 20;
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        async function acknowledge(id, btn) {
+            if (btn) { btn.disabled = true; btn.textContent = 'Clearing…'; }
+            try {
+                await Auth.fetch(`/api/alerts/${id}/acknowledge`, { method: 'POST' });
+            } catch (e) { /* refresh below will show the true state either way */ }
+            loadActive();
+            loadHistory();
+        }
+
+        async function loadActive() {
+            try {
+                const res = await Auth.fetch('/api/alerts/active');
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+                const list = d.alerts || [];
+                el('activeCard').hidden = list.length === 0;
+                el('activeList').innerHTML = list.map((a) => `
+                    <div class="active-row ${a.severity === 'warning' ? 'is-warning' : ''}">
+                        <i class="fas ${a.severity === 'critical' ? 'fa-triangle-exclamation' : 'fa-circle-info'}"></i>
+                        <span class="msg"><strong>${escapeHtml(a.kind)}</strong>${a.message ? ' — ' + escapeHtml(a.message) : ''}</span>
+                        <span class="when">${new Date(a.timestamp).toLocaleString()}</span>
+                        <button type="button" class="btn btn-outline btn-sm" data-ack="${a.id}">Acknowledge</button>
+                    </div>`).join('');
+            } catch (e) { /* the poll-driven banner elsewhere still covers this */ }
+        }
+
+        function renderHistory(rows) {
+            if (!rows.length) {
+                el('trail').innerHTML = '<div style="color:var(--faint);font-size:.86rem">Nothing recorded yet.</div>';
+                return;
+            }
+            el('trail').innerHTML = rows.map((a) => `
+                <div class="entry" data-severity="${a.severity}">
+                    <div class="entry-head">
+                        <span class="badge ${a.severity === 'critical' ? 'badge-hazard' : 'badge-amber'}" style="font-size:.62rem">${escapeHtml(a.severity)}</span>
+                        <span class="entry-kind">${escapeHtml(a.kind)}</span>
+                        <span class="entry-when">${new Date(a.timestamp).toLocaleString()}</span>
+                        ${a.active ? '<span class="badge badge-danger" style="font-size:.6rem">ACTIVE</span>' : ''}
+                    </div>
+                    ${a.message ? `<div class="entry-summary">${escapeHtml(a.message)}</div>` : ''}
+                    <div class="entry-ack">
+                        ${a.active
+                            ? `<button type="button" class="entry-toggle" data-ack="${a.id}" style="background:none;border:none;cursor:pointer;padding:0;font-weight:600;color:var(--accent)">Acknowledge</button>`
+                            : `Cleared by ${escapeHtml(a.acknowledged_by || 'Unknown')} · ${new Date(a.acknowledged_at).toLocaleString()}`}
+                    </div>
+                </div>`).join('');
+        }
+
+        async function loadHistory() {
+            try {
+                const res = await Auth.fetch(`/api/admin/alerts?page=${page}&per_page=${perPage}`);
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+                renderHistory(d.alerts);
+
+                const totalPages = Math.max(Math.ceil(d.total / perPage), 1);
+                el('histCount').textContent = d.total ? `${d.total} total` : '';
+                el('pageInfo').textContent = `Page ${d.page} of ${totalPages}`;
+                el('prevBtn').disabled = page <= 1;
+                el('nextBtn').disabled = page >= totalPages;
+            } catch (e) {
+                el('trail').innerHTML = '<div style="color:var(--danger);font-size:.86rem">Could not load alert history.</div>';
+            }
+        }
+
+        document.body.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-ack]');
+            if (!btn) return;
+            acknowledge(Number(btn.dataset.ack), btn);
+        });
+
+        el('prevBtn').addEventListener('click', () => { if (page > 1) { page--; loadHistory(); } });
+        el('nextBtn').addEventListener('click', () => { page++; loadHistory(); });
+
+        el('simBtn').addEventListener('click', async () => {
+            const btn = el('simBtn');
+            const msg = el('simMsg');
+            const kind = el('simKind').value.trim();
+            if (!kind) {
+                msg.textContent = 'Kind is required.';
+                msg.className = 'text-xs';
+                msg.style.color = 'var(--danger)';
+                msg.classList.remove('hidden');
+                return;
+            }
+            btn.disabled = true;
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Sending…';
+            try {
+                const res = await Auth.fetch('/api/gate/alerts', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        kind, severity: el('simSeverity').value,
+                        message: el('simMessage').value.trim(), source: 'admin console (simulated)',
+                    }),
+                });
+                const d = await res.json();
+                if (!res.ok || !d.success) {
+                    msg.textContent = d.message || 'Could not send the alert.';
+                    msg.style.color = 'var(--danger)';
+                } else {
+                    msg.textContent = 'Sent — it should show up above within a few seconds.';
+                    msg.style.color = 'var(--ok)';
+                    el('simMessage').value = '';
+                    loadActive();
+                    loadHistory();
+                }
+                msg.className = 'text-xs';
+                msg.classList.remove('hidden');
+            } catch (e) {
+                msg.textContent = 'Could not reach the server.';
+                msg.className = 'text-xs';
+                msg.style.color = 'var(--danger)';
+                msg.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        });
+
+        loadActive();
+        loadHistory();
+        setInterval(loadActive, 6000);
+    </script>
+</body>
+</html>
