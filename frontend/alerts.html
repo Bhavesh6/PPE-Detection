@@ -13,16 +13,29 @@
     <link rel="stylesheet" href="css/app.css?v=20260807a">
     <style>
         .active-list { display: flex; flex-direction: column; gap: 10px; }
+        /* Two rows, not one wrapping flex row: a long message wraps to
+           several lines, and center-aligning short siblings (the icon, the
+           timestamp) against that tall block put them floating in the
+           vertical middle of the paragraph instead of level with its first
+           line — reading as misaligned rather than merely wrapped. Icon and
+           message share a top-aligned row; timestamp and the Acknowledge
+           button get their own row underneath. */
         .active-row {
-            display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+            display: flex; flex-direction: column; gap: 8px;
             padding: 13px 16px;
             border-radius: var(--radius);
             border: 1px solid #fcd9a8;
             background: var(--hazard-soft);
         }
         .active-row.is-warning { border-color: #ecccbf; background: var(--accent-soft); }
-        .active-row .msg { flex: 1; min-width: 200px; font-size: .86rem; color: var(--ink); }
+        .active-row-top { display: flex; align-items: flex-start; gap: 10px; }
+        .active-row-top i { margin-top: 3px; flex-shrink: 0; }
+        .active-row .msg { flex: 1; min-width: 0; font-size: .86rem; color: var(--ink); }
         .active-row .msg strong { font-weight: 700; }
+        .active-row-meta {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; flex-wrap: wrap; padding-left: 26px;
+        }
         .active-row .when { font-size: .72rem; color: var(--faint); }
 
         .trail { position: relative; padding: 4px 0 4px 30px; }
@@ -48,6 +61,16 @@
         .sim-field { display: flex; flex-direction: column; gap: 5px; }
         .sim-field label { font-size: .72rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
         .sim-field input, .sim-field select { min-width: 160px; }
+
+        @media (max-width: 640px) {
+            /* Three 160px-min fields side by side don't fit a phone width,
+               so they were wrapping one-per-line at a partial width each —
+               readable but cramped, with a stray gap on every line. Full
+               width per field reads as a normal mobile form instead. */
+            .sim-row { flex-direction: column; align-items: stretch; }
+            .sim-field, .sim-field input, .sim-field select { width: 100%; min-width: 0; }
+            #simBtn { width: 100%; justify-content: center; }
+        }
     </style>
 </head>
 <body>
@@ -58,6 +81,7 @@
                 <section class="card mb-5" id="activeCard" hidden>
                     <div class="card-head">
                         <span class="card-title"><i class="fas fa-triangle-exclamation"></i>Active now</span>
+                        <span class="text-xs" style="color:var(--faint)" id="activeCount"></span>
                     </div>
                     <div class="card-body">
                         <div class="active-list" id="activeList"></div>
@@ -161,12 +185,18 @@
                 const d = await res.json();
                 const list = d.alerts || [];
                 el('activeCard').hidden = list.length === 0;
+                const hasCritical = list.some((a) => a.severity === 'critical');
+                el('activeCount').textContent = hasCritical ? `${d.present_count ?? 0} on site today` : '';
                 el('activeList').innerHTML = list.map((a) => `
                     <div class="active-row ${a.severity === 'warning' ? 'is-warning' : ''}">
-                        <i class="fas ${a.severity === 'critical' ? 'fa-triangle-exclamation' : 'fa-circle-info'}"></i>
-                        <span class="msg"><strong>${escapeHtml(a.kind)}</strong>${a.message ? ' — ' + escapeHtml(a.message) : ''}</span>
-                        <span class="when">${new Date(a.timestamp).toLocaleString()}</span>
-                        <button type="button" class="btn btn-outline btn-sm" data-ack="${a.id}">Acknowledge</button>
+                        <div class="active-row-top">
+                            <i class="fas ${a.severity === 'critical' ? 'fa-triangle-exclamation' : 'fa-circle-info'}"></i>
+                            <span class="msg"><strong>${escapeHtml(a.kind)}</strong>${a.message ? ' — ' + escapeHtml(a.message) : ''}</span>
+                        </div>
+                        <div class="active-row-meta">
+                            <span class="when">${new Date(a.timestamp).toLocaleString()}</span>
+                            <button type="button" class="btn btn-outline btn-sm" data-ack="${a.id}">Acknowledge</button>
+                        </div>
                     </div>`).join('');
             } catch (e) { /* the poll-driven banner elsewhere still covers this */ }
         }

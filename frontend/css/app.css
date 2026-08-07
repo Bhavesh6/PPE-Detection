@@ -153,7 +153,7 @@ select:focus-visible {
    is injected/removed live by a poll rather than rendered once — see
    Shell._pollAlerts in shell.js. */
 .alert-banner {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 6px;
   padding: 11px 24px;
   border-bottom: 1px solid var(--border);
   font-size: .84rem;
@@ -164,7 +164,14 @@ select:focus-visible {
 }
 .alert-banner.is-warning { background: var(--accent-soft); color: var(--accent); border-bottom-color: #ecccbf; }
 .alert-banner strong { font-weight: 700; }
-.alert-banner .alert-banner-msg { flex: 1; min-width: 200px; }
+/* A long message wraps to several lines — align-items:center on a single
+   row would center the icon against that whole tall block, floating it in
+   the middle of the paragraph instead of level with its first line. Two
+   rows (icon+message, then count+button) keeps everything level. */
+.alert-banner-top { display: flex; align-items: flex-start; gap: 10px; }
+.alert-banner-top i { margin-top: 3px; flex-shrink: 0; }
+.alert-banner .alert-banner-msg { flex: 1; min-width: 0; }
+.alert-banner-meta { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
 .alert-banner .alert-banner-count { font-size: .76rem; opacity: .85; white-space: nowrap; }
 .alert-banner button {
   padding: 6px 14px; border-radius: 999px; border: 1px solid currentColor;
