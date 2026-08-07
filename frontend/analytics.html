@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics — SafetyFirst Admin</title>
+    <meta name="description" content="Which protective equipment fails most, when denials cluster, and how compliance is trending.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+    <style>
+        /* Charts are hand-drawn with CSS/SVG rather than pulling in a chart
+           library — three chart types on one page doesn't justify the
+           dependency, and this keeps the page dependency-light like the rest. */
+        .range-group { display: inline-flex; border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
+        .range-btn {
+            padding: 6px 14px; font-size: .76rem; font-weight: 600;
+            background: var(--surface); color: var(--muted);
+            border: none; cursor: pointer;
+            transition: background-color .15s var(--ease-out), color .15s var(--ease-out);
+        }
+        .range-btn + .range-btn { border-left: 1px solid var(--border); }
+        .range-btn.is-active { background: var(--accent); color: #fff; }
+
+        .delta { font-size: .72rem; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+        .delta.up { color: var(--danger); }
+        .delta.down { color: var(--ok); }
+        .delta.flat { color: var(--faint); }
+
+        /* Missing-PPE breakdown: a ranked bar list. A donut looks richer but
+           makes you compare arc lengths; bars sharing a baseline are read at
+           a glance, which is the whole point of this panel. */
+        .bar-row { display: grid; grid-template-columns: 130px 1fr 74px; align-items: center; gap: 12px; padding: 9px 0; }
+        .bar-row + .bar-row { border-top: 1px solid var(--border); }
+        .bar-name { font-size: .84rem; font-weight: 600; }
+        .bar-track { display: block; height: 9px; background: var(--surface-alt); border-radius: 999px; overflow: hidden; }
+        /* display:block matters — as an inline span, height:100% resolves to
+           nothing and the bar renders as an empty track. */
+        .bar-fill { display: block; height: 100%; background: var(--accent); border-radius: 999px; transition: width .5s var(--ease-out); }
+        .bar-val { text-align: right; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+        /* Hour histogram — 24 columns, one per hour of the day. */
+        .hours { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; align-items: end; height: 140px; }
+        .hour-col { position: relative; display: flex; flex-direction: column; justify-content: flex-end; height: 100%; }
+        .hour-bar {
+            background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px;
+            transition: background-color .15s var(--ease-out);
+        }
+        .hour-col[data-empty="true"] .hour-bar { background: var(--border); }
+        .hour-col:hover .hour-bar { background: var(--accent-dark); }
+        .hour-axis { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; margin-top: 6px; }
+        .hour-axis span { font-size: .56rem; color: var(--faint); text-align: center; }
+
+        .chart-empty {
+            display: flex; align-items: center; justify-content: center;
+            height: 140px; color: var(--faint); font-size: .84rem; text-align: center; padding: 0 20px;
+        }
+
+        .matrix-item { display: inline-flex; align-items: center; gap: 5px; font-size: .74rem; }
+        .matrix-item + .matrix-item { margin-left: 10px; }
+        .matrix-ok { color: var(--ok); }
+        .matrix-bad { color: var(--danger); }
+
+        .trend-svg { width: 100%; height: 150px; display: block; overflow: visible; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div class="flex items-center justify-between mb-4" style="gap:12px;flex-wrap:wrap">
+                    <p class="text-xs" style="color:var(--faint);margin:0">
+                        <i class="fas fa-circle-info mr-1"></i>
+                        Every figure below is computed from recorded gate decisions.
+                    </p>
+                    <div class="range-group" id="rangeGroup">
+                        <button class="range-btn" data-days="7">7 days</button>
+                        <button class="range-btn is-active" data-days="30">30 days</button>
+                        <button class="range-btn" data-days="90">90 days</button>
+                    </div>
+                </div>
+
+                <!-- Headline figures, each against the previous period -->
+                <div class="metrics mb-5">
+                    <div class="metric" style="--m-accent: var(--info)">
+                        <div class="metric-label"><i class="fas fa-shield-halved"></i>Gate Decisions</div>
+                        <div class="metric-value" id="kTotal">—</div>
+                        <div class="metric-foot" id="kTotalDelta">vs previous period</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--danger)">
+                        <div class="metric-label"><i class="fas fa-ban"></i>Turned Away</div>
+                        <div class="metric-value" id="kDenied">—</div>
+                        <div class="metric-foot" id="kDeniedDelta">vs previous period</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--ok)">
+                        <div class="metric-label"><i class="fas fa-chart-pie"></i>Compliance Rate</div>
+                        <div class="metric-value" id="kRate">—</div>
+                        <div class="metric-foot" id="kRateDelta">vs previous period</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--amber)">
+                        <div class="metric-label"><i class="fas fa-users"></i>People Checked</div>
+                        <div class="metric-value" id="kWorkers">—</div>
+                        <div class="metric-foot">With at least one decision</div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                    <!-- The panel that answers "what should we fix first" -->
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-triangle-exclamation"></i>What's Missing Most</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-xs" style="color:var(--faint);margin:0 0 12px">
+                                Share of refusals caused by each requirement.
+                            </p>
+                            <div id="missingBody">
+                                <div class="chart-empty">Loading…</div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- When denials cluster -->
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-clock"></i>When Refusals Happen</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-xs" style="color:var(--faint);margin:0 0 12px">
+                                Refusals by hour of day — clusters usually mean a shift boundary.
+                            </p>
+                            <div id="hoursBody">
+                                <div class="chart-empty">Loading…</div>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- Trend over time -->
+                <section class="card mb-5">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-chart-line"></i>Daily Trend</span>
+                        <span class="text-xs" style="color:var(--faint)">
+                            <span style="color:var(--ok)">&#9632;</span> Cleared
+                            <span style="color:var(--danger);margin-left:10px">&#9632;</span> Turned away
+                        </span>
+                    </div>
+                    <div class="card-body">
+                        <div id="trendBody"><div class="chart-empty">Loading…</div></div>
+                    </div>
+                </section>
+
+                <!-- Per-worker scorecard -->
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-id-card-clip"></i>Worker Scorecard</span>
+                        <span class="text-xs" style="color:var(--faint)">Lowest compliance first</span>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data">
+                            <thead>
+                                <tr>
+                                    <th>Worker</th>
+                                    <th style="text-align:center">Cleared</th>
+                                    <th style="text-align:center">Turned away</th>
+                                    <th>Missed</th>
+                                    <th style="text-align:right">Compliance</th>
+                                </tr>
+                            </thead>
+                            <tbody id="workersBody">
+                                <tr><td colspan="5" class="cell-empty">Loading…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260807a"></script>
+    <script src="js/auth.js?v=20260807a"></script>
+    <script src="js/shell.js?v=20260807a"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('analytics', {
+            title: 'Analytics',
+            subtitle: 'What fails, when it fails, and whether it is getting better',
+        });
+
+        const el = (id) => document.getElementById(id);
+        let days = 30;
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        // A rise in refusals is bad news, a rise in total traffic is neutral —
+        // so the colour depends on the metric, not just the direction.
+        function renderDelta(node, value, suffix, higherIsWorse) {
+            if (value === null || value === undefined) {
+                node.textContent = 'No earlier period to compare';
+                return;
+            }
+            const rising = value > 0;
+            const cls = value === 0 ? 'flat' : (rising === !!higherIsWorse ? 'up' : 'down');
+            const arrow = value === 0 ? '' : (rising ? '↑' : '↓');
+            node.innerHTML = `<span class="delta ${cls}">${arrow} ${Math.abs(value)}${suffix}</span>
+                              <span style="color:var(--faint)"> vs previous period</span>`;
+        }
+
+        function renderMissing(items) {
+            const host = el('missingBody');
+            if (!items.length) {
+                host.innerHTML = '<div class="chart-empty">No refusals in this period — nothing was missing.</div>';
+                return;
+            }
+            host.innerHTML = items.map((it) => `
+                <div class="bar-row">
+                    <span class="bar-name">${escapeHtml(it.item)}</span>
+                    <span class="bar-track"><span class="bar-fill" style="width:${it.percent}%"></span></span>
+                    <span class="bar-val">${it.percent}% · ${it.count}</span>
+                </div>`).join('');
+        }
+
+        function renderHours(byHour) {
+            const host = el('hoursBody');
+            const peak = Math.max(...byHour);
+            if (!peak) {
+                host.innerHTML = '<div class="chart-empty">No refusals in this period.</div>';
+                return;
+            }
+            const bars = byHour.map((n, h) => `
+                <span class="hour-col" data-empty="${n === 0}" title="${String(h).padStart(2,'0')}:00 — ${n} refusal${n === 1 ? '' : 's'}">
+                    <span class="hour-bar" style="height:${n ? Math.max((n / peak) * 100, 4) : 2}%"></span>
+                </span>`).join('');
+            // Label every third hour; 24 labels at this width would collide.
+            const axis = byHour.map((_, h) => `<span>${h % 3 === 0 ? String(h).padStart(2, '0') : ''}</span>`).join('');
+            host.innerHTML = `<div class="hours">${bars}</div><div class="hour-axis">${axis}</div>`;
+        }
+
+        function renderTrend(daily) {
+            const host = el('trendBody');
+            const peak = Math.max(...daily.map((d) => Math.max(d.granted, d.denied)), 0);
+            if (!peak) {
+                host.innerHTML = '<div class="chart-empty">No gate decisions recorded in this period.</div>';
+                return;
+            }
+            const W = 1000, H = 150, pad = 6;
+            const step = daily.length > 1 ? (W - pad * 2) / (daily.length - 1) : 0;
+            const pt = (v, i) => `${pad + i * step},${H - pad - (v / peak) * (H - pad * 2)}`;
+            const line = (key) => daily.map((d, i) => pt(d[key], i)).join(' ');
+            const area = (key) => `${pad},${H - pad} ${line(key)} ${pad + (daily.length - 1) * step},${H - pad}`;
+
+            host.innerHTML = `
+                <svg class="trend-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+                     aria-label="Daily cleared and turned-away decisions over ${daily.length} days">
+                    <polygon points="${area('granted')}" fill="rgba(47,107,70,.10)"></polygon>
+                    <polyline points="${line('granted')}" fill="none" stroke="var(--ok)" stroke-width="2"
+                              vector-effect="non-scaling-stroke"></polyline>
+                    <polyline points="${line('denied')}" fill="none" stroke="var(--danger)" stroke-width="2"
+                              vector-effect="non-scaling-stroke"></polyline>
+                </svg>
+                <div class="flex justify-between text-xs" style="color:var(--faint);margin-top:6px">
+                    <span>${daily[0].date}</span><span>${daily[daily.length - 1].date}</span>
+                </div>`;
+        }
+
+        function renderWorkers(workers) {
+            const tbody = el('workersBody');
+            if (!workers.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="cell-empty">No gate decisions recorded in this period.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = workers.map((w) => {
+                const missed = Object.entries(w.missing);
+                const rate = w.compliance_rate;
+                const rateColor = rate === null ? 'var(--faint)'
+                    : rate >= 80 ? 'var(--ok)' : rate >= 50 ? 'var(--accent)' : 'var(--danger)';
+                return `
+                    <tr>
+                        <td>
+                            <div style="font-weight:600">${escapeHtml(w.name)}</div>
+                            <div style="font-size:.72rem;color:var(--faint)">
+                                ${escapeHtml([w.employee_id, w.role].filter(Boolean).join(' · ') || '—')}
+                            </div>
+                        </td>
+                        <td style="text-align:center;color:var(--ok);font-weight:600" class="tnum">${w.granted}</td>
+                        <td style="text-align:center;color:${w.denied ? 'var(--danger)' : 'var(--faint)'};font-weight:600" class="tnum">${w.denied}</td>
+                        <td>${missed.length
+                            ? missed.map(([k, v]) => `<span class="matrix-item matrix-bad"><i class="fas fa-xmark"></i>${escapeHtml(k)} ×${v}</span>`).join('')
+                            : '<span class="matrix-item matrix-ok"><i class="fas fa-check"></i>Nothing missed</span>'}</td>
+                        <td style="text-align:right;font-weight:700;color:${rateColor}" class="tnum">
+                            ${rate === null ? '—' : rate + '%'}
+                        </td>
+                    </tr>`;
+            }).join('');
+        }
+
+        async function load() {
+            try {
+                const res = await Auth.fetch(`/api/admin/analytics?days=${days}`);
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+
+                el('kTotal').textContent = d.current.total;
+                el('kDenied').textContent = d.current.denied;
+                el('kRate').textContent = d.current.compliance_rate === null ? '—' : `${d.current.compliance_rate}%`;
+                el('kWorkers').textContent = d.workers.length;
+
+                renderDelta(el('kTotalDelta'), d.deltas.total, '%', false);
+                renderDelta(el('kDeniedDelta'), d.deltas.denied, '%', true);
+                renderDelta(el('kRateDelta'), d.deltas.compliance_rate, ' pts', false);
+
+                renderMissing(d.missing_breakdown);
+                renderHours(d.by_hour);
+                renderTrend(d.daily);
+                renderWorkers(d.workers);
+            } catch (e) {
+                el('missingBody').innerHTML = '<div class="chart-empty" style="color:var(--danger)">Could not load analytics.</div>';
+                el('hoursBody').innerHTML = '';
+                el('trendBody').innerHTML = '';
+                el('workersBody').innerHTML = '<tr><td colspan="5" class="cell-empty" style="color:var(--danger)">Could not load analytics.</td></tr>';
+            }
+        }
+
+        el('rangeGroup').addEventListener('click', (e) => {
+            const btn = e.target.closest('.range-btn');
+            if (!btn) return;
+            days = Number(btn.dataset.days);
+            el('rangeGroup').querySelectorAll('.range-btn')
+                .forEach((b) => b.classList.toggle('is-active', b === btn));
+            load();
+        });
+
+        load();
+    </script>
+</body>
+</html>

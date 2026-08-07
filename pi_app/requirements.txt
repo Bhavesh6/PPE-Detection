@@ -1,0 +1,19 @@
+# Raspberry Pi checkpoint app.
+#
+# Deliberately light: inference happens on the backend, so torch and
+# ultralytics are NOT needed here. This installs in a couple of minutes on a
+# Pi instead of the best part of an hour.
+#
+# opencv-python-headless is correct even though this app has a GUI — the
+# window is drawn by tkinter, and OpenCV is only used for camera capture and
+# drawing onto frames. The headless build skips the GUI stack (imshow etc.)
+# and is considerably smaller.
+opencv-python-headless
+Pillow
+requests
+python-dotenv
+
+# Uncomment if a GPS module is attached (SAFETYFIRST_GPS=auto or serial).
+# Not installed by default — same "deliberately light" reasoning as above.
+# pyserial
+# pynmea2

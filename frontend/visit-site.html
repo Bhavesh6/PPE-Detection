@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gate Control — SafetyFirst</title>
+    <meta name="description" content="Live PPE compliance checkpoint. Verify required protective equipment before granting site access.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div id="insecureNotice" class="alert alert-amber mb-5 hidden">
+                    <i class="fas fa-triangle-exclamation"></i>
+                    <span>
+                        <strong>Camera blocked:</strong> this page is served over an insecure origin
+                        (<span id="insecureOrigin"></span>). Browsers only allow camera access on
+                        <code>https://</code> or <code>http://localhost</code>. Serve the page on this
+                        device, or put it behind HTTPS.
+                    </span>
+                </div>
+
+                <!-- Checkpoint verdict -->
+                <div class="verdict mb-5" id="verdictPanel" data-state="idle">
+                    <div class="verdict-word" id="verdictWord">Checkpoint Idle</div>
+                    <div class="verdict-note" id="verdictNote">Start the checkpoint to begin verifying access.</div>
+                </div>
+
+                <!-- Gate metrics -->
+                <div class="metrics mb-5">
+                    <div class="metric" style="--m-accent: var(--ok)">
+                        <div class="metric-label"><i class="fas fa-door-open"></i>Access Granted</div>
+                        <div class="metric-value" id="mGranted">0</div>
+                        <div class="metric-foot">Cleared this session</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--danger)">
+                        <div class="metric-label"><i class="fas fa-ban"></i>Access Denied</div>
+                        <div class="metric-value" id="mDenied">0</div>
+                        <div class="metric-foot">Blocked this session</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--info)">
+                        <div class="metric-label"><i class="fas fa-user"></i>People In Frame</div>
+                        <div class="metric-value" id="mPeople">0</div>
+                        <div class="metric-foot">Current frame</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--amber)">
+                        <div class="metric-label"><i class="fas fa-triangle-exclamation"></i>Violations</div>
+                        <div class="metric-value" id="mViolations">0</div>
+                        <div class="metric-foot">Session total: <span id="mViolationsTotal" class="tnum">0</span></div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                    <!-- Camera -->
+                    <section class="card lg:col-span-2">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-video"></i>Checkpoint Camera</span>
+                            <div class="flex items-center gap-2">
+                                <!-- Model throughput. Worth showing on its own terms, and it
+                                     becomes the number that proves on-device inference is
+                                     working once the AI HAT takes over from the CPU. -->
+                                <span class="badge badge-muted" id="perfBadge" title="Model inference speed" hidden>
+                                    <i class="fas fa-gauge-high"></i><span id="perfText">—</span>
+                                </span>
+                                <span class="badge badge-muted" id="camBadge">Standby</span>
+                            </div>
+                        </div>
+                        <div class="video-stage">
+                            <div class="video-idle" id="cameraPlaceholder">
+                                <i class="fas fa-video-slash text-3xl"></i>
+                                <p class="text-sm">Camera inactive — start the checkpoint to open the feed.</p>
+                            </div>
+                            <video id="videoFeed" class="hidden" autoplay playsinline muted></video>
+                            <canvas id="overlayCanvas" class="overlay hidden"></canvas>
+                            <canvas id="captureCanvas" class="hidden"></canvas>
+                            <div id="streamError" class="video-idle hidden" style="background:rgba(11,17,32,.9)">
+                                <i class="fas fa-circle-exclamation text-3xl" style="color:var(--danger)"></i>
+                                <p class="text-sm text-white font-semibold">Camera unavailable</p>
+                                <button id="retryButton" class="btn btn-primary btn-sm">Retry</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Requirements + log -->
+                    <div class="flex flex-col gap-5">
+                        <section class="card">
+                            <div class="card-head">
+                                <span class="card-title"><i class="fas fa-list-check"></i>Entry Requirements</span>
+                            </div>
+                            <!-- Rendered from the site's configured policy, not
+                                 hardcoded — the list has to change when an
+                                 administrator changes what the gate requires. -->
+                            <div class="card-body" style="padding-top:4px;padding-bottom:4px" id="checkList">
+                                <div class="check-row" data-state="idle">
+                                    <span class="check-name">Loading requirements…</span>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="card flex-1">
+                            <div class="card-head">
+                                <span class="card-title"><i class="fas fa-rss"></i>Live Detections</span>
+                                <span class="text-xs" style="color:var(--faint)" id="feedCount"></span>
+                            </div>
+                            <div class="card-body">
+                                <div class="log-feed" id="detection-results">
+                                    <p class="text-sm" style="color:var(--faint)">Detections will stream here once the checkpoint is running.</p>
+                                </div>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <p class="text-xs mt-5" style="color:var(--faint)">
+                    <i class="fas fa-circle-info mr-1"></i>
+                    Badge and biometric identification at the gate is planned for the hardware phase; this checkpoint currently verifies PPE against the signed-in operator.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260807a"></script>
+    <script src="js/auth.js?v=20260807a"></script>
+    <script src="js/shell.js?v=20260807a"></script>
+    <script src="js/camera.js?v=20260807a"></script>
+    <script>
+        Auth.requireAuth();
+        Shell.render('gate', {
+            title: 'Gate Control',
+            subtitle: 'Verify required PPE before granting site access',
+        });
+
+        // Topbar controls
+        document.getElementById('topbarSlot').innerHTML = `
+            <span class="live-pill is-off" id="livePill"><span class="live-dot"></span><span id="liveText">Offline</span></span>
+            <button id="startButton" class="btn btn-ok btn-sm"><i class="fas fa-play"></i>Start Checkpoint</button>
+            <button id="snapButton" class="btn btn-outline btn-sm" disabled title="Store the current frame"><i class="fas fa-camera"></i>Snapshot</button>
+            <button id="stopButton" class="btn btn-danger btn-sm" disabled><i class="fas fa-stop"></i>Stop</button>`;
+
+        const el = (id) => document.getElementById(id);
+        const detectionLog = el('detection-results');
+
+        // Camera needs a secure context — warn before the operator hits Start.
+        if (!window.IS_SECURE_CONTEXT) {
+            el('insecureOrigin').textContent = window.location.origin;
+            el('insecureNotice').classList.remove('hidden');
+        }
+
+        // A guest clicking Start Checkpoint gets their OWN webcam, not
+        // footage from a real gate — say so before they hit the button,
+        // not after they've granted the browser camera permission confused
+        // about what they're looking at.
+        const guestUser = Auth.getUser();
+        if (guestUser && guestUser.is_guest) {
+            el('cameraPlaceholder').querySelector('p').textContent =
+                'This is a live demo - Start Checkpoint opens your own device\'s camera. Nothing leaves your browser except the frame sent to the detector.';
+        }
+
+        let isRunning = false;
+        let pollInterval = null;
+        let cameraFeedInstance = null;
+        let lastSpokenVerdict = null;
+
+        function setLive(state, text) {
+            const pill = el('livePill');
+            pill.className = `live-pill ${state}`;
+            el('liveText').textContent = text;
+        }
+
+        // The site's configured requirements, filled in from /api/status.
+        let requiredPpe = [];
+
+        const PPE_ICONS = {
+            'Hardhat': 'fa-hard-hat',
+            'Safety Vest': 'fa-vest',
+            'Mask': 'fa-head-side-mask',
+        };
+
+        function slug(item) {
+            return item.replace(/[^a-z0-9]/gi, '');
+        }
+
+        function renderCheckList() {
+            const host = el('checkList');
+            if (!requiredPpe.length) {
+                host.innerHTML = '<div class="check-row" data-state="idle"><span class="check-name">No requirements configured.</span></div>';
+                return;
+            }
+            host.innerHTML = requiredPpe.map((item) => `
+                <div class="check-row" data-state="idle" id="check-${slug(item)}">
+                    <span class="check-name">
+                        <span class="check-icon"><i class="fas ${PPE_ICONS[item] || 'fa-shield-halved'}"></i></span>${item}
+                    </span>
+                    <span class="badge badge-muted" id="badge-${slug(item)}">Waiting</span>
+                </div>`).join('');
+        }
+
+        function setCheck(item, state, label, badgeClass) {
+            const row = el(`check-${slug(item)}`);
+            const badge = el(`badge-${slug(item)}`);
+            if (!row || !badge) return;
+            row.dataset.state = state;
+            badge.className = `badge ${badgeClass}`;
+            badge.textContent = label;
+        }
+
+        function resetChecks() {
+            requiredPpe.forEach((item) => setCheck(item, 'idle', 'Waiting', 'badge-muted'));
+        }
+
+        // Only rebuild when the list actually differs — re-rendering on every
+        // poll would wipe the Detected/Missing badges twice a second.
+        function syncRequirements(list) {
+            if (!Array.isArray(list)) return;
+            if (JSON.stringify(list) === JSON.stringify(requiredPpe)) return;
+            requiredPpe = list;
+            renderCheckList();
+            // The overlay filters by the same policy.
+            if (cameraFeedInstance) cameraFeedInstance.requiredPpe = requiredPpe;
+        }
+
+        function renderPerf(stats) {
+            const badge = el('perfBadge');
+            if (!stats || !stats.samples) {
+                badge.hidden = true;
+                return;
+            }
+            badge.hidden = false;
+            el('perfText').textContent = `${stats.fps} fps · ${stats.avg_ms} ms`;
+            // Colour by what the number means for a gate: below ~5 fps a
+            // person can walk through between frames.
+            badge.className = 'badge ' + (
+                stats.fps >= 10 ? 'badge-ok' : stats.fps >= 5 ? 'badge-amber' : 'badge-danger'
+            );
+            badge.title = `Model inference only, averaged over the last ${stats.samples} frames `
+                        + `(most recent ${stats.last_ms} ms). Excludes network and browser time.`;
+        }
+
+        // Mirrors CameraFeed.isRelevant so the log and the overlay agree.
+        function isRelevantDetection(type) {
+            if (type === 'Person') return true;
+            if (!requiredPpe.length) return true;
+            const item = type.startsWith('NO-') ? type.slice(3) : type;
+            return requiredPpe.includes(item);
+        }
+
+        async function loadRequirements() {
+            try {
+                const res = await Auth.fetch('/api/status');
+                if (!res.ok) return;
+                const data = await res.json();
+                syncRequirements(data.required_ppe || []);
+            } catch (e) { /* the poll will pick it up once the API is reachable */ }
+        }
+
+        function renderVerdict(verdict, missing) {
+            const panel = el('verdictPanel');
+            const word = el('verdictWord');
+            const note = el('verdictNote');
+
+            if (verdict === 'granted') {
+                panel.dataset.state = 'granted';
+                word.textContent = 'Access Granted';
+                note.textContent = 'All required PPE detected — gate would open.';
+            } else if (verdict === 'denied') {
+                panel.dataset.state = 'denied';
+                word.textContent = 'Access Denied';
+                note.textContent = missing.length
+                    ? `Missing: ${missing.join(', ')}`
+                    : 'Required PPE not detected.';
+            } else {
+                panel.dataset.state = 'idle';
+                word.textContent = isRunning ? 'No Person Detected' : 'Checkpoint Idle';
+                note.textContent = isRunning
+                    ? 'Step into frame to be checked.'
+                    : 'Start the checkpoint to begin verifying access.';
+            }
+
+            // Announce only on change, so it doesn't repeat every poll.
+            if (isRunning && verdict === 'denied' && lastSpokenVerdict !== 'denied') {
+                speak('Access denied. Required protective equipment missing.');
+            }
+            lastSpokenVerdict = verdict;
+        }
+
+        function applyChecks(verdict, missing) {
+            if (verdict === 'no_person') return resetChecks();
+            requiredPpe.forEach((item) => {
+                const isMissing = missing.includes(item);
+                setCheck(item,
+                    isMissing ? 'bad' : 'ok',
+                    isMissing ? 'Missing' : 'Detected',
+                    isMissing ? 'badge-danger' : 'badge-ok');
+            });
+        }
+
+        function speak(msg) {
+            if (!isRunning || !('speechSynthesis' in window)) return;
+            window.speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
+        }
+
+        async function checkStatus() {
+            try {
+                const res = await Auth.fetch('/api/status');
+                if (res.ok) return true;
+            } catch (e) { /* offline */ }
+            return false;
+        }
+
+        async function start() {
+            if (isRunning) return;
+            if (!(await checkStatus())) {
+                setLive('is-off', 'API unreachable');
+                el('camBadge').textContent = 'API offline';
+                el('camBadge').className = 'badge badge-danger';
+                return;
+            }
+
+            try {
+                const res = await Auth.fetch('/api/start', { method: 'POST' });
+                if (!res.ok) return;
+
+                isRunning = true;
+                el('startButton').disabled = true;
+                el('stopButton').disabled = false;
+                el('snapButton').disabled = false;
+                el('cameraPlaceholder').classList.add('hidden');
+                el('streamError').classList.add('hidden');
+                el('videoFeed').classList.remove('hidden');
+                el('overlayCanvas').classList.remove('hidden');
+                el('camBadge').textContent = 'Streaming';
+                el('camBadge').className = 'badge badge-ok';
+                setLive('is-live', 'Live');
+
+                if (!cameraFeedInstance) {
+                    cameraFeedInstance = new CameraFeed(el('videoFeed'), el('captureCanvas'), null);
+                }
+                // Seed the policy the camera filters by — syncRequirements may
+                // have run before this instance existed.
+                cameraFeedInstance.requiredPpe = requiredPpe;
+                const ok = await cameraFeedInstance.start();
+                if (!ok) {
+                    el('streamError').classList.remove('hidden');
+                    el('camBadge').textContent = 'No camera';
+                    el('camBadge').className = 'badge badge-danger';
+                }
+
+                detectionLog.innerHTML = '';
+                pollInterval = setInterval(update, 1000);
+            } catch (e) { /* keep UI in a safe state */ }
+        }
+
+        async function stop() {
+            isRunning = false;
+            clearInterval(pollInterval);
+            if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            if (cameraFeedInstance) cameraFeedInstance.stop();
+
+            try { await Auth.fetch('/api/stop', { method: 'POST' }); } catch (e) { /* ignore */ }
+
+            el('startButton').disabled = false;
+            el('stopButton').disabled = true;
+            el('snapButton').disabled = true;
+            el('perfBadge').hidden = true;
+            el('videoFeed').classList.add('hidden');
+            el('overlayCanvas').classList.add('hidden');
+            el('cameraPlaceholder').classList.remove('hidden');
+            el('camBadge').textContent = 'Standby';
+            el('camBadge').className = 'badge badge-muted';
+            setLive('is-off', 'Offline');
+            lastSpokenVerdict = null;
+            resetChecks();
+            renderVerdict('no_person', []);
+        }
+
+        async function update() {
+            if (!isRunning) return;
+            try {
+                const [sRes, rRes] = await Promise.all([
+                    Auth.fetch('/api/status'),
+                    Auth.fetch('/api/results'),
+                ]);
+
+                if (sRes.ok) {
+                    const data = await sRes.json();
+                    el('mPeople').textContent = data.people ?? 0;
+                    el('mViolations').textContent = data.violations ?? 0;
+                    el('mViolationsTotal').textContent = data.totals?.violations ?? 0;
+                    el('mGranted').textContent = data.gate?.granted ?? 0;
+                    el('mDenied').textContent = data.gate?.denied ?? 0;
+                    renderPerf(data.inference);
+
+                    // Re-render if an administrator changed the policy while
+                    // this checkpoint was running, so the panel never claims
+                    // to require something the gate no longer checks.
+                    syncRequirements(data.required_ppe);
+
+                    const missing = data.missing_ppe || [];
+                    renderVerdict(data.verdict, missing);
+                    applyChecks(data.verdict, missing);
+                }
+
+                if (rRes.ok) {
+                    const data = await rRes.json();
+                    const lines = [];
+                    data.results.forEach((r) => {
+                        r.detections.forEach((d) => {
+                            // Same filter as the overlay: don't log equipment
+                            // this site doesn't require, or the feed reads as
+                            // a list of violations that aren't violations here.
+                            if (!isRelevantDetection(d.type)) return;
+                            const violation = d.type.startsWith('NO-');
+                            lines.push(`<div class="log-line">
+                                <span class="log-time">${r.timestamp}</span>
+                                <span class="log-type ${violation ? 'is-violation' : 'is-ok'}">${d.type}</span>
+                                <span class="log-conf">${Math.round(d.confidence * 100)}%</span>
+                            </div>`);
+                        });
+                    });
+                    detectionLog.innerHTML = lines.length
+                        ? lines.reverse().join('')
+                        : '<p class="text-sm" style="color:var(--faint)">No detections in the current window.</p>';
+                    el('feedCount').textContent = lines.length ? `${lines.length} events` : '';
+                }
+            } catch (e) { /* transient poll failure */ }
+        }
+
+        el('startButton').addEventListener('click', start);
+        el('stopButton').addEventListener('click', stop);
+        el('retryButton').addEventListener('click', () => { stop().then(start); });
+
+        el('snapButton').addEventListener('click', async () => {
+            const btn = el('snapButton');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Saving…';
+            try {
+                const res = await Auth.fetch('/api/snapshot', { method: 'POST' });
+                const d = await res.json();
+                if (res.ok && d.success) {
+                    btn.innerHTML = '<i class="fas fa-check"></i>Saved';
+                } else {
+                    btn.innerHTML = '<i class="fas fa-xmark"></i>Failed';
+                }
+            } catch (e) {
+                btn.innerHTML = '<i class="fas fa-xmark"></i>Failed';
+            }
+            // Brief confirmation, then back to normal — a toast system would
+            // be more than this one button warrants.
+            setTimeout(() => {
+                btn.innerHTML = original;
+                btn.disabled = !isRunning;
+            }, 1600);
+        });
+
+        // Show what this gate requires before anyone presses Start.
+        loadRequirements();
+    </script>
+</body>
+</html>

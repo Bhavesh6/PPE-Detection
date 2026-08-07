@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Overview — SafetyFirst Admin</title>
+    <meta name="description" content="Site-wide PPE compliance overview: checkpoint activity, personnel, and access decisions.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+    <style>
+        .modal-backdrop {
+            position: fixed; inset: 0; z-index: var(--z-modal);
+            background: rgba(15,23,42,.55);
+            display: flex; align-items: center; justify-content: center; padding: 20px;
+            animation: modalBackdropIn var(--dur-modal) var(--ease-out) both;
+        }
+        .modal-panel {
+            background: var(--surface); border-radius: var(--radius-md);
+            width: 100%; max-width: 620px; max-height: 82vh;
+            display: flex; flex-direction: column; box-shadow: var(--shadow-lift);
+            /* A modal isn't anchored to a trigger, so it scales from its own
+               centre. Starting at .96 rather than 0 — things don't appear
+               out of nothing. */
+            animation: modalPanelIn var(--dur-modal) var(--ease-out) both;
+        }
+        @keyframes modalBackdropIn { from { opacity: 0; } }
+        @keyframes modalPanelIn {
+            from { opacity: 0; transform: scale(.96) translateY(6px); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            /* Keep the fade (it explains the state change), drop the movement. */
+            .modal-panel { animation: modalBackdropIn var(--dur-modal) both; }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <!-- Today / right now. Historical rates and trends live on
+                     Analytics — repeating them here just invites the two pages
+                     to disagree once records age past the Analytics window. -->
+                <div class="metrics mb-5">
+                    <div class="metric" style="--m-accent: var(--ok)">
+                        <div class="metric-label"><i class="fas fa-user-check"></i>On Site Now</div>
+                        <div class="metric-value" id="kPresent">0</div>
+                        <div class="metric-foot">Badged in and cleared today</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--info)">
+                        <div class="metric-label"><i class="fas fa-shield-halved"></i>Decisions Today</div>
+                        <div class="metric-value" id="kToday">0</div>
+                        <div class="metric-foot">Rulings made since midnight</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--danger)">
+                        <div class="metric-label"><i class="fas fa-ban"></i>Turned Away Today</div>
+                        <div class="metric-value" id="kDeniedToday">0</div>
+                        <div class="metric-foot">Sent back to fix their gear</div>
+                    </div>
+                    <div class="metric" style="--m-accent: var(--amber)">
+                        <div class="metric-label"><i class="fas fa-users"></i>Personnel</div>
+                        <div class="metric-value" id="kUsers">0</div>
+                        <div class="metric-foot"><span id="kActive" class="tnum">0</span> checkpoint(s) live</div>
+                    </div>
+                </div>
+
+                <!-- Attendance -->
+                <section class="card mb-5">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-id-badge"></i>Today's Gate Activity</span>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs" style="color:var(--faint)" id="attendCount"></span>
+                            <button id="exportButton" class="btn btn-outline btn-sm"><i class="fas fa-file-csv"></i>Export CSV</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Worker</th>
+                                    <th>Result</th>
+                                    <th>Missing PPE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attendBody">
+                                <tr><td colspan="4" class="cell-empty">Loading gate activity…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Personnel -->
+                <section class="card">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-id-card-clip"></i>Personnel &amp; Checkpoint Status</span>
+                        <div class="flex items-center gap-2">
+                            <div class="kind-group" id="roleFilter">
+                                <button class="kind-btn is-active" data-role="all">All</button>
+                                <button class="kind-btn" data-role="admin">Admin</button>
+                                <button class="kind-btn" data-role="operator">Operator</button>
+                                <button class="kind-btn" data-role="guest">Guest</button>
+                            </div>
+                            <span class="live-pill is-live"><span class="live-dot"></span>Auto-refresh</span>
+                            <button id="refreshButton" class="btn btn-outline btn-sm"><i class="fas fa-rotate"></i>Refresh</button>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table class="data">
+                            <thead>
+                                <tr>
+                                    <th>Person</th>
+                                    <th>Role</th>
+                                    <th>Checkpoint</th>
+                                    <th>Last Verdict</th>
+                                    <th>Last seen</th>
+                                    <th style="text-align:right">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTableBody">
+                                <tr><td colspan="6" class="cell-empty">Loading personnel…</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <p class="text-xs mt-5" style="color:var(--faint)">
+                    <i class="fas fa-circle-info mr-1"></i>
+                    This page covers today. For compliance rates, trends and per-worker history,
+                    see <a href="analytics.html" style="color:var(--accent);font-weight:600">Analytics</a>.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <!-- Record modal -->
+    <div id="logModal" class="modal-backdrop hidden">
+        <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="logModalTitle">
+            <div class="card-head">
+                <span class="card-title" id="logModalTitle">Verification Record</span>
+                <button id="logModalClose" class="btn btn-outline btn-sm" aria-label="Close"><i class="fas fa-xmark"></i></button>
+            </div>
+            <div class="card-body" style="overflow-y:auto" id="logModalBody"></div>
+        </div>
+    </div>
+
+    <script src="js/config.js?v=20260807a"></script>
+    <script src="js/auth.js?v=20260807a"></script>
+    <script src="js/shell.js?v=20260807a"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('admin', {
+            title: 'Site Overview',
+            subtitle: 'Who is on site today, and what the gate has decided since midnight',
+        });
+
+        const el = (id) => document.getElementById(id);
+        const tbody = el('usersTableBody');
+        const logModal = el('logModal');
+
+        const VERDICT_BADGE = {
+            granted: '<span class="badge badge-ok">Granted</span>',
+            denied: '<span class="badge badge-danger">Denied</span>',
+            no_person: '<span class="badge badge-muted">—</span>',
+        };
+
+        function escapeHtml(s) {
+            return String(s ?? '').replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        let activeRole = 'all';
+
+        // Relative time reads faster than a timestamp when the question is
+        // "is this person around right now".
+        function lastSeen(iso) {
+            if (!iso) return '<span style="color:var(--faint)">Never</span>';
+            const then = new Date(iso);
+            const mins = Math.floor((Date.now() - then.getTime()) / 60000);
+            if (mins < 1) return 'Just now';
+            if (mins < 60) return `${mins}m ago`;
+            const hrs = Math.floor(mins / 60);
+            if (hrs < 24) return `${hrs}h ago`;
+            const days = Math.floor(hrs / 24);
+            if (days < 30) return `${days}d ago`;
+            return then.toLocaleDateString();
+        }
+
+        function roleBadge(u) {
+            if (u.is_admin) return '<span class="badge badge-amber">Admin</span>';
+            if (u.is_guest) return '<span class="badge badge-muted">Guest</span>';
+            return '<span class="badge badge-info">Operator</span>';
+        }
+
+        async function loadStats() {
+            try {
+                const res = await Auth.fetch('/api/admin/stats');
+                if (!res.ok) return;
+                const d = await res.json();
+                el('kUsers').textContent = d.total_users;
+                el('kActive').textContent = d.active_sessions;
+                el('kToday').textContent = d.today?.decisions ?? 0;
+                el('kDeniedToday').textContent = d.today?.denied ?? 0;
+            } catch (e) { /* best-effort */ }
+        }
+
+        async function loadUsers() {
+            try {
+                const res = await Auth.fetch('/api/admin/users');
+                if (!res.ok) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="cell-empty" style="color:var(--danger)">Could not load personnel.</td></tr>';
+                    return;
+                }
+                const data = await res.json();
+                if (!data.users.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" class="cell-empty">No personnel registered yet.</td></tr>';
+                    return;
+                }
+
+                const shown = activeRole === 'all'
+                    ? data.users
+                    : data.users.filter((u) => u.role === activeRole);
+
+                if (!shown.length) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="cell-empty">No ${activeRole} accounts.</td></tr>`;
+                    return;
+                }
+
+                tbody.innerHTML = shown.map((u) => `
+                    <tr>
+                        <td>
+                            <div style="font-weight:600;color:var(--ink)">${escapeHtml(u.name)}</div>
+                            <div style="font-size:.75rem;color:var(--faint)">${escapeHtml(u.email)}</div>
+                        </td>
+                        <td>${roleBadge(u)}</td>
+                        <td>${u.active
+                            ? '<span class="live-pill is-live" style="padding:3px 9px;font-size:.65rem"><span class="live-dot"></span>Live</span>'
+                            : '<span class="badge badge-muted">Idle</span>'}</td>
+                        <td>${VERDICT_BADGE[u.verdict] || VERDICT_BADGE.no_person}</td>
+                        <td style="color:var(--muted);white-space:nowrap">${lastSeen(u.last_seen)}</td>
+                        <td style="text-align:right;white-space:nowrap">
+                            <button class="btn btn-outline btn-sm" data-log="${u.id}" data-name="${escapeHtml(u.name)}">Record</button>
+                            <button class="btn btn-outline btn-sm" data-delete="${u.id}" style="color:var(--danger);border-color:#fecaca">Remove</button>
+                        </td>
+                    </tr>`).join('');
+            } catch (e) {
+                tbody.innerHTML = '<tr><td colspan="6" class="cell-empty" style="color:var(--danger)">Could not load personnel.</td></tr>';
+            }
+        }
+
+        async function showLog(userId, name) {
+            el('logModalTitle').textContent = `Verification Record — ${name}`;
+            el('logModalBody').innerHTML = '<p class="text-sm" style="color:var(--faint)">Loading…</p>';
+            logModal.classList.remove('hidden');
+
+            try {
+                const res = await Auth.fetch(`/api/admin/users/${userId}/results`);
+                const data = await res.json();
+                if (!data.results || !data.results.length) {
+                    el('logModalBody').innerHTML = '<p class="text-sm" style="color:var(--faint)">No verifications recorded for this person yet.</p>';
+                    return;
+                }
+                el('logModalBody').innerHTML = data.results.map((r) => {
+                    const dets = r.detections.length
+                        ? r.detections.map((d) => {
+                            const cls = d.type.startsWith('NO-') ? 'is-violation' : 'is-ok';
+                            return `<span class="log-type ${cls}" style="margin-right:8px">${escapeHtml(d.type)}
+                                     <span class="log-conf">${Math.round(d.confidence * 100)}%</span></span>`;
+                        }).join('')
+                        : '<span style="color:var(--faint)">No detections</span>';
+                    return `<div class="log-line" style="flex-wrap:wrap">
+                              <span class="log-time">${escapeHtml(r.timestamp)}</span>${dets}
+                            </div>`;
+                }).join('');
+            } catch (e) {
+                el('logModalBody').innerHTML = '<p class="text-sm" style="color:var(--danger)">Could not load record.</p>';
+            }
+        }
+
+        async function deleteUser(userId) {
+            if (!confirm('Remove this person and their verification record? This cannot be undone.')) return;
+            try {
+                const res = await Auth.fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
+                const data = await res.json();
+                if (!res.ok) return alert(data.message || 'Could not remove this person.');
+                refresh();
+            } catch (e) {
+                alert('Could not remove this person.');
+            }
+        }
+
+        tbody.addEventListener('click', (e) => {
+            const logBtn = e.target.closest('[data-log]');
+            if (logBtn) return showLog(logBtn.dataset.log, logBtn.dataset.name);
+            const delBtn = e.target.closest('[data-delete]');
+            if (delBtn) return deleteUser(delBtn.dataset.delete);
+        });
+
+        function closeModal() { logModal.classList.add('hidden'); }
+        el('logModalClose').addEventListener('click', closeModal);
+        logModal.addEventListener('click', (e) => { if (e.target === logModal) closeModal(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+        async function loadAttendance() {
+            const body = el('attendBody');
+            try {
+                const res = await Auth.fetch('/api/gate/attendance/today');
+                if (!res.ok) {
+                    body.innerHTML = '<tr><td colspan="4" class="cell-empty" style="color:var(--danger)">Could not load gate activity.</td></tr>';
+                    return;
+                }
+                const data = await res.json();
+                el('kPresent').textContent = data.present_count ?? 0;
+                el('attendCount').textContent = data.records.length
+                    ? `${data.records.length} scan${data.records.length > 1 ? 's' : ''} today` : '';
+
+                if (!data.records.length) {
+                    body.innerHTML = '<tr><td colspan="4" class="cell-empty">No badge scans yet today.</td></tr>';
+                    return;
+                }
+                body.innerHTML = data.records.map((r) => `
+                    <tr>
+                        <td style="white-space:nowrap;color:var(--muted)">${new Date(r.timestamp).toLocaleTimeString()}</td>
+                        <td style="font-weight:600;color:var(--ink)">${escapeHtml(r.name || '—')}</td>
+                        <td>${r.granted
+                            ? '<span class="badge badge-ok"><i class="fas fa-check"></i>Entered</span>'
+                            : '<span class="badge badge-danger"><i class="fas fa-xmark"></i>Turned away</span>'}</td>
+                        <td>${r.missing_ppe.length
+                            ? r.missing_ppe.map((p) => `<span class="badge badge-danger" style="margin:1px 2px">${escapeHtml(p)}</span>`).join('')
+                            : '<span style="color:var(--faint)">—</span>'}</td>
+                    </tr>`).join('');
+            } catch (e) {
+                body.innerHTML = '<tr><td colspan="4" class="cell-empty" style="color:var(--danger)">Could not load gate activity.</td></tr>';
+            }
+        }
+
+        function refresh() { loadUsers(); loadStats(); loadAttendance(); }
+        el('refreshButton').addEventListener('click', refresh);
+
+        el('roleFilter').addEventListener('click', (e) => {
+            const btn = e.target.closest('.kind-btn');
+            if (!btn) return;
+            activeRole = btn.dataset.role;
+            el('roleFilter').querySelectorAll('.kind-btn')
+                .forEach((b) => b.classList.toggle('is-active', b === btn));
+            loadUsers();
+        });
+
+        // The endpoint needs the JWT, which only Auth.fetch attaches — a plain
+        // <a href> download link can't send an Authorization header, so the
+        // file is fetched as a blob and "clicked" via a throwaway object URL.
+        el('exportButton').addEventListener('click', async () => {
+            const btn = el('exportButton');
+            const original = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>Exporting…';
+            try {
+                // The dedicated /export/attendance.csv route was folded into
+                // /reports/<id>.csv when Reports shipped; this button was
+                // missed in that change and was 404ing silently until now.
+                const res = await Auth.fetch('/api/admin/reports/gate-activity.csv');
+                if (!res.ok) throw new Error('Export failed');
+                const blob = await res.blob();
+                const disposition = res.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="([^"]+)"/);
+                const filename = match ? match[1] : 'safetyfirst-gate-report.csv';
+
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            } catch (e) {
+                alert('Could not export the report. Is the API running?');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
+        });
+
+        refresh();
+        setInterval(refresh, 5000);
+    </script>
+</body>
+</html>

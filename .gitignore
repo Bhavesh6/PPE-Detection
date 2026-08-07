@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+
+# Environment secrets
+.env
+backend/app.db
+*.db
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local dev artifacts
+output/
+runs/
+.vercel
+# Added by code-review-graph
+.code-review-graph/
+
+# AI coding-tool local config (installed per-machine, not project state)
+.claude/
+.codebuddy/
+.cursor/
+.gemini/
+.qoder/
+.mcp.json
+opencode.jsonc
+
+# Stored refusal frames — personal data, not source
+backend/instance/

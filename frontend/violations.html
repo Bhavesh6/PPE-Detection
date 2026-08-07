@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Captures — SafetyFirst Admin</title>
+    <meta name="description" content="Refusals and operator snapshots, each with the frame behind it.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+    <style>
+        .vio-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+        @media (max-width: 1100px) { .vio-layout { grid-template-columns: 1fr; } }
+
+        .vio-row {
+            display: grid; grid-template-columns: 92px 1fr auto;
+            gap: 12px; align-items: center;
+            padding: 13px 16px; cursor: pointer;
+            border-left: 3px solid transparent;
+            transition: background-color .14s var(--ease-out), border-color .14s var(--ease-out);
+        }
+        .vio-row + .vio-row { border-top: 1px solid var(--border); }
+        .vio-row:hover { background: var(--surface-alt); }
+        .vio-row.is-active { background: var(--accent-soft); border-left-color: var(--accent); }
+        .vio-time { font-size: .74rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+        /* display:block on both — as inline spans (inside a plain span, not
+           a flex/grid parent) they share a line and the sub-line runs on
+           from the name. Same bug shape already fixed in settings.html,
+           reports.html and pi-home.html this session; missed here. */
+        .vio-name { display: block; font-weight: 600; font-size: .88rem; }
+        .vio-sub { display: block; font-size: .72rem; color: var(--faint); }
+
+        .evidence-frame {
+            position: relative;
+            background: #0b1120;
+            border-radius: var(--radius);
+            overflow: hidden;
+            aspect-ratio: 4 / 3;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .evidence-frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
+        .evidence-msg { color: #64748b; font-size: .84rem; text-align: center; padding: 0 24px; }
+
+        .fact { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; font-size: .84rem; }
+        .fact + .fact { border-top: 1px solid var(--border); }
+        .fact dt { color: var(--muted); }
+        .fact dd { margin: 0; font-weight: 600; text-align: right; }
+
+        .empty-detail {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 10px; padding: 60px 24px; color: var(--faint); text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div class="vio-layout">
+                    <!-- The log -->
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-images"></i>Captures</span>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs" style="color:var(--faint)" id="vioCount"></span>
+                                <div class="kind-group" id="kindGroup">
+                                    <button class="kind-btn is-active" data-kind="all">All</button>
+                                    <button class="kind-btn" data-kind="denied">Refusals</button>
+                                    <button class="kind-btn" data-kind="snapshot">Snapshots</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="vioList">
+                            <div class="empty-detail">Loading refusals…</div>
+                        </div>
+                        <div class="card-head" style="border-bottom:none;border-top:1px solid var(--border)">
+                            <span class="text-xs" style="color:var(--faint)" id="pageInfo"></span>
+                            <div class="flex gap-2">
+                                <button id="prevBtn" class="btn btn-outline btn-sm">Previous</button>
+                                <button id="nextBtn" class="btn btn-outline btn-sm">Next</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- The evidence -->
+                    <section class="card" id="detailCard">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-camera"></i>Evidence</span>
+                            <span class="text-xs" style="color:var(--faint)" id="detailRef"></span>
+                        </div>
+                        <div class="card-body" id="detailBody">
+                            <div class="empty-detail">
+                                <i class="fas fa-hand-pointer" style="font-size:1.4rem"></i>
+                                <span>Select a capture to see its frame.</span>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+
+                <p class="text-xs mt-5" style="color:var(--faint)">
+                    <i class="fas fa-circle-info mr-1"></i>
+                    Refusals are photographed automatically, snapshots on request. Images are deleted after 30 days —
+                    the decision is kept permanently, the picture is not.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260807a"></script>
+    <script src="js/auth.js?v=20260807a"></script>
+    <script src="js/shell.js?v=20260807a"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('violations', {
+            title: 'Captures',
+            subtitle: 'Refusals and snapshots, each with the frame behind it',
+        });
+
+        const el = (id) => document.getElementById(id);
+        let page = 1;
+        const perPage = 20;
+        let kind = 'all';
+        let rows = [];
+        let selectedId = null;
+        // Object URLs must be revoked or each viewed image leaks its blob
+        // for the life of the page.
+        let objectUrl = null;
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        function badges(items, cls) {
+            if (!items || !items.length) return '<span style="color:var(--faint)">—</span>';
+            return items.map((p) => `<span class="badge ${cls}" style="margin:1px 2px">${escapeHtml(p)}</span>`).join('');
+        }
+
+        function renderList() {
+            const host = el('vioList');
+            if (!rows.length) {
+                host.innerHTML = '<div class="empty-detail">Nothing captured yet. Refusals are stored automatically; snapshots when an operator takes one.</div>';
+                return;
+            }
+            host.innerHTML = rows.map((v) => {
+                const d = new Date(v.timestamp);
+                return `
+                    <div class="vio-row ${v.id === selectedId ? 'is-active' : ''}" data-id="${v.id}">
+                        <span class="vio-time">${d.toLocaleDateString()}<br>${d.toLocaleTimeString()}</span>
+                        <span>
+                            <span class="vio-name">${escapeHtml(v.worker.name)}</span>
+                            <span class="vio-sub">${escapeHtml([v.worker.employee_id, v.worker.role].filter(Boolean).join(' · ') || '—')}</span>
+                        </span>
+                        <span style="text-align:right">
+                            ${v.verdict === 'snapshot'
+                                ? '<span class="badge badge-info"><i class="fas fa-camera"></i>Snapshot</span>'
+                                : badges(v.missing_ppe, 'badge-danger')}
+                            ${v.has_evidence
+                                ? '<i class="fas fa-image" title="Frame stored" style="color:var(--muted);margin-left:6px"></i>'
+                                : '<i class="fas fa-ban" title="No frame stored" style="color:var(--faint);margin-left:6px"></i>'}
+                        </span>
+                    </div>`;
+            }).join('');
+        }
+
+        async function showDetail(v) {
+            selectedId = v.id;
+            renderList();
+            el('detailRef').textContent = `#${v.id}`;
+
+            const detected = [...new Set(v.detections.map((d) => d.type))];
+            const policy = v.policy;
+
+            el('detailBody').innerHTML = `
+                <div class="evidence-frame" id="frameHost">
+                    <span class="evidence-msg">Loading frame…</span>
+                </div>
+                <dl style="margin-top:16px">
+                    <div class="fact"><dt>Type</dt><dd>${v.verdict === 'snapshot'
+                        ? '<span class="badge badge-info"><i class="fas fa-camera"></i>Operator snapshot</span>'
+                        : '<span class="badge badge-danger"><i class="fas fa-ban"></i>Refused entry</span>'}</dd></div>
+                    <div class="fact"><dt>${v.verdict === 'snapshot' ? 'Captured by' : 'Worker'}</dt><dd>${escapeHtml(v.worker.name)}</dd></div>
+                    <div class="fact"><dt>When</dt><dd>${new Date(v.timestamp).toLocaleString()}</dd></div>
+                    ${v.verdict === 'snapshot' ? '' : `
+                    <div class="fact"><dt>Missing</dt><dd>${badges(v.missing_ppe, 'badge-danger')}</dd></div>`}
+                    <div class="fact"><dt>Everything seen</dt><dd style="max-width:60%">${badges(detected, 'badge-muted')}</dd></div>
+                    <div class="fact">
+                        <dt>Policy in force</dt>
+                        <dd>${policy
+                            ? badges(policy.required_ppe, 'badge-info') + `<div style="font-weight:400;color:var(--faint);font-size:.74rem;margin-top:3px">confidence ≥ ${policy.confidence_threshold}</div>`
+                            : '<span style="color:var(--faint);font-weight:400">Not recorded</span>'}</dd>
+                    </div>
+                </dl>`;
+
+            // The image endpoint is behind the admin JWT, which an <img src>
+            // cannot send — fetch it as a blob and hand the tag an object URL.
+            const host = el('frameHost');
+            if (!v.has_evidence) {
+                host.innerHTML = '<span class="evidence-msg">No frame stored for this refusal.<br>Either it predates evidence capture, or the image has passed its retention window.</span>';
+                return;
+            }
+            try {
+                const res = await Auth.fetch(`/api/admin/violations/${v.id}/evidence`);
+                if (!res.ok) {
+                    host.innerHTML = '<span class="evidence-msg">The stored image is no longer available.</span>';
+                    return;
+                }
+                const blob = await res.blob();
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                objectUrl = URL.createObjectURL(blob);
+                host.innerHTML = `<img src="${objectUrl}" alt="Frame captured when ${escapeHtml(v.worker.name)} was refused entry">`;
+            } catch (e) {
+                host.innerHTML = '<span class="evidence-msg">Could not load the image.</span>';
+            }
+        }
+
+        el('vioList').addEventListener('click', (e) => {
+            const row = e.target.closest('.vio-row');
+            if (!row) return;
+            const v = rows.find((x) => x.id === Number(row.dataset.id));
+            if (v) showDetail(v);
+        });
+
+        async function load() {
+            try {
+                const res = await Auth.fetch(`/api/admin/violations?page=${page}&per_page=${perPage}&kind=${kind}`);
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+                rows = d.violations;
+                renderList();
+
+                const totalPages = Math.max(Math.ceil(d.total / perPage), 1);
+                el('vioCount').textContent = d.total ? `${d.total} total` : '';
+                el('pageInfo').textContent = `Page ${d.page} of ${totalPages}`;
+                el('prevBtn').disabled = page <= 1;
+                el('nextBtn').disabled = page >= totalPages;
+            } catch (e) {
+                el('vioList').innerHTML = '<div class="empty-detail" style="color:var(--danger)">Could not load refusals.</div>';
+            }
+        }
+
+        el('kindGroup').addEventListener('click', (e) => {
+            const btn = e.target.closest('.kind-btn');
+            if (!btn) return;
+            kind = btn.dataset.kind;
+            // Back to page 1 — page 4 of refusals may not exist once the
+            // list narrows to snapshots.
+            page = 1;
+            el('kindGroup').querySelectorAll('.kind-btn')
+                .forEach((b) => b.classList.toggle('is-active', b === btn));
+            load();
+        });
+
+        el('prevBtn').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+        el('nextBtn').addEventListener('click', () => { page++; load(); });
+
+        load();
+    </script>
+</body>
+</html>
