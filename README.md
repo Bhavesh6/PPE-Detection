@@ -1,6 +1,7 @@
 # SafetyFirst — PPE Compliance Checkpoint
 
-**Team Mojito** — Bhavesh Waghmare, Jasbir Singh Monga, Priyal Vairagade
+**Team Mojito** — original concept by **Jasbir Singh Monga**, built with
+Bhavesh Waghmare and Priyal Vairagade.
 Built for the FAR AWAY 2026 hackathon.
 
 An access-control gate, not a monitoring dashboard. A worker presents an RFID
@@ -317,5 +318,7 @@ offers items the model can see, on purpose (see
 
 ## Credits
 
+- **Jasbir Singh Monga** — original concept and project owner.
+- Bhavesh Waghmare, Priyal Vairagade — Team Mojito, build.
 - YOLOv8 by Ultralytics (model trained by the team).
 - Tailwind CSS + Font Awesome for styling (via CDN, no build step).
