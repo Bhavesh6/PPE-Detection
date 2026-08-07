@@ -45,13 +45,16 @@ section to get it running.
 - The Raspberry Pi checkpoint app (`pi_app/`) runs natively (not a browser),
   owns the camera and an MFRC522 RFID reader directly, and has a `doctor.py`
   pre-flight tool to diagnose a new Pi before trusting it at a real gate.
+- A local attendance queue (`pi_app/offline_queue.py`) covering the one gap
+  that mattered: a PPE check reaches a verdict, and then the network drops
+  in the few seconds before that decision is recorded. That record is saved
+  locally and retried automatically once the connection's back, instead of
+  vanishing. This is not a full offline mode — badge lookup and the PPE
+  check itself are both server-side, so if the connection is down before a
+  verdict exists, there's nothing yet to lose.
 
 **Designed, not yet built:**
 
-- **Offline queue / store-and-forward sync.** The cloud backend is meant to
-  stay authoritative; the Pi should buffer badge scans locally (SQLite) only
-  during a network outage and sync the gap on reconnect. Architecture is
-  agreed, no code written yet.
 - **ESP32-CAM + ESP32-main split**, once dedicated sensor/camera hardware is
   available — one board dedicated to video streaming, one to sensors/comms/
   alert logic. Not started; no sensors owned yet.
@@ -161,6 +164,7 @@ pi_app/                                      Native Raspberry Pi checkpoint app 
   checkpoint.py                               Fullscreen Tk gate display, the actual entry point
   badge_reader.py                              MFRC522 (SPI) + keyboard fallback
   gps_reporter.py                              Serial NMEA GPS reader + no-op fallback
+  offline_queue.py                              Local retry queue for attendance records lost to a network blip
   doctor.py                                    Pre-flight hardware/connectivity check
   ui.py                                        Tk drawing helpers
 best.pt                                        Trained YOLOv8 weights (Hardhat/Safety Vest/Mask)

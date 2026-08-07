@@ -138,6 +138,22 @@ sudo journalctl -u safetyfirst -f     # watch the logs
 `Restart=always` brings the checkpoint back up if it crashes or if the
 backend was unreachable at boot.
 
+## If the network drops mid-check
+
+The backend stays authoritative — this isn't an offline mode, since both
+worker identity and the PPE check itself are server-side. What it does
+cover: a PPE check can finish and reach a verdict, and then the network
+can drop in exactly the few seconds before that decision is recorded. When
+that happens the attendance record is saved locally
+(`offline_queue.db`, alongside `checkpoint.py`) instead of being lost, and
+retried automatically every `SAFETYFIRST_QUEUE_FLUSH_INTERVAL` seconds
+(default 15) once the connection is back. The status bar shows `N SYNCING`
+while anything is queued. No deduplication — if a record happens to get
+through right before the connection drops, replaying it is a harmless
+double-write, which is cheaper than building idempotency for a report
+field nobody reads twice. `python doctor.py` reports a non-empty backlog
+as a warning.
+
 ## Troubleshooting
 
 **"Camera 0 not available"** — list what the Pi can see with
