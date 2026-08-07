@@ -3,18 +3,23 @@
   the real sensor board (ESP32-main) exists, and before the Pi is on hand.
 
   It doesn't read any sensor. It signs in like any other device, then waits
-  for a line typed into the Arduino IDE's Serial Monitor and reports a
-  simulated alert — hitting the exact same /api/gate/alerts endpoint the
-  real ESP32-main board will use once it's built (see pi_app/checkpoint.py's
-  ApiClient for the Pi-side equivalent of this same sign-in-then-POST
-  pattern). Nothing on the backend needs to change when the real board
-  arrives; this sketch is disposable, the endpoint isn't.
+  for a line typed into the Arduino IDE's Serial Monitor and reports either
+  a pre-decided alert or a raw sensor value — hitting the exact same
+  /api/gate/alerts and /api/gate/sensors endpoints the real ESP32-main
+  board will use once it's built (see pi_app/checkpoint.py's ApiClient for
+  the Pi-side equivalent of this same sign-in-then-POST pattern). Nothing
+  on the backend needs to change when the real board arrives; this sketch
+  is disposable, the endpoints aren't.
 
   Serial Monitor commands (115200 baud, newline line ending):
-    gas         critical gas alert
-    smoke       critical smoke alert
-    warn        a non-critical warning (heads-up only, doesn't hold the gate)
-    status      reprint WiFi/sign-in state
+    gas                     critical gas alert
+    smoke                   critical smoke alert
+    warn                    a non-critical warning (doesn't hold the gate)
+    reading <kind> <value>  a raw value, e.g. "reading gas 450" — classified
+                            against whatever threshold is configured for
+                            <kind> on the Alerts page; no threshold set for
+                            that kind means it's just logged, nothing fires
+    status                  reprint WiFi/sign-in state
 
   Setup:
     1. Arduino IDE -> Boards Manager -> install "esp32" (Espressif Systems).
@@ -90,17 +95,39 @@ bool signIn() {
   return true;
 }
 
-void reportAlert(const char *kind, const char *severity, const char *message) {
+// Shared by both report functions below — same sign-in-if-needed,
+// POST-with-one-retry-on-401 shape either way, only the path and body
+// differ.
+int postJson(const char *path, const String &payload) {
   if (authToken.isEmpty() && !signIn()) {
-    Serial.println("Not signed in — cannot report the alert.");
-    return;
+    Serial.println("Not signed in — cannot report.");
+    return -1;
   }
 
   HTTPClient http;
-  http.begin(String(API_BASE) + "/api/gate/alerts");
+  http.begin(String(API_BASE) + path);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + authToken);
+  int code = http.POST(payload);
 
+  // A 401 means the token expired or the backend restarted (in-memory JWT
+  // secret changed) — one retry after a fresh sign-in covers both without
+  // needing a reboot.
+  if (code == 401 && signIn()) {
+    http.end();
+    http.begin(String(API_BASE) + path);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + authToken);
+    code = http.POST(payload);
+  }
+
+  Serial.printf("POST %s -> HTTP %d\n", path, code);
+  if (code > 0) Serial.println(http.getString());
+  http.end();
+  return code;
+}
+
+void reportAlert(const char *kind, const char *severity, const char *message) {
   StaticJsonDocument<256> body;
   body["kind"] = kind;
   body["severity"] = severity;
@@ -108,22 +135,22 @@ void reportAlert(const char *kind, const char *severity, const char *message) {
   body["source"] = "esp32-sim";
   String payload;
   serializeJson(body, payload);
+  postJson("/api/gate/alerts", payload);
+}
 
-  int code = http.POST(payload);
-  // A 401 means the token expired or the backend restarted (in-memory JWT
-  // secret changed) — one retry after a fresh sign-in covers both without
-  // needing a reboot.
-  if (code == 401 && signIn()) {
-    http.end();
-    http.begin(String(API_BASE) + "/api/gate/alerts");
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("Authorization", "Bearer " + authToken);
-    code = http.POST(payload);
-  }
-
-  Serial.printf("POST /api/gate/alerts -> HTTP %d\n", code);
-  if (code > 0) Serial.println(http.getString());
-  http.end();
+// A raw value, not a pre-decided severity — the backend classifies it
+// against whatever threshold is configured on the Alerts page for this
+// kind (see backend/alerts.py's evaluate_reading()). Reporting a value for
+// a kind with no threshold set is harmless: it's logged as the sensor's
+// latest reading and raises nothing.
+void reportReading(const char *kind, float value) {
+  StaticJsonDocument<192> body;
+  body["kind"] = kind;
+  body["value"] = value;
+  body["source"] = "esp32-sim";
+  String payload;
+  serializeJson(body, payload);
+  postJson("/api/gate/sensors", payload);
 }
 
 void printStatus() {
@@ -151,7 +178,12 @@ void setup() {
     Serial.println("Could not sign in — check API_BASE and that the backend is running and reachable.");
   }
 
-  Serial.println("\nType a command and press Enter: gas | smoke | warn | status");
+  Serial.println("\nType a command and press Enter:");
+  Serial.println("  gas | smoke | warn        pre-decided severity (/api/gate/alerts)");
+  Serial.println("  reading <kind> <value>    raw value, e.g. \"reading gas 450\" (/api/gate/sensors)");
+  Serial.println("                            classified against whatever threshold is set");
+  Serial.println("                            on the Alerts page for <kind> — configure one there first");
+  Serial.println("  status                    reprint WiFi / sign-in state");
 }
 
 void loop() {
@@ -159,17 +191,31 @@ void loop() {
 
   String line = Serial.readStringUntil('\n');
   line.trim();
-  line.toLowerCase();
 
-  if (line == "gas") {
+  String lower = line;
+  lower.toLowerCase();
+
+  if (lower == "gas") {
     reportAlert("gas", "critical", "Simulated gas leak (ESP32 serial trigger)");
-  } else if (line == "smoke") {
+  } else if (lower == "smoke") {
     reportAlert("smoke", "critical", "Simulated smoke detection (ESP32 serial trigger)");
-  } else if (line == "warn") {
+  } else if (lower == "warn") {
     reportAlert("test", "warning", "Simulated warning, non-critical (ESP32 serial trigger)");
-  } else if (line == "status") {
+  } else if (lower == "status") {
     printStatus();
-  } else if (line.length()) {
-    Serial.println("Unknown command. Try: gas | smoke | warn | status");
+  } else if (lower.startsWith("reading ")) {
+    // "reading <kind> <value>" — kind can't contain spaces, so the last
+    // token is the value and everything between "reading " and it is kind.
+    int lastSpace = line.lastIndexOf(' ');
+    String kind = line.substring(8, lastSpace);
+    String valueStr = line.substring(lastSpace + 1);
+    kind.trim();
+    if (kind.length() == 0 || valueStr.length() == 0) {
+      Serial.println("Usage: reading <kind> <value>, e.g. reading gas 450");
+    } else {
+      reportReading(kind.c_str(), valueStr.toFloat());
+    }
+  } else if (lower.length()) {
+    Serial.println("Unknown command. Try: gas | smoke | warn | reading <kind> <value> | status");
   }
 }

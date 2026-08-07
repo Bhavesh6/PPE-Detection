@@ -172,3 +172,25 @@ def report_alert():
     if error:
         return jsonify({"success": False, "message": error}), 400
     return jsonify({"success": True, "alert": alert}), 201
+
+
+@gate_bp.route("/sensors", methods=["POST"])
+@jwt_required()
+def report_sensor_reading():
+    """A device reporting a raw sensor value (e.g. gas ppm, temperature).
+
+    A step below /alerts: that endpoint is for a device (or the admin
+    console's test button) declaring a severity outright, this one is for
+    a device that only knows a number and lets the site's configured
+    threshold (Alerts page -> Sensor Thresholds) decide whether it's
+    nothing, a warning, or critical. A breach raises the exact same alert
+    the /alerts path does.
+    """
+    data = request.get_json(silent=True) or {}
+    result, error = alerts.report_reading(
+        data.get("kind"), data.get("value"),
+        unit=data.get("unit"), source=data.get("source"),
+    )
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+    return jsonify({"success": True, **result}), 201
