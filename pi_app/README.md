@@ -5,8 +5,8 @@ grant/deny ruling for whoever steps in front of it.
 
 Running natively rather than in a browser removes every constraint a web page
 carries at a gate: no HTTPS requirement for camera access, no cache, no kiosk
-flags, no permission prompt — and a direct path to GPIO for the relay and
-badge reader later.
+flags, no permission prompt — and a direct path to GPIO for the badge reader
+(implemented — see below) and a lock relay (not built yet).
 
 ```
 ┌── Raspberry Pi ────────────┐        ┌── Backend ──────────────┐
@@ -37,6 +37,32 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Badge reader (MFRC522, optional but recommended)
+
+Without it the app falls back to typing tags on a keyboard — fine for
+development, not for a real gate.
+
+```bash
+sudo raspi-config   # Interface Options -> SPI -> Yes, then reboot
+pip install spidev RPi.GPIO mfrc522
+```
+
+Wiring (BCM): `SDA→GPIO8(CE0)  SCK→GPIO11  MOSI→GPIO10  MISO→GPIO9  RST→GPIO25  3.3V→3.3V  GND→GND`
+(3.3V, not 5V — the module doesn't tolerate 5V).
+
+### GPS module (optional, not required to run the gate)
+
+Off by default — the checkpoint's location is whatever an admin sets by
+hand in the console's **Site Location** page. If an NMEA GPS module (e.g. a
+NEO-6M) is wired up over serial:
+
+```bash
+pip install pyserial pynmea2
+```
+
+then set in `.env`: `SAFETYFIRST_GPS=auto` and `SAFETYFIRST_GPS_PORT` to the
+module's serial port (default `/dev/ttyUSB0`). See `gps_reporter.py`.
+
 ## Configure
 
 ```bash
@@ -51,6 +77,20 @@ backend runs on the Pi itself.
 Create a device account through the web sign-up and put those credentials in
 `.env`. Without them the app opens a guest session, which works but files
 every decision against a throwaway account.
+
+## Pre-flight check
+
+Before trusting the gate — especially the first time on a new Pi — run:
+
+```bash
+python doctor.py            # everything except an actual card/GPS read
+python doctor.py --scan     # also waits for a real badge scan and a GPS fix
+```
+
+It walks the chain from kernel to badge to backend (platform, SPI, reader
+libraries, camera, backend reachability, device credentials, site policy,
+GPS) and says which link is broken instead of leaving you to guess from a
+blank screen at demo time.
 
 ## Run
 
@@ -122,7 +162,9 @@ frames are arriving.
 - The display runs at camera rate while inference is throttled to
   `SAFETYFIRST_INTERVAL` (0.5s default) — a person does not change PPE thirty
   times a second, and sending every frame would only load the API.
-- Required PPE is defined by `REQUIRED_PPE` in `backend/detection.py`, so the
-  gate's policy lives in one place and both surfaces agree on it.
+- Required PPE is set live from the admin console's **Checkpoint Policy**
+  page (`backend/site_settings.py`), not hardcoded — the gate and the web
+  dashboard read the same policy, so changing it takes effect on the next
+  frame with no redeploy.
 - Local (on-Pi) inference with the AI HAT is a future option; it needs the
   model converted `.pt → ONNX → HEF` with Hailo's compiler.

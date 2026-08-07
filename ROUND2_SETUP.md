@@ -1,3 +1,8 @@
+> **Historical.** This predates the admin console, the RFID gate hardware,
+> configurable policy, evidence capture, and everything else described in
+> the root [`README.md`](README.md) — read that first. Kept here for
+> history, not as current setup instructions.
+
 # Round 2 — Local Setup Checklist
 
 Working doc for getting this running on your own Windows PC. Full technical
