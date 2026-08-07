@@ -28,6 +28,7 @@ Configuration comes from the environment (a .env beside this file works too):
     SAFETYFIRST_GPS         off | auto | serial     (default off — no module yet)
     SAFETYFIRST_GPS_PORT    serial port for the GPS module (default /dev/ttyUSB0)
     SAFETYFIRST_GPS_INTERVAL  seconds between location reports (default 20)
+    SAFETYFIRST_QUEUE_FLUSH_INTERVAL  seconds between retrying queued attendance records (default 15)
 """
 
 from __future__ import annotations
@@ -48,6 +49,7 @@ from PIL import Image, ImageTk
 import ui
 from badge_reader import open_reader
 from gps_reporter import open_gps
+from offline_queue import OfflineQueue
 from ui import CheckRow, Meter, Type, surface
 
 try:
@@ -65,6 +67,7 @@ CAMERA_INDEX = int(os.environ.get("SAFETYFIRST_CAMERA", "0"))
 SEND_INTERVAL = float(os.environ.get("SAFETYFIRST_INTERVAL", "0.5"))
 WINDOWED = os.environ.get("SAFETYFIRST_WINDOWED", "") == "1"
 GPS_INTERVAL = float(os.environ.get("SAFETYFIRST_GPS_INTERVAL", "20"))
+QUEUE_FLUSH_INTERVAL = float(os.environ.get("SAFETYFIRST_QUEUE_FLUSH_INTERVAL", "15"))
 
 REQUEST_TIMEOUT = 20
 
@@ -113,6 +116,9 @@ class State:
     connected: bool = False
     message: str = ""
     running: bool = True
+    # Attendance records that couldn't reach the backend and are waiting
+    # in the local queue for the next successful retry.
+    pending_count: int = 0
 
     # gate flow
     mode: str = IDLE
@@ -278,6 +284,43 @@ def capture_loop(state: State, api: ApiClient) -> None:
     cap.release()
 
 
+def record_attendance(state: State, api: ApiClient, queue: OfflineQueue,
+                       user_id: int, granted: bool, missing: list) -> None:
+    """Record a decision, falling back to the local queue if the backend
+    doesn't take it. Runs in its own thread — the gate already moved on to
+    GRANTED/DENIED by the time this fires, so it can't block the UI.
+    """
+    if api.mark_attendance(user_id, granted, missing):
+        return
+    queue.enqueue(user_id, granted, missing)
+    with state.lock:
+        state.pending_count = queue.count()
+
+
+def queue_flush_loop(state: State, api: ApiClient, queue: OfflineQueue) -> None:
+    """Retries queued attendance records once the backend is reachable again.
+
+    Stops at the first failure in a cycle rather than trying the rest —
+    if the oldest record can't get through, the network is still down and
+    the newer ones won't either, so there's no point spending the retry
+    budget failing repeatedly. Deliberately no dedup: if a record somehow
+    got through right as the connection dropped, replaying it again is a
+    harmless double-write, and it's cheaper to accept that than to build
+    idempotency for a report field nobody reads twice.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+        for row_id, user_id, granted, missing in queue.pending():
+            if not api.mark_attendance(user_id, granted, missing):
+                break
+            queue.discard(row_id)
+        with state.lock:
+            state.pending_count = queue.count()
+        time.sleep(QUEUE_FLUSH_INTERVAL)
+
+
 def gps_loop(state: State, api: ApiClient, gps) -> None:
     """Reports whatever fix the GPS reader currently has, on a timer.
 
@@ -338,10 +381,11 @@ def badge_loop(state: State, api: ApiClient, reader) -> None:
 class CheckpointApp:
     """Fullscreen gate display. Widget updates happen on the UI thread only."""
 
-    def __init__(self, root: tk.Tk, state: State, api: ApiClient):
+    def __init__(self, root: tk.Tk, state: State, api: ApiClient, queue: OfflineQueue):
         self.root = root
         self.state = state
         self.api = api
+        self.queue = queue
         self._photo = None
         self.type = Type()
 
@@ -635,14 +679,16 @@ class CheckpointApp:
                     elif now - self.state.clean_since >= CONFIRM_SECONDS:
                         self.state.mode = GRANTED
                         self.state.decided_at = now
-                        threading.Thread(target=self.api.mark_attendance,
-                                         args=(worker["id"], True, []), daemon=True).start()
+                        threading.Thread(target=record_attendance,
+                                         args=(self.state, self.api, self.queue, worker["id"], True, []),
+                                         daemon=True).start()
                 elif verdict == "denied":
                     self.state.clean_since = 0.0
                     self.state.mode = DENIED
                     self.state.decided_at = now
-                    threading.Thread(target=self.api.mark_attendance,
-                                     args=(worker["id"], False, missing), daemon=True).start()
+                    threading.Thread(target=record_attendance,
+                                     args=(self.state, self.api, self.queue, worker["id"], False, missing),
+                                     daemon=True).start()
                 else:
                     self.state.clean_since = 0.0
 
@@ -681,6 +727,7 @@ class CheckpointApp:
                 "already_present": self.state.already_present,
                 "banner": self.state.banner,
                 "present_today": self.state.present_today,
+                "pending_count": self.state.pending_count,
                 "confirm_progress": min(confirm, 1.0),
                 "hold_progress": max(0.0, 1.0 - min(elapsed / hold, 1.0)),
                 "hold_left": max(int(hold - elapsed) + 1, 0),
@@ -705,6 +752,12 @@ class CheckpointApp:
         self.clock.configure(text=time.strftime("%H:%M"))
         if snap["message"]:
             self.status.configure(text="●  " + snap["message"].upper(), fg=ui.BAD)
+        elif snap["pending_count"]:
+            # Surfaced even while connected — a backlog means something was
+            # queued during a recent drop and hasn't cleared yet, which an
+            # operator should be able to see rather than assume the gate
+            # caught everything.
+            self.status.configure(text=f"●  LIVE · {snap['pending_count']} SYNCING", fg=ui.AMBER)
         else:
             self.status.configure(text="●  LIVE" if snap["connected"] else "●  READY",
                                   fg=ui.OK if snap["connected"] else ui.FAINT)
@@ -741,12 +794,19 @@ def main() -> int:
     print(f"GPS: {gps.name}")
     gps.start()
 
+    queue = OfflineQueue()
+    backlog = queue.count()
+    if backlog:
+        print(f"{backlog} attendance record(s) waiting from a previous outage — will retry")
+    state.pending_count = backlog
+
     threading.Thread(target=capture_loop, args=(state, api), daemon=True).start()
     threading.Thread(target=badge_loop, args=(state, api, reader), daemon=True).start()
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
+    threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
 
     root = tk.Tk()
-    CheckpointApp(root, state, api)
+    CheckpointApp(root, state, api, queue)
     root.mainloop()
 
     with state.lock:

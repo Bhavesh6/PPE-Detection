@@ -262,6 +262,28 @@ def check_gps(scan):
         report(BAD, "GPS fix", "No fix in 30s. Needs clear sky view; cold start can take a couple of minutes.")
 
 
+def check_offline_queue():
+    try:
+        import offline_queue
+    except ImportError as exc:
+        report(BAD, "Offline queue", str(exc))
+        return
+
+    try:
+        backlog = offline_queue.OfflineQueue().count()
+    except Exception as exc:  # noqa: BLE001
+        report(BAD, "Offline queue", f"Could not open {offline_queue.DB_PATH} ({exc})")
+        return
+
+    if backlog:
+        report(WARN, "Offline queue",
+               f"{backlog} attendance record(s) still waiting to sync.\n"
+               "Normal right after an outage - the gate retries automatically while\n"
+               "running. Worth investigating if this stays non-zero for a while.")
+    else:
+        report(OK, "Offline queue", "empty")
+
+
 def main():
     scan = "--scan" in sys.argv
     print("\nSafetyFirst checkpoint pre-flight\n" + "=" * 40)
@@ -280,6 +302,7 @@ def main():
         report(WARN, "Badge reader", "Skipped - SPI or libraries unavailable.")
 
     check_gps(scan)
+    check_offline_queue()
 
     print("=" * 40)
     if _failures:
