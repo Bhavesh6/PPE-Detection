@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Location — SafetyFirst Admin</title>
+    <meta name="description" content="Live position of the checkpoint, reported by the device or set by hand.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+    <style>
+        .map-frame {
+            position: relative;
+            border-radius: var(--radius);
+            overflow: hidden;
+            aspect-ratio: 16 / 10;
+            background: var(--surface-alt);
+            border: 1px solid var(--border);
+        }
+        .map-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+        .map-empty {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 10px; color: var(--faint); text-align: center; padding: 0 24px;
+        }
+
+        .fact { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; font-size: .84rem; }
+        .fact + .fact { border-top: 1px solid var(--border); }
+        .fact dt { color: var(--muted); }
+        .fact dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+
+        .coord-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .coord-field { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 140px; }
+        .coord-field label { font-size: .72rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+
+        .save-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 14px; flex-wrap: wrap;
+            padding: 14px 16px;
+            border: 1px solid var(--border); border-radius: var(--radius-md);
+            background: var(--surface); box-shadow: var(--shadow);
+        }
+        .save-note { font-size: .82rem; color: var(--muted); }
+        .save-note.is-dirty { color: var(--accent); font-weight: 600; }
+        .save-note.is-saved { color: var(--ok); font-weight: 600; }
+        .save-note.is-error { color: var(--danger); font-weight: 600; }
+
+        .badge.is-live i.fa-satellite-dish { animation: pulse-dot 1.8s ease-in-out infinite; }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+        @media (prefers-reduced-motion: reduce) { .badge.is-live i.fa-satellite-dish { animation: none; } }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
+                    <!-- Where it currently sits -->
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-map-location-dot"></i>Checkpoint Location</span>
+                            <span class="badge badge-muted" id="sourceBadge"><i class="fas fa-circle-question"></i>Loading…</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="map-frame" id="mapFrame">
+                                <div class="map-empty">
+                                    <i class="fas fa-location-crosshairs" style="font-size:1.3rem"></i>
+                                    <span>No location set yet.</span>
+                                </div>
+                            </div>
+                            <dl style="margin-top:16px">
+                                <div class="fact"><dt>Coordinates</dt><dd id="factCoords">Not set</dd></div>
+                                <div class="fact"><dt>Label</dt><dd id="factLabel">—</dd></div>
+                                <div class="fact"><dt>Last updated</dt><dd id="factUpdated">—</dd></div>
+                            </dl>
+                        </div>
+                    </section>
+
+                    <!-- Set or move it -->
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-pen-to-square"></i>Set Location</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-xs" style="color:var(--muted);margin:0 0 16px">
+                                Once a GPS module is reporting from the device, its fixes land
+                                here automatically and this form is just an override. Until then,
+                                set the point by hand — either type it in, or pull it from this
+                                browser's own location.
+                            </p>
+
+                            <div class="coord-field mb-3">
+                                <label for="labelInput">Site / gate name</label>
+                                <input type="text" id="labelInput" class="field" placeholder="e.g. North Gate, Plant 2" maxlength="120">
+                            </div>
+
+                            <div class="coord-row mb-3">
+                                <div class="coord-field">
+                                    <label for="latInput">Latitude</label>
+                                    <input type="number" id="latInput" class="field" placeholder="e.g. 19.0760" step="any" min="-90" max="90">
+                                </div>
+                                <div class="coord-field">
+                                    <label for="lngInput">Longitude</label>
+                                    <input type="number" id="lngInput" class="field" placeholder="e.g. 72.8777" step="any" min="-180" max="180">
+                                </div>
+                            </div>
+
+                            <button id="geoBtn" class="btn btn-outline btn-sm">
+                                <i class="fas fa-location-crosshairs"></i>Use this browser's location
+                            </button>
+                            <p id="geoMsg" class="text-xs hidden" style="color:var(--faint);margin-top:8px"></p>
+                            <p id="fieldError" class="text-xs hidden" style="color:var(--danger);margin-top:10px"></p>
+                        </div>
+                    </section>
+                </div>
+
+                <div class="save-bar">
+                    <span class="save-note" id="saveNote">Loading current location…</span>
+                    <div class="flex gap-2">
+                        <button id="resetBtn" class="btn btn-outline btn-sm"><i class="fas fa-rotate-left"></i>Revert changes</button>
+                        <button id="saveBtn" class="btn btn-primary btn-sm" disabled><i class="fas fa-check"></i>Save location</button>
+                    </div>
+                </div>
+
+                <p class="text-xs mt-5" style="color:var(--faint)">
+                    <i class="fas fa-circle-info mr-1"></i>
+                    This page polls for a fresher fix while you're on it — a GPS module reporting
+                    from the device shows up here within seconds, with no reload needed.
+                </p>
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260807a"></script>
+    <script src="js/auth.js?v=20260807a"></script>
+    <script src="js/shell.js?v=20260807a"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('gps', {
+            title: 'Site Location',
+            subtitle: 'Live position of the checkpoint, from the device or set by hand',
+        });
+
+        const el = (id) => document.getElementById(id);
+
+        // A device is assumed gone if it's been this long since its last
+        // fix — long enough to absorb a missed report or two, short enough
+        // that "live" doesn't quietly mean "last seen an hour ago".
+        const STALE_MS = 2 * 60 * 1000;
+        const POLL_MS = 10 * 1000;
+
+        let live = null;    // latest server truth — drives the map/facts card
+        let saved = null;   // server state as of the last load/save/revert — the form's baseline
+        let current = null; // what's in the form right now
+
+        function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, (c) => (
+                { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+            ));
+        }
+
+        function hasFix(loc) {
+            return loc && typeof loc.lat === 'number' && typeof loc.lng === 'number';
+        }
+
+        function renderMap(loc) {
+            const host = el('mapFrame');
+            if (!hasFix(loc)) {
+                host.innerHTML = '<div class="map-empty"><i class="fas fa-location-crosshairs" style="font-size:1.3rem"></i><span>No location set yet.</span></div>';
+                return;
+            }
+            const span = 0.01;
+            const bbox = [loc.lng - span, loc.lat - span, loc.lng + span, loc.lat + span].join(',');
+            const src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${loc.lat},${loc.lng}`;
+            host.innerHTML = `<iframe src="${src}" title="Checkpoint location map" loading="lazy"></iframe>`;
+        }
+
+        function relativeTime(iso) {
+            if (!iso) return '—';
+            const ms = Date.now() - new Date(iso).getTime();
+            if (ms < 5000) return 'just now';
+            if (ms < 60000) return `${Math.round(ms / 1000)}s ago`;
+            if (ms < 3600000) return `${Math.round(ms / 60000)}m ago`;
+            if (ms < 86400000) return `${Math.round(ms / 3600000)}h ago`;
+            return new Date(iso).toLocaleString();
+        }
+
+        function isStale(loc) {
+            return !!(loc && loc.updated_at) && Date.now() - new Date(loc.updated_at).getTime() > STALE_MS;
+        }
+
+        function renderFacts(loc) {
+            el('factCoords').textContent = hasFix(loc) ? `${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}` : 'Not set';
+            el('factLabel').textContent = (loc && loc.label) ? loc.label : '—';
+            el('factUpdated').textContent = relativeTime(loc && loc.updated_at);
+        }
+
+        function renderSource(loc) {
+            const badge = el('sourceBadge');
+            if (!loc || !loc.source) {
+                badge.className = 'badge badge-muted';
+                badge.innerHTML = '<i class="fas fa-circle-question"></i>Not set';
+            } else if (loc.source === 'device' && !isStale(loc)) {
+                badge.className = 'badge badge-ok is-live';
+                badge.innerHTML = '<i class="fas fa-satellite-dish"></i>Live from device';
+            } else if (loc.source === 'device') {
+                badge.className = 'badge badge-amber';
+                badge.innerHTML = '<i class="fas fa-triangle-exclamation"></i>No recent fix';
+            } else {
+                badge.className = 'badge badge-info';
+                badge.innerHTML = '<i class="fas fa-hand"></i>Set manually';
+            }
+        }
+
+        // Only the three fields a human actually edits — `live`'s extra
+        // bookkeeping (source, updated_at) shouldn't count as an unsaved
+        // change just because a device fix landed while the form was open.
+        function isDirty() {
+            if (!saved || !current) return false;
+            return saved.label !== current.label || saved.lat !== current.lat || saved.lng !== current.lng;
+        }
+
+        function refreshSaveState(message, cls) {
+            const note = el('saveNote');
+            if (message) {
+                note.textContent = message;
+                note.className = `save-note ${cls || ''}`;
+            } else if (isDirty()) {
+                note.textContent = 'Unsaved changes';
+                note.className = 'save-note is-dirty';
+            } else {
+                note.textContent = hasFix(saved) ? 'Location is up to date' : 'No location saved yet';
+                note.className = 'save-note';
+            }
+            el('saveBtn').disabled = !isDirty();
+        }
+
+        function readFields() {
+            current = {
+                label: el('labelInput').value,
+                lat: el('latInput').value === '' ? null : Number(el('latInput').value),
+                lng: el('lngInput').value === '' ? null : Number(el('lngInput').value),
+            };
+        }
+
+        function fillFields(loc) {
+            el('labelInput').value = (loc && loc.label) || '';
+            el('latInput').value = hasFix(loc) ? loc.lat : '';
+            el('lngInput').value = hasFix(loc) ? loc.lng : '';
+        }
+
+        async function load() {
+            try {
+                const res = await Auth.fetch('/api/admin/location');
+                if (!res.ok) throw new Error('Request failed');
+                const d = await res.json();
+                live = d.location;
+                saved = JSON.parse(JSON.stringify(d.location));
+                current = JSON.parse(JSON.stringify(d.location));
+                fillFields(saved);
+                renderMap(live);
+                renderFacts(live);
+                renderSource(live);
+                refreshSaveState();
+            } catch (e) {
+                refreshSaveState('Could not load the saved location.', 'is-error');
+            }
+        }
+
+        // Keeps the card current while the page sits open — the point of a
+        // "live" location is that a fix from the device shows up without
+        // anyone reloading. Never touches the form fields, so it can't
+        // clobber an edit in progress or fight isDirty()'s judgement of one.
+        async function poll() {
+            try {
+                const res = await Auth.fetch('/api/admin/location');
+                if (!res.ok) return;
+                const d = await res.json();
+                live = d.location;
+                renderMap(live);
+                renderFacts(live);
+                renderSource(live);
+            } catch (e) {
+                // A missed poll isn't worth surfacing — the next one will catch up.
+            }
+        }
+        setInterval(poll, POLL_MS);
+
+        ['labelInput', 'latInput', 'lngInput'].forEach((id) => {
+            el(id).addEventListener('input', () => {
+                readFields();
+                const bad = current.lat !== null && (isNaN(current.lat) || current.lat < -90 || current.lat > 90)
+                    || current.lng !== null && (isNaN(current.lng) || current.lng < -180 || current.lng > 180);
+                el('fieldError').classList.toggle('hidden', !bad);
+                if (bad) el('fieldError').textContent = 'Latitude must be -90 to 90, longitude -180 to 180.';
+                refreshSaveState();
+                el('saveBtn').disabled = bad || !isDirty();
+            });
+        });
+
+        el('geoBtn').addEventListener('click', () => {
+            if (!navigator.geolocation) {
+                el('geoMsg').textContent = 'This browser cannot report a location.';
+                el('geoMsg').classList.remove('hidden');
+                return;
+            }
+            const btn = el('geoBtn');
+            btn.disabled = true;
+            el('geoMsg').textContent = 'Locating…';
+            el('geoMsg').classList.remove('hidden');
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    el('latInput').value = pos.coords.latitude.toFixed(6);
+                    el('lngInput').value = pos.coords.longitude.toFixed(6);
+                    readFields();
+                    refreshSaveState();
+                    el('geoMsg').textContent = `Filled in from this browser, accurate to about ${Math.round(pos.coords.accuracy)}m.`;
+                    btn.disabled = false;
+                },
+                (err) => {
+                    el('geoMsg').textContent = 'Could not get this browser\'s location — enter it by hand instead.';
+                    btn.disabled = false;
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        });
+
+        el('saveBtn').addEventListener('click', async () => {
+            const btn = el('saveBtn');
+            btn.disabled = true;
+            refreshSaveState('Saving…');
+            try {
+                const res = await Auth.fetch('/api/admin/location', {
+                    method: 'PUT',
+                    body: JSON.stringify(current),
+                });
+                const d = await res.json();
+                if (!res.ok || !d.success) {
+                    refreshSaveState(d.message || 'Could not save.', 'is-error');
+                    btn.disabled = false;
+                    return;
+                }
+                live = d.location;
+                saved = JSON.parse(JSON.stringify(d.location));
+                current = JSON.parse(JSON.stringify(d.location));
+                fillFields(saved);
+                renderMap(live);
+                renderFacts(live);
+                renderSource(live);
+                refreshSaveState('Saved', 'is-saved');
+            } catch (e) {
+                refreshSaveState('Could not reach the server.', 'is-error');
+                btn.disabled = false;
+            }
+        });
+
+        el('resetBtn').addEventListener('click', () => {
+            current = JSON.parse(JSON.stringify(saved));
+            fillFields(current);
+            el('fieldError').classList.add('hidden');
+            el('geoMsg').classList.add('hidden');
+            refreshSaveState();
+        });
+
+        load();
+    </script>
+</body>
+</html>

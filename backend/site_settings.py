@@ -12,6 +12,7 @@ rare, so it stays coherent without a TTL.
 
 import json
 import threading
+from datetime import datetime, timezone
 
 from extensions import db
 from models import SiteSetting
@@ -26,6 +27,11 @@ DEFAULTS = {
     # Below this confidence a detection is treated as noise. Raising it
     # reduces false violations but risks missing genuine ones.
     "confidence_threshold": 0.25,
+    # No GNSS module reporting yet, so this starts unset. Once anything
+    # writes a fix — an admin by hand, or a device over /api/gate/location —
+    # `source` says which, and the console decides whether to keep polling
+    # for fresher fixes from that alone.
+    "site_location": {"label": "", "lat": None, "lng": None, "source": None, "updated_at": None},
 }
 
 _cache = {}
@@ -103,3 +109,48 @@ def update(changes):
 
     invalidate()
     return get_all(), None
+
+
+def set_location(lat, lng, label=None, source="manual"):
+    """Persist a location fix, stamped with who/what supplied it.
+
+    Separate from update() because a fix isn't like the other settings: it
+    can arrive routinely from a device (every N seconds, once a GNSS module
+    exists) rather than only from a human editing a form, and `source` /
+    `updated_at` are always stamped here rather than trusted from the
+    caller — a device claiming "manual" or backdating its own fix would
+    make the console's staleness check meaningless.
+
+    label=None keeps whatever label is already saved, so a device posting
+    coordinates doesn't blank out the name an admin gave the gate.
+    Returns (location, error).
+    """
+    try:
+        lat = float(lat)
+        lng = float(lng)
+    except (TypeError, ValueError):
+        return None, "lat and lng must be numbers"
+    if not -90 <= lat <= 90:
+        return None, "lat must be between -90 and 90"
+    if not -180 <= lng <= 180:
+        return None, "lng must be between -180 and 180"
+
+    current = get("site_location") or {}
+    value = {
+        "lat": round(lat, 6),
+        "lng": round(lng, 6),
+        "label": str(label).strip()[:120] if label is not None else (current.get("label") or ""),
+        "source": source,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    row = db.session.get(SiteSetting, "site_location")
+    if row is None:
+        row = SiteSetting(key="site_location", value_json=json.dumps(value))
+        db.session.add(row)
+    else:
+        row.value_json = json.dumps(value)
+    db.session.commit()
+
+    invalidate()
+    return get("site_location"), None

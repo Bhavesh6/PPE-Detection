@@ -72,11 +72,22 @@
         }
 
         /* Verdict side */
+        /* .k-verdict is a grid item in .k-body (grid-template-columns: 1fr 1fr);
+           grid items default to min-height: auto (content-based) just like flex
+           items, so on a short/landscape kiosk screen (the 800x480 Pi touchscreen
+           this page targets) a 3-item PPE checklist plus the word/note block
+           overflows the grid row. html/body are overflow:hidden for the fullscreen
+           kiosk chrome, so that overflow wasn't clipped politely — it was pushed
+           past the bottom edge with no scrollbar and no way to reach the last
+           check. min-height: 0 lets the panel shrink to the row's real height;
+           overflow-y: auto keeps the missing item reachable instead of lost. */
         .k-verdict {
             display: flex; flex-direction: column; justify-content: center;
             padding: 40px 48px; gap: 34px;
             background: #0b1120;
             transition: background-color 260ms var(--ease-out);
+            min-height: 0;
+            overflow-y: auto;
         }
         .k-word {
             font-family: 'Fraunces', Georgia, serif; font-weight: 800;

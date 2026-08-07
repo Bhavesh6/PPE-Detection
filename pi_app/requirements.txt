@@ -12,3 +12,8 @@ opencv-python-headless
 Pillow
 requests
 python-dotenv
+
+# Uncomment if a GPS module is attached (SAFETYFIRST_GPS=auto or serial).
+# Not installed by default — same "deliberately light" reasoning as above.
+# pyserial
+# pynmea2

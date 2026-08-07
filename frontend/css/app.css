@@ -181,7 +181,11 @@ select:focus-visible {
 .sidebar-name { font-family: var(--font-head); font-weight: 700; color: var(--ink); font-size: .95rem; line-height: 1.1; }
 .sidebar-sub { font-size: .58rem; letter-spacing: .18em; text-transform: uppercase; color: var(--amber); font-weight: 700; }
 
-.sidebar-nav { padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; }
+/* flex:1 alone won't shrink below the nav's own content height — a flex
+   item's default min-height is auto, not 0 — so on a short window the list
+   just overflows the fixed sidebar instead of scrolling, pushing the
+   account footer (and Sign out) off-screen with no way back to it. */
+.sidebar-nav { padding: 14px 12px; display: flex; flex-direction: column; gap: 2px; flex: 1; min-height: 0; overflow-y: auto; }
 .sidebar-section {
   font-size: .6rem; letter-spacing: .12em; text-transform: uppercase;
   color: #64748b; font-weight: 700; padding: 14px 8px 6px;

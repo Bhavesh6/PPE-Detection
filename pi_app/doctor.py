@@ -214,6 +214,54 @@ def check_reader(scan):
         report(BAD, "Badge scan", "No card seen in 20s. Check wiring and that the card is 13.56MHz (MIFARE).")
 
 
+def check_gps(scan):
+    try:
+        import gps_reporter
+    except ImportError as exc:
+        report(BAD, "GPS", str(exc))
+        return
+
+    preference = os.environ.get("SAFETYFIRST_GPS", "off").lower()
+    if preference == "off":
+        report(WARN, "GPS",
+               "SAFETYFIRST_GPS is off (the default) - location stays whatever\n"
+               "the console has set. Set to auto once a module is wired up.")
+        return
+
+    try:
+        reader = gps_reporter.open_gps()
+    except SystemExit as exc:
+        report(BAD, "GPS", str(exc))
+        return
+
+    if isinstance(reader, gps_reporter.NullGPSReader):
+        report(WARN, "GPS",
+               "No module detected on " + os.environ.get("SAFETYFIRST_GPS_PORT", "/dev/ttyUSB0") + ".\n"
+               "Check wiring (TX/RX/GND/VCC) and that pyserial + pynmea2 are installed.")
+        return
+
+    report(OK, "GPS", reader.name)
+
+    if not scan:
+        print("         (run with --scan to wait for an actual fix)")
+        return
+
+    import time
+    print("\n         Waiting for a GPS fix (30s) - this can take a while outdoors on cold start...")
+    reader.start()
+    deadline = time.time() + 30
+    fix = None
+    while time.time() < deadline and fix is None:
+        fix = reader.latest()
+        time.sleep(0.5)
+    reader.stop()
+
+    if fix:
+        report(OK, "GPS fix", f"{fix[0]:.6f}, {fix[1]:.6f}")
+    else:
+        report(BAD, "GPS fix", "No fix in 30s. Needs clear sky view; cold start can take a couple of minutes.")
+
+
 def main():
     scan = "--scan" in sys.argv
     print("\nSafetyFirst checkpoint pre-flight\n" + "=" * 40)
@@ -230,6 +278,8 @@ def main():
         check_reader(scan)
     else:
         report(WARN, "Badge reader", "Skipped - SPI or libraries unavailable.")
+
+    check_gps(scan)
 
     print("=" * 40)
     if _failures:

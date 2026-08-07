@@ -9,6 +9,7 @@ from datetime import datetime, time, timezone
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+import site_settings
 from extensions import db
 from models import AttendanceRecord, User
 
@@ -125,3 +126,25 @@ def attendance_today():
         "records": [r.to_dict() for r in records],
         "present_count": len(present),
     })
+
+
+@gate_bp.route("/location", methods=["POST"])
+@jwt_required()
+def report_location():
+    """A device reporting its own GPS fix.
+
+    Not admin-gated — this is telemetry from whatever's signed in as the
+    gate, not a policy decision. Also not audited: once a module is
+    actually reporting, this fires every few seconds, and logging each one
+    would bury the handful of admin changes the audit trail exists for.
+    Route it through the same set_location() an admin's manual edit uses,
+    so both agree on validation and both leave the console's "last updated"
+    honest.
+    """
+    data = request.get_json(silent=True) or {}
+    location, error = site_settings.set_location(
+        data.get("lat"), data.get("lng"), source="device",
+    )
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+    return jsonify({"success": True, "location": location})

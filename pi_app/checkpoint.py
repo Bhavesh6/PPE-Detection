@@ -25,6 +25,9 @@ Configuration comes from the environment (a .env beside this file works too):
     SAFETYFIRST_INTERVAL    seconds between sends (default 0.5)
     SAFETYFIRST_READER      auto | mfrc522 | keyboard
     SAFETYFIRST_WINDOWED    set to 1 to disable fullscreen
+    SAFETYFIRST_GPS         off | auto | serial     (default off — no module yet)
+    SAFETYFIRST_GPS_PORT    serial port for the GPS module (default /dev/ttyUSB0)
+    SAFETYFIRST_GPS_INTERVAL  seconds between location reports (default 20)
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ from PIL import Image, ImageTk
 
 import ui
 from badge_reader import open_reader
+from gps_reporter import open_gps
 from ui import CheckRow, Meter, Type, surface
 
 try:
@@ -60,6 +64,7 @@ PASSWORD = os.environ.get("SAFETYFIRST_PASSWORD", "")
 CAMERA_INDEX = int(os.environ.get("SAFETYFIRST_CAMERA", "0"))
 SEND_INTERVAL = float(os.environ.get("SAFETYFIRST_INTERVAL", "0.5"))
 WINDOWED = os.environ.get("SAFETYFIRST_WINDOWED", "") == "1"
+GPS_INTERVAL = float(os.environ.get("SAFETYFIRST_GPS_INTERVAL", "20"))
 
 REQUEST_TIMEOUT = 20
 
@@ -200,6 +205,16 @@ class ApiClient:
         except requests.RequestException:
             return False
 
+    def report_location(self, lat: float, lng: float) -> bool:
+        try:
+            return self.session.post(
+                f"{self.base}/api/gate/location",
+                json={"lat": lat, "lng": lng},
+                headers=self._headers(), timeout=10,
+            ).ok
+        except requests.RequestException:
+            return False
+
     def send_frame(self, frame) -> dict | None:
         ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
         if not ok:
@@ -261,6 +276,24 @@ def capture_loop(state: State, api: ApiClient) -> None:
                         state.required = result["required_ppe"]
 
     cap.release()
+
+
+def gps_loop(state: State, api: ApiClient, gps) -> None:
+    """Reports whatever fix the GPS reader currently has, on a timer.
+
+    Independent of badge activity — the gate's position doesn't depend on
+    whether someone's being checked. With no module attached this just
+    polls a reader that never has a fix, at negligible cost, so there's
+    nothing to switch off separately when there's no hardware yet.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+        fix = gps.latest()
+        if fix is not None:
+            api.report_location(*fix)
+        time.sleep(GPS_INTERVAL)
 
 
 def badge_loop(state: State, api: ApiClient, reader) -> None:
@@ -704,8 +737,13 @@ def main() -> int:
     print(f"Badge reader: {reader.name}")
     reader.start()
 
+    gps = open_gps()
+    print(f"GPS: {gps.name}")
+    gps.start()
+
     threading.Thread(target=capture_loop, args=(state, api), daemon=True).start()
     threading.Thread(target=badge_loop, args=(state, api, reader), daemon=True).start()
+    threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
 
     root = tk.Tk()
     CheckpointApp(root, state, api)
@@ -714,6 +752,7 @@ def main() -> int:
     with state.lock:
         state.running = False
     reader.stop()
+    gps.stop()
     return 0
 
 

@@ -264,6 +264,41 @@ def write_settings():
     return jsonify({"success": True, "settings": settings})
 
 
+@admin_bp.route("/location", methods=["GET"])
+@admin_required
+def read_location():
+    """The site's checkpoint location.
+
+    There's no GNSS module wired up yet, so this is a single admin-entered
+    point rather than a live fix — set once and left alone until an admin
+    changes it, either by hand or from the browser's own location.
+    """
+    return jsonify({"success": True, "location": site_settings.get("site_location")})
+
+
+@admin_bp.route("/location", methods=["PUT"])
+@admin_required
+def write_location():
+    """An admin setting the point by hand — the fallback for sites without
+    a GPS module yet, and the override if a device ever reports a bad fix.
+    """
+    body = request.get_json(silent=True) or {}
+    before = site_settings.get("site_location")
+
+    after, error = site_settings.set_location(
+        body.get("lat"), body.get("lng"), label=body.get("label"), source="manual",
+    )
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+
+    audit.record(
+        audit.LOCATION_CHANGED,
+        audit.describe_location_change(before, after),
+        detail={"before": before, "after": after},
+    )
+    return jsonify({"success": True, "location": after})
+
+
 @admin_bp.route("/analytics", methods=["GET"])
 @admin_required
 def analytics():

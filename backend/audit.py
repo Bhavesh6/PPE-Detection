@@ -20,6 +20,7 @@ from models import AuditEvent, User
 POLICY_CHANGED = "policy.changed"
 USER_DELETED = "user.deleted"
 WORKER_UPDATED = "worker.updated"
+LOCATION_CHANGED = "location.changed"
 
 
 def record(action, summary, detail=None, actor=None):
@@ -70,3 +71,16 @@ def describe_policy_change(before, after):
         parts.append(f"confidence {old_conf} to {new_conf}")
 
     return "; ".join(parts) if parts else "no effective change"
+
+
+def describe_location_change(before, after):
+    """Summarise a site-location change in plain terms."""
+    old = before or {}
+    new = after or {}
+    if old.get("lat") == new.get("lat") and old.get("lng") == new.get("lng") and old.get("label") == new.get("label"):
+        return "no effective change"
+    if old.get("lat") is None:
+        where = f"{new.get('lat')}, {new.get('lng')}"
+        return f"set to {where}" + (f" ({new['label']})" if new.get("label") else "")
+    where = f"{new.get('lat')}, {new.get('lng')}"
+    return f"moved to {where}" + (f" ({new['label']})" if new.get("label") else "")
