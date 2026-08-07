@@ -67,7 +67,9 @@ section to get it running.
   available — one board dedicated to video streaming, one to sensors/comms/
   alert logic. Not started; no sensors owned yet. The alerts system above is
   ready for it: whatever code runs on ESP32-main just needs to `POST` to
-  `/api/gate/alerts`.
+  `/api/gate/alerts`. [`esp32-sim/`](esp32-sim/) has a throwaway sketch for
+  testing that an ESP32 can reach the backend and authenticate at all,
+  ahead of both the real sensor board and the Raspberry Pi existing.
 
 **Untested on real hardware** — everything below has code but has never
 touched actual hardware:
