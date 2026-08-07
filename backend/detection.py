@@ -9,10 +9,12 @@ import numpy as np
 from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
+import alerts
+import audit
 import evidence
 import site_settings
 from extensions import db
-from models import DetectionRecord
+from models import DetectionRecord, User
 from ppe_detection import load_model, process_frame
 
 detection_bp = Blueprint("detection", __name__, url_prefix="/api")
@@ -34,6 +36,12 @@ VERDICT_NO_PERSON = "no_person"
 # so it never moves a compliance rate — a snapshot is an observation, and
 # counting it as a decision would let anyone inflate the numbers.
 VERDICT_SNAPSHOT = "snapshot"
+# The gate is paused site-wide by an unresolved critical sensor alert — not
+# a ruling on this person's PPE, so it's kept out of granted/denied/missing
+# too. Nobody was refused for what they were wearing; nobody was checked at
+# all. The alert itself (backend/models.py SensorAlert) is the log entry
+# that matters here, not a per-frame DetectionRecord.
+VERDICT_ALERT_HOLD = "alert_hold"
 
 # Frames of inference timing kept per session — enough to smooth out a
 # single slow frame, short enough to still show a real slowdown.
@@ -51,6 +59,12 @@ def evaluate_access(detections):
 
     if "Person" not in present:
         return VERDICT_NO_PERSON, []
+
+    # A hazard on site overrides PPE compliance entirely — someone in full
+    # gear is still not safe to admit into a gas leak. Checked before the
+    # PPE comparison so a clean pass can't produce a GRANTED underneath it.
+    if alerts.active_critical():
+        return VERDICT_ALERT_HOLD, []
 
     # Read per-call rather than at import: an administrator can change what
     # the gate demands while it's running, and the next frame should honour it.
@@ -264,6 +278,7 @@ def get_status():
         "gate": state["gate"],
         "required_ppe": list(site_settings.get("required_ppe")),
         "inference": _inference_stats(state),
+        "active_alert": alerts.active_critical(),
     })
 
 
@@ -300,6 +315,87 @@ def get_history():
         "per_page": per_page,
         "total": total,
     })
+
+
+@detection_bp.route("/alerts/active", methods=["GET"])
+@jwt_required()
+def active_alerts():
+    """Currently unresolved alerts, for any signed-in surface to poll.
+
+    Not admin-gated — an operator at the gate, or another admin tab open
+    elsewhere, both need to see this to know why the gate stopped, or to
+    clear it. Includes warnings too, not just the critical alert that
+    actually holds the gate, so a lower-severity reading still surfaces
+    as a heads-up.
+
+    Bundles today's on-site headcount too — during a real alert, "how many
+    people are in there" is exactly what the popup showing it needs to say
+    in the same breath, not a second fetch away. It's "granted entry
+    today," not a live in/out count: there's no exit scan in this system,
+    so someone who already left is still counted. Worth having anyway —
+    an upper bound beats no number at all — but not to be read as exact.
+    """
+    from datetime import time as _time
+    from models import AttendanceRecord, SensorAlert
+
+    rows = (
+        SensorAlert.query.filter(SensorAlert.acknowledged_at.is_(None))
+        .order_by(SensorAlert.timestamp.desc())
+        .all()
+    )
+
+    today_start = datetime.combine(datetime.now(timezone.utc).date(), _time.min)
+    granted_today = (
+        AttendanceRecord.query
+        .filter(AttendanceRecord.timestamp >= today_start, AttendanceRecord.granted.is_(True))
+        .with_entities(AttendanceRecord.user_id)
+        .distinct()
+        .count()
+    )
+
+    return jsonify({
+        "success": True,
+        "alerts": [r.to_dict() for r in rows],
+        "present_count": granted_today,
+    })
+
+
+@detection_bp.route("/alerts/<int:alert_id>/acknowledge", methods=["POST"])
+@jwt_required()
+def acknowledge_alert(alert_id):
+    """Clear an alert.
+
+    Deliberately open to any signed-in user, not admin-only — this is a
+    safety action, not a policy edit, and a gas alarm shouldn't wait on an
+    admin being reachable. Who cleared it is still recorded, in the alert
+    itself and in the audit log, exactly like an admin's policy change.
+    """
+    from models import SensorAlert
+
+    identity = get_jwt_identity()
+    actor = db.session.get(User, int(identity)) if identity else None
+    actor_name = actor.name if actor else "Unknown"
+
+    # Checked before the write: alerts.acknowledge() is intentionally
+    # idempotent (a second operator clearing the same alarm shouldn't get an
+    # error), but that means a second call changes nothing — and an audit
+    # log entry for a no-op would misrepresent it as a second, separate
+    # clearing of the same alert.
+    existing = db.session.get(SensorAlert, alert_id)
+    was_active = bool(existing and existing.acknowledged_at is None)
+
+    alert, error = alerts.acknowledge(alert_id, actor_name)
+    if error:
+        return jsonify({"success": False, "message": error}), 404
+
+    if was_active:
+        audit.record(
+            audit.ALERT_ACKNOWLEDGED,
+            f"cleared {alert['severity']} {alert['kind']} alert" + (f" ({alert['message']})" if alert['message'] else ""),
+            detail={"alert": alert},
+            actor=actor,
+        )
+    return jsonify({"success": True, "alert": alert})
 
 
 @detection_bp.route("/snapshot", methods=["POST"])
@@ -457,6 +553,7 @@ def process_socket_frame():
             # policy change reaches the panel without restarting it.
             "required_ppe": list(required),
             "inference": _inference_stats(state),
+            "active_alert": alerts.active_critical(),
         })
 
     except Exception as exc:  # noqa: BLE001 - surfaced to the caller as JSON

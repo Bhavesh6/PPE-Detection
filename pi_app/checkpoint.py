@@ -119,6 +119,9 @@ class State:
     # Attendance records that couldn't reach the backend and are waiting
     # in the local queue for the next successful retry.
     pending_count: int = 0
+    # The active critical alert, if any — polled even while idle, so the
+    # gate shows "paused" before anyone badges in, not only mid-check.
+    active_alert: dict | None = None
 
     # gate flow
     mode: str = IDLE
@@ -210,6 +213,17 @@ class ApiClient:
             ).ok
         except requests.RequestException:
             return False
+
+    def active_alerts(self) -> list:
+        try:
+            res = self.session.get(
+                f"{self.base}/api/alerts/active", headers=self._headers(), timeout=10
+            )
+            if res.ok:
+                return res.json().get("alerts", [])
+        except requests.RequestException:
+            pass
+        return []
 
     def report_location(self, lat: float, lng: float) -> bool:
         try:
@@ -349,12 +363,17 @@ def badge_loop(state: State, api: ApiClient, reader) -> None:
 
         tag = reader.read()
         if tag is None:
-            # Refresh the on-site count while the gate is idle, so the head
-            # count on screen stays honest without polling during a check.
+            # Refresh the on-site count and any active alert while the gate
+            # is idle, so both stay honest without polling during a check —
+            # and so a critical alert shows up here even before anyone
+            # badges in, not only mid-check.
             if mode == IDLE:
                 count = api.present_today()
+                active = api.active_alerts()
+                critical = next((a for a in active if a.get("severity") == "critical"), None)
                 with state.lock:
                     state.present_today = count
+                    state.active_alert = critical
                 time.sleep(3.0)
             else:
                 time.sleep(0.08)
@@ -531,18 +550,29 @@ class CheckpointApp:
         mode, worker = snap["mode"], snap["worker"]
 
         if mode == IDLE:
-            self._paint(ui.PANEL, ui.CARD, ui.LINE)
+            alert = snap["active_alert"]
+            self._paint(ui.HAZ_BG, ui.HAZ_CARD, ui.HAZ_LINE) if alert else self._paint(ui.PANEL, ui.CARD, ui.LINE)
             self._hide(self.card)
             self._hide(self.checks_box)
             self._hide(self.glyph)
             self._show(self.eyebrow, fill="x", pady=(52, 4))
             self._show(self.head, fill="x")
             self._show(self.note, fill="x", pady=(8, 0))
-            self.eyebrow.configure(text="GATE READY", fg=ui.AMBER)
-            self.word.configure(text="Scan Your Badge", fg=ui.INK)
-            self.note.configure(
-                text=snap["banner"] or "Hold your badge against the reader to begin.",
-                fg=ui.BAD if snap["banner"] else ui.MUTED)
+            if alert:
+                # A critical alert overrides the idle screen entirely — no
+                # point inviting a badge scan the gate is about to refuse.
+                self.eyebrow.configure(text="GATE PAUSED", fg=ui.HAZ)
+                self.word.configure(text="Site Alert Active", fg=ui.HAZ)
+                self.note.configure(
+                    text=f"{alert['kind']}{': ' + alert['message'] if alert.get('message') else ''} — "
+                         "wait for an operator to clear it.",
+                    fg=ui.HAZ_DIM)
+            else:
+                self.eyebrow.configure(text="GATE READY", fg=ui.AMBER)
+                self.word.configure(text="Scan Your Badge", fg=ui.INK)
+                self.note.configure(
+                    text=snap["banner"] or "Hold your badge against the reader to begin.",
+                    fg=ui.BAD if snap["banner"] else ui.MUTED)
             self.meter.set(0)
             self.hint.configure(
                 text=f"{snap['present_today']} ON SITE TODAY" if snap["present_today"] else "",
@@ -565,7 +595,25 @@ class CheckpointApp:
         self._show(self.note, fill="x", pady=(6, 14))
         self._show(self.checks_box, fill="x")
 
-        if mode == PROFILE:
+        if mode == PROFILE and snap["verdict"] == "alert_hold":
+            # A site alert fired mid-check — not a PPE ruling on this
+            # person, so it gets the hazard look, not "denied" red, and
+            # _advance() never escalates this to GRANTED or DENIED: it
+            # just sits here until the alert clears or someone re-scans.
+            alert = snap["active_alert"]
+            self._paint(ui.HAZ_BG, ui.HAZ_CARD, ui.HAZ_LINE)
+            self._hide(self.glyph)
+            self.eyebrow.configure(text="PAUSED", fg=ui.HAZ)
+            self.word.configure(text="Entry Paused", fg=ui.HAZ)
+            self.note.configure(
+                text=(f"{alert['kind']}{': ' + alert['message'] if alert.get('message') else ''} — "
+                      "wait for an operator to clear it.")
+                if alert else "A site alert is active — wait for an operator to clear it.",
+                fg=ui.HAZ_DIM)
+            self.meter.set(0)
+            self.hint.configure(text="", fg=ui.FAINT)
+
+        elif mode == PROFILE:
             self._paint(ui.PANEL, ui.CARD, ui.LINE)
             self._hide(self.glyph)
             self.eyebrow.configure(text="VERIFYING", fg=ui.AMBER)
@@ -615,7 +663,7 @@ class CheckpointApp:
         self._build_checks(snap["required"])
 
         for item, row in self.checks.items():
-            if mode == PROFILE and snap["verdict"] == "no_person":
+            if mode == PROFILE and snap["verdict"] in ("no_person", "alert_hold"):
                 row.set_state("idle")
             else:
                 row.set_state("bad" if item in snap["missing"] else "ok")
@@ -728,6 +776,7 @@ class CheckpointApp:
                 "banner": self.state.banner,
                 "present_today": self.state.present_today,
                 "pending_count": self.state.pending_count,
+                "active_alert": self.state.active_alert,
                 "confirm_progress": min(confirm, 1.0),
                 "hold_progress": max(0.0, 1.0 - min(elapsed / hold, 1.0)),
                 "hold_left": max(int(hold - elapsed) + 1, 0),

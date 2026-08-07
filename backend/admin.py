@@ -13,7 +13,7 @@ import evidence
 import site_settings
 from detection import get_all_states, remove_state
 from extensions import db
-from models import AttendanceRecord, AuditEvent, DetectionRecord, User
+from models import AttendanceRecord, AuditEvent, DetectionRecord, SensorAlert, User
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -221,6 +221,31 @@ def list_audit():
     return jsonify({
         "success": True,
         "events": [e.to_dict() for e in rows],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+    })
+
+
+@admin_bp.route("/alerts", methods=["GET"])
+@admin_required
+def list_alerts():
+    """Full alert history, cleared ones included — the "logs" view.
+
+    Live status (is anything active right now) is /api/alerts/active,
+    reachable by any signed-in user; this is the admin-only record of
+    everything that's ever fired.
+    """
+    page = max(int(request.args.get("page", 1)), 1)
+    per_page = min(int(request.args.get("per_page", 20)), 100)
+
+    query = SensorAlert.query.order_by(SensorAlert.timestamp.desc())
+    total = query.count()
+    rows = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    return jsonify({
+        "success": True,
+        "alerts": [a.to_dict() for a in rows],
         "page": page,
         "per_page": per_page,
         "total": total,

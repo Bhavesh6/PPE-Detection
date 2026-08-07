@@ -157,6 +157,52 @@ class DetectionRecord(db.Model):
         }
 
 
+class SensorAlert(db.Model):
+    """A sensor-reported site hazard (gas, smoke, ...) — not a PPE decision.
+
+    Separate from DetectionRecord (what one person was wearing) and
+    AuditEvent (an admin changing a setting): this is the site itself
+    reporting a hazard. A critical, unacknowledged alert also holds the
+    gate (see detection.evaluate_access) until someone clears it, so this
+    table doubles as the record of who cleared it and when — the same
+    accountability the audit log gives policy changes.
+    """
+
+    __tablename__ = "sensor_alerts"
+
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                          nullable=False, index=True)
+
+    kind = db.Column(db.String(40), nullable=False)
+    severity = db.Column(db.String(16), nullable=False, index=True)  # "warning" | "critical"
+    message = db.Column(db.String(255), nullable=False, default="")
+    source = db.Column(db.String(80), nullable=True)
+
+    acknowledged_at = db.Column(db.DateTime, nullable=True)
+    # Denormalized like AuditEvent.actor_name — who cleared a gas alert
+    # should still read correctly after that account is deleted.
+    acknowledged_by = db.Column(db.String(120), nullable=True)
+
+    @property
+    def active(self):
+        """Unacknowledged. Critical + active is what holds the gate."""
+        return self.acknowledged_at is None
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "timestamp": self.timestamp.isoformat(),
+            "kind": self.kind,
+            "severity": self.severity,
+            "message": self.message,
+            "source": self.source,
+            "active": self.active,
+            "acknowledged_at": self.acknowledged_at.isoformat() if self.acknowledged_at else None,
+            "acknowledged_by": self.acknowledged_by,
+        }
+
+
 class AuditEvent(db.Model):
     """Who changed what, and when.
 

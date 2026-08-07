@@ -52,12 +52,22 @@ section to get it running.
   vanishing. This is not a full offline mode — badge lookup and the PPE
   check itself are both server-side, so if the connection is down before a
   verdict exists, there's nothing yet to lose.
+- Sensor alerts: a critical alert (gas, etc.) holds the gate — it overrides
+  PPE compliance entirely, since someone in full gear still isn't safe to
+  admit into a hazard. It shows on the kiosk display, pauses the checkpoint
+  app on the Pi even before anyone badges in, and pops up on every open
+  admin/operator browser tab (polled, not pushed). An admin's **Alerts**
+  page has the history and a "simulate" trigger for testing without real
+  sensor hardware, which posts to the same endpoint the ESP32-main board
+  will use once it exists — nothing here changes when it arrives.
 
 **Designed, not yet built:**
 
 - **ESP32-CAM + ESP32-main split**, once dedicated sensor/camera hardware is
   available — one board dedicated to video streaming, one to sensors/comms/
-  alert logic. Not started; no sensors owned yet.
+  alert logic. Not started; no sensors owned yet. The alerts system above is
+  ready for it: whatever code runs on ESP32-main just needs to `POST` to
+  `/api/gate/alerts`.
 
 **Untested on real hardware** — everything below has code but has never
 touched actual hardware:
@@ -106,9 +116,10 @@ Gloves/boots detection would need a retrained or additional model.
                  ▼
 ┌─ Backend (backend/, Flask + SQLAlchemy) ─────────────────────┐
 │  /api/auth      signup / login / guest                        │
-│  /api/gate      badge lookup, attendance, GPS report           │
-│  /api/          detection session, /api/socket (frame → verdict)│
-│  /api/admin     personnel, policy, evidence, reports, audit    │
+│  /api/gate      badge lookup, attendance, GPS + alert report   │
+│  /api/          detection session, /api/socket, /api/alerts    │
+│  /api/admin     personnel, policy, evidence, reports, audit,   │
+│                 alert history                                  │
 │  ppe_detection.py → YOLOv8 (best.pt) inference                 │
 │  site_settings.py → live, cached, admin-editable policy         │
 │  SQLite locally / Postgres in production                       │
@@ -137,22 +148,23 @@ backend/
   app.py              Flask app factory, CORS, JWT/DB setup, startup migrations
   config.py            Env-driven settings (DB URL, secrets, evidence dir, CORS)
   extensions.py         SQLAlchemy + JWTManager instances
-  models.py              User, AttendanceRecord, DetectionRecord, SiteSetting, AuditEvent
+  models.py              User, AttendanceRecord, DetectionRecord, SiteSetting, AuditEvent, SensorAlert
   auth.py                 /api/auth/* — signup, login, Google Sign-In, guest sessions
-  gate.py                  /api/gate/* — badge lookup, attendance, GPS report (device-facing)
-  detection.py              /api/start /stop /status /socket — the live PPE-check loop
-  admin.py                   /api/admin/* — personnel, settings, evidence, reports, audit, location
+  gate.py                  /api/gate/* — badge lookup, attendance, GPS report, alert report (device-facing)
+  detection.py              /api/start /stop /status /socket, /api/alerts/* — the live PPE-check loop
+  admin.py                   /api/admin/* — personnel, settings, evidence, reports, audit, location, alerts
   site_settings.py             Live, cached, validated checkpoint policy (required PPE, confidence, location)
-  evidence.py                   Refusal-frame capture, path-traversal-guarded serving, retention purge
-  audit.py                       Append-only change log for policy/personnel changes
-  ppe_detection.py                YOLOv8 model loading + inference
+  alerts.py                     Cached "is a critical alert active" check + report/acknowledge
+  evidence.py                    Refusal-frame capture, path-traversal-guarded serving, retention purge
+  audit.py                        Append-only change log for policy/personnel/alert changes
+  ppe_detection.py                 YOLOv8 model loading + inference
   make_admin.py                    CLI: flag a user as admin
   seed_workers.py                   CLI: create demo workers with fake badge IDs
 frontend/                            Static HTML/CSS/JS, no build step
   index.html                          Public marketing/status page
   login.html, signup.html               Auth
   visit-site.html                        Browser-based gate control (camera + live verdict)
-  admin.html, violations.html,            Admin console pages (all require Auth.requireAdmin())
+  admin.html, alerts.html, violations.html, Admin console pages (all require Auth.requireAdmin())
   reports.html, analytics.html,
   settings.html, gps.html, audit.html
   pi-home.html, kiosk.html                Device-only kiosk UI (see js/shell.js's deviceOnly nav flag)

@@ -13,6 +13,7 @@ const Shell = {
     { id: 'history', href: 'history.html', icon: 'fa-clock-rotate-left', label: 'My Records', memberOnly: true },
     { section: 'Administration', adminOnly: true },
     { id: 'admin', href: 'admin.html', icon: 'fa-gauge-high', label: 'Overview', adminOnly: true },
+    { id: 'alerts', href: 'alerts.html', icon: 'fa-triangle-exclamation', label: 'Alerts', adminOnly: true },
     { id: 'violations', href: 'violations.html', icon: 'fa-images', label: 'Captures', adminOnly: true },
     { id: 'reports', href: 'reports.html', icon: 'fa-file-lines', label: 'Reports', adminOnly: true },
     { id: 'analytics', href: 'analytics.html', icon: 'fa-chart-simple', label: 'Analytics', adminOnly: true },
@@ -136,10 +137,19 @@ const Shell = {
     // only .main's margin shifts, which reads as content moving but nothing
     // closing. .sidebar is position:fixed, so nesting it here doesn't touch
     // the flex layout of .app's other children.
+    // A sensor alert can fire while any admin/operator tab is just sitting
+    // open, so this isn't rendered once like the guest banner — it's a
+    // placeholder that _pollAlerts keeps live for as long as the page is.
+    const alertBanner = document.createElement('div');
+    alertBanner.id = 'alertBanner';
+    alertBanner.hidden = true;
+
     if (main) {
       main.parentElement.prepend(sidebar);
       main.prepend(topbar);
       if (guestBanner) topbar.after(guestBanner);
+      (guestBanner || topbar).after(alertBanner);
+      this._pollAlerts(alertBanner);
     } else {
       document.body.prepend(sidebar);
     }
@@ -232,6 +242,65 @@ const Shell = {
         Auth.logout();
       });
     });
+  },
+
+  // Polls for an active sensor alert on every page carrying the shell —
+  // the "popup at other [screens]" half of the alert feature. Runs on any
+  // authenticated tab regardless of what page it's on, since a gas alert
+  // is exactly the kind of thing nobody should have to be on the right
+  // page to notice.
+  _pollAlerts(banner) {
+    const ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ESCAPE[c]);
+
+    let acking = false;
+
+    const render = (alert, isCritical, presentCount) => {
+      if (!alert) {
+        banner.hidden = true;
+        banner.innerHTML = '';
+        return;
+      }
+      banner.hidden = false;
+      banner.className = `alert-banner ${isCritical ? 'is-critical' : 'is-warning'}`;
+      const countBit = isCritical
+        ? `<span class="alert-banner-count">${presentCount} on site today</span>`
+        : '';
+      banner.innerHTML = `
+        <i class="fas ${isCritical ? 'fa-triangle-exclamation' : 'fa-circle-info'}"></i>
+        <span class="alert-banner-msg"><strong>${esc(alert.kind)}</strong>${alert.message ? ' — ' + esc(alert.message) : ''}${isCritical ? ' — entry is paused until this is cleared.' : ''}</span>
+        ${countBit}
+        <button type="button" data-ack="${alert.id}">${acking ? 'Clearing…' : 'Acknowledge'}</button>`;
+      const btn = banner.querySelector('[data-ack]');
+      if (btn) {
+        btn.disabled = acking;
+        btn.addEventListener('click', async () => {
+          acking = true;
+          btn.disabled = true;
+          btn.textContent = 'Clearing…';
+          try {
+            await Auth.fetch(`/api/alerts/${alert.id}/acknowledge`, { method: 'POST' });
+          } catch (e) { /* the next poll will show it's still active if this failed */ }
+          acking = false;
+          poll();
+        });
+      }
+    };
+
+    const poll = async () => {
+      try {
+        const res = await Auth.fetch('/api/alerts/active');
+        if (!res.ok) return;
+        const d = await res.json();
+        const list = d.alerts || [];
+        const critical = list.find((a) => a.severity === 'critical');
+        const warning = !critical && list.find((a) => a.severity === 'warning');
+        render(critical || warning, !!critical, d.present_count ?? 0);
+      } catch (e) { /* a missed poll just tries again next interval */ }
+    };
+
+    poll();
+    setInterval(poll, 4000);
   },
 };
 

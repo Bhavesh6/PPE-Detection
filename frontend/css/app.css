@@ -43,6 +43,12 @@
   --danger-soft: #fbeceb;
   --info:        #2c5282;
   --info-soft:   #e9eff6;
+  /* A true hazard amber, distinct from --accent/--danger (both read as warm
+     red/brick here) — a site-wide sensor alert needs to look categorically
+     different from "this one person's PPE failed", closer to safety-sign
+     yellow than to either of those. */
+  --hazard:      #92400e;
+  --hazard-soft: #fef3e0;
 
   --radius:      10px;
   --radius-md:   18px;
@@ -141,6 +147,38 @@ select:focus-visible {
   .guest-banner { padding: 10px 16px; }
   .guest-banner span { display: none; }
 }
+
+/* -- ALERT BANNER -------------------------------------
+   Same shape as .guest-banner (both sit under the topbar), but this one
+   is injected/removed live by a poll rather than rendered once — see
+   Shell._pollAlerts in shell.js. */
+.alert-banner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 11px 24px;
+  border-bottom: 1px solid var(--border);
+  font-size: .84rem;
+}
+.alert-banner.is-critical {
+  background: var(--hazard-soft); color: var(--hazard); border-bottom-color: #fcd9a8;
+  animation: alert-banner-pulse 1.8s ease-in-out infinite;
+}
+.alert-banner.is-warning { background: var(--accent-soft); color: var(--accent); border-bottom-color: #ecccbf; }
+.alert-banner strong { font-weight: 700; }
+.alert-banner .alert-banner-msg { flex: 1; min-width: 200px; }
+.alert-banner .alert-banner-count { font-size: .76rem; opacity: .85; white-space: nowrap; }
+.alert-banner button {
+  padding: 6px 14px; border-radius: 999px; border: 1px solid currentColor;
+  background: transparent; color: inherit; font-weight: 700; font-size: .78rem;
+  cursor: pointer; white-space: nowrap;
+  transition: background-color .15s var(--ease-out);
+}
+.alert-banner button:hover { background: rgba(0, 0, 0, .06); }
+.alert-banner button:disabled { opacity: .6; cursor: default; }
+@keyframes alert-banner-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 0 rgba(146, 64, 14, .1); }
+  50% { box-shadow: inset 0 0 30px 0 rgba(146, 64, 14, .1); }
+}
+@media (prefers-reduced-motion: reduce) { .alert-banner.is-critical { animation: none; } }
 .sidebar-brand-row {
   display: flex;
   align-items: center;
@@ -383,6 +421,7 @@ select:focus-visible {
 .badge-muted { background: var(--surface-alt); color: var(--muted); border-color: var(--border); }
 .badge-amber { background: var(--accent-soft); color: var(--accent); border-color: #ecccbf; }
 .badge-info { background: var(--info-soft); color: var(--info); border-color: #c6d4e4; }
+.badge-hazard { background: var(--hazard-soft); color: var(--hazard); border-color: #fcd9a8; }
 
 /* -- TABLES ------------------------------------------ */
 .table-wrap { overflow-x: auto; }
@@ -462,6 +501,22 @@ table.data tbody tr:hover { background: #fafbfd; }
 .verdict[data-state="denied"] { background: var(--danger-soft); border-color: #fecaca; }
 .verdict[data-state="denied"] .verdict-word { color: var(--danger); }
 .verdict[data-state="denied"] .verdict-note { color: #b91c1c; }
+/* A site alert isn't a PPE ruling on the person in frame — pulsing amber
+   instead of the static red "denied" look keeps the two from reading as
+   the same kind of event at a glance. */
+.verdict[data-state="alert"] {
+  background: var(--hazard-soft); border-color: #fcd9a8;
+  animation: verdict-alert-pulse 1.6s ease-in-out infinite;
+}
+.verdict[data-state="alert"] .verdict-word { color: var(--hazard); }
+.verdict[data-state="alert"] .verdict-note { color: var(--hazard); }
+@keyframes verdict-alert-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(146, 64, 14, .25); }
+  50% { box-shadow: 0 0 0 8px rgba(146, 64, 14, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .verdict[data-state="alert"] { animation: none; }
+}
 
 /* -- LOG FEED ---------------------------------------- */
 .log-feed { max-height: 340px; overflow-y: auto; }

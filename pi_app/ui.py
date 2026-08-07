@@ -40,6 +40,14 @@ BAD_BG = "#2c0707"
 BAD_CARD = "#4a1010"
 BAD_LINE = "#b91c1c"
 
+# A site alert isn't a PPE ruling on the person at the gate — amber, not
+# BAD's red, so it reads as a different kind of event at a glance.
+HAZ = "#fbbf24"
+HAZ_DIM = "#fde68a"
+HAZ_BG = "#3f2404"
+HAZ_CARD = "#5c3a08"
+HAZ_LINE = "#92400e"
+
 FAMILY = "DejaVu Sans"
 
 

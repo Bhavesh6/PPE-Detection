@@ -260,12 +260,21 @@
             } catch (e) { /* the poll will pick it up once the API is reachable */ }
         }
 
-        function renderVerdict(verdict, missing) {
+        function renderVerdict(verdict, missing, activeAlert) {
             const panel = el('verdictPanel');
             const word = el('verdictWord');
             const note = el('verdictNote');
 
-            if (verdict === 'granted') {
+            if (verdict === 'alert_hold') {
+                // Not a PPE ruling — the site itself is paused, so this gets
+                // its own look rather than reusing "denied" and implying the
+                // person in frame did something wrong.
+                panel.dataset.state = 'alert';
+                word.textContent = 'Entry Paused';
+                note.textContent = activeAlert
+                    ? `${activeAlert.kind} alert${activeAlert.message ? ': ' + activeAlert.message : ''} — cleared by an operator before anyone can be checked.`
+                    : 'A site alert is active — cleared by an operator before anyone can be checked.';
+            } else if (verdict === 'granted') {
                 panel.dataset.state = 'granted';
                 word.textContent = 'Access Granted';
                 note.textContent = 'All required PPE detected — gate would open.';
@@ -287,11 +296,14 @@
             if (isRunning && verdict === 'denied' && lastSpokenVerdict !== 'denied') {
                 speak('Access denied. Required protective equipment missing.');
             }
+            if (isRunning && verdict === 'alert_hold' && lastSpokenVerdict !== 'alert_hold') {
+                speak('Entry paused. A site alert is active.');
+            }
             lastSpokenVerdict = verdict;
         }
 
         function applyChecks(verdict, missing) {
-            if (verdict === 'no_person') return resetChecks();
+            if (verdict === 'no_person' || verdict === 'alert_hold') return resetChecks();
             requiredPpe.forEach((item) => {
                 const isMissing = missing.includes(item);
                 setCheck(item,
@@ -403,7 +415,7 @@
                     syncRequirements(data.required_ppe);
 
                     const missing = data.missing_ppe || [];
-                    renderVerdict(data.verdict, missing);
+                    renderVerdict(data.verdict, missing, data.active_alert);
                     applyChecks(data.verdict, missing);
                 }
 
