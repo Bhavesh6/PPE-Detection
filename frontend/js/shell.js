@@ -267,10 +267,14 @@ const Shell = {
         ? `<span class="alert-banner-count">${presentCount} on site today</span>`
         : '';
       banner.innerHTML = `
-        <i class="fas ${isCritical ? 'fa-triangle-exclamation' : 'fa-circle-info'}"></i>
-        <span class="alert-banner-msg"><strong>${esc(alert.kind)}</strong>${alert.message ? ' — ' + esc(alert.message) : ''}${isCritical ? ' — entry is paused until this is cleared.' : ''}</span>
-        ${countBit}
-        <button type="button" data-ack="${alert.id}">${acking ? 'Clearing…' : 'Acknowledge'}</button>`;
+        <div class="alert-banner-top">
+          <i class="fas ${isCritical ? 'fa-triangle-exclamation' : 'fa-circle-info'}"></i>
+          <span class="alert-banner-msg"><strong>${esc(alert.kind)}</strong>${alert.message ? ' — ' + esc(alert.message) : ''}${isCritical ? ' — entry is paused until this is cleared.' : ''}</span>
+        </div>
+        <div class="alert-banner-meta">
+          ${countBit}
+          <button type="button" data-ack="${alert.id}">${acking ? 'Clearing…' : 'Acknowledge'}</button>
+        </div>`;
       const btn = banner.querySelector('[data-ack]');
       if (btn) {
         btn.disabled = acking;
