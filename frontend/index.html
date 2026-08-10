@@ -264,9 +264,71 @@
         .chip { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px;
                 font-size: .82rem; color: var(--ink-soft); }
 
+        /* --- build report ------------------------------------------------
+           An accounting for the judges, so it is laid out as a document:
+           ruled rows, a label column, dense lists. Deliberately not the card
+           grids the rest of the page uses — this is meant to be read as a
+           record, not skimmed as marketing. */
+        .delta { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 4vw, 60px); margin-top: 46px; }
+        .delta h3 { font-size: 1.05rem; margin-bottom: 14px; }
+        .delta ul { margin: 0; padding-left: 17px; font-size: .93rem; color: var(--ink-soft); }
+        .delta li { padding: 4px 0; }
+        .delta-then h3 { color: var(--ink-soft); }
+        .delta-then ul { color: var(--ink-faint); }
+
+        /* Round one's own roadmap, marked against what exists — the honest
+           version needs three outcomes, not a tick and a cross, so the state
+           is a word rather than an icon. */
+        .promises { margin-top: 26px; border-top: 1px solid var(--line); }
+        .promise {
+            display: grid; grid-template-columns: 260px 88px 1fr; gap: 8px 26px;
+            padding: 16px 0; border-bottom: 1px solid var(--line); align-items: baseline;
+        }
+        .promise-item { font-weight: 600; font-size: .93rem; }
+        .promise-state {
+            font-size: .72rem; font-weight: 700; letter-spacing: .08em;
+            text-transform: uppercase; color: var(--ink-faint);
+        }
+        .promise-state.is-done { color: var(--accent); }
+        .promise-note { font-size: .9rem; color: var(--ink-soft); }
+        /* The ledger's own top rule closes this table — see .ledger-row:last-child. */
+        .promise:last-child { border-bottom: none; }
+
+        .ledger { margin-top: 54px; border-top: 1px solid var(--line); }
+        .ledger-row {
+            display: grid; grid-template-columns: 200px 1fr; gap: 10px 34px;
+            padding: 22px 0; border-bottom: 1px solid var(--line); align-items: start;
+        }
+        .ledger-area { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 1.02rem; }
+        .ledger-items { margin: 0; padding: 0; list-style: none; font-size: .92rem; color: var(--ink-soft); }
+        .ledger-items li { padding: 3px 0 3px 16px; position: relative; }
+        .ledger-items li::before { content: '·'; position: absolute; left: 4px; color: var(--accent); font-weight: 700; }
+        /* The colophon's own rule closes the ledger — without this the last
+           row's border and that rule stack into a visible double line. */
+        .ledger-row:last-child { border-bottom: none; }
+
+        /* A colophon line, not another stat-card grid — the page already
+           spends its big-number treatment on the safety figures. */
+        .colophon {
+            margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--line);
+            display: flex; flex-wrap: wrap; gap: 6px 20px;
+            font-size: .87rem; color: var(--ink-faint);
+        }
+        .colophon b { color: var(--ink); font-weight: 600; }
+
+        .notes { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(28px, 4vw, 60px); margin-top: 60px; }
+        .notes h3 { font-size: 1.05rem; margin-bottom: 4px; }
+        .note-list { margin: 12px 0 0; padding-left: 17px; font-size: .92rem; color: var(--ink-soft); }
+        .note-list li { padding: 5px 0; }
+        .decisions { margin: 12px 0 0; }
+        .decisions dt { font-weight: 600; font-size: .93rem; margin-top: 15px; }
+        .decisions dd { margin: 3px 0 0; font-size: .91rem; color: var(--ink-soft); }
+
         @media (max-width: 820px) {
             .steps, .facts { grid-template-columns: 1fr; gap: 34px; }
             .split, .shots, .surfaces, .phases, .hero-grid { grid-template-columns: 1fr; }
+            .delta, .notes, .ledger-row, .promise { grid-template-columns: 1fr; }
+            .ledger-row, .promise { gap: 6px; }
             .phases { gap: 26px; }
             .nav-links a:not(.btn) { display: none; }
             /* The desktop bleed (image running past its grid column) has
@@ -288,6 +350,7 @@
             <div class="nav-links">
                 <a href="#how">How it works</a>
                 <a href="#why">Why it matters</a>
+                <a href="#report">What we built</a>
                 <a href="visit-site.html">Checkpoint</a>
                 <a href="login.html" class="btn btn-quiet" id="navAuthLink">Sign in</a>
             </div>
@@ -539,6 +602,241 @@
     </div>
 </section>
 
+<!-- build report — the accounting for judging -->
+<section class="warm" id="report">
+    <div class="wrap">
+        <div class="narrow">
+            <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">Round one to round two</h2>
+            <p class="lede" style="margin-top:20px">
+                Round one was a detector in a browser tab, and it ended on a slide
+                promising a checkpoint. Round two is that checkpoint, measured
+                against the promise, including where it falls short.
+            </p>
+        </div>
+
+        <div class="delta">
+            <div class="delta-then">
+                <h3>Round one</h3>
+                <ul>
+                    <li>YOLOv8 reading protective equipment from any webcam</li>
+                    <li>A dashboard that logged violations with a timestamp, and spoke
+                        the alert aloud</li>
+                    <li>Inference on a hosted GPU, frontend on Vercel</li>
+                    <li>One shared session — every visitor saw the same counters</li>
+                </ul>
+                <p style="font-size:.9rem;color:var(--ink-faint);margin-top:14px">
+                    It watched, and it told you. It could not stop anybody, and it did
+                    not know who it was looking at.
+                    <a href="https://github.com/Nexus369/construction-ppe-detection"
+                       target="_blank" rel="noopener"
+                       style="color:var(--ink-soft)">Round one source&nbsp;&rarr;</a>
+                </p>
+            </div>
+            <div>
+                <h3>Round two</h3>
+                <ul>
+                    <li>A badge-operated checkpoint that decides entry and writes it down</li>
+                    <li>Named workers, not anonymous frames, with attendance on the record</li>
+                    <li>An eight-page console for the people who answer for the site</li>
+                    <li>A safety policy that changes at runtime, never by redeploy</li>
+                    <li>Hazard alerts that can stop the gate everywhere at once</li>
+                    <li>A native gate application for the Raspberry Pi</li>
+                    <li>An append-only record of who changed what, and when</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="narrow" style="margin-top:64px">
+            <h3 style="font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:1.35rem">
+                What round one promised, marked honestly
+            </h3>
+            <p style="color:var(--ink-soft);font-size:.95rem;margin-top:10px">
+                The last slide of the round-one deck listed what would come next.
+                This is that list, against what is actually running.
+            </p>
+        </div>
+
+        <div class="promises">
+            <div class="promise">
+                <div class="promise-item">Edge deployment on a Raspberry Pi</div>
+                <div class="promise-state is-done">Built</div>
+                <div class="promise-note">A native fullscreen gate application, owning the
+                    camera and badge reader directly. Written and reviewed; not yet run on
+                    the board itself.</div>
+            </div>
+            <div class="promise">
+                <div class="promise-item">RFID / NFC tags</div>
+                <div class="promise-state is-done">Built</div>
+                <div class="promise-note">An MFRC522 reader over SPI, used to identify the
+                    person rather than the equipment. The camera was already better at the
+                    equipment.</div>
+            </div>
+            <div class="promise">
+                <div class="promise-item">Automated gate control at checkpoints</div>
+                <div class="promise-state is-done">Built</div>
+                <div class="promise-note">The decision, the refusal, the attendance record
+                    and the queue behind it. Driving a physical relay is the next wire, not
+                    the next idea.</div>
+            </div>
+            <div class="promise">
+                <div class="promise-item">IoT sensors and an offline mode</div>
+                <div class="promise-state is-done">Built</div>
+                <div class="promise-note">Hazard alerts that hold the gate, raised by a
+                    threshold an administrator sets, plus a local queue so a dropped link
+                    cannot lose a decision. The sensor board itself is not made.</div>
+            </div>
+            <div class="promise">
+                <div class="promise-item">Predictive analytics on risk</div>
+                <div class="promise-state">Partly</div>
+                <div class="promise-note">Per-worker scorecards and the hours refusals
+                    cluster in. That is description, not prediction, and it is described as
+                    such.</div>
+            </div>
+            <div class="promise">
+                <div class="promise-item">Multi-site central dashboard</div>
+                <div class="promise-state">Not yet</div>
+                <div class="promise-note">One console runs one site. Several gates reporting
+                    to it is on the roadmap below.</div>
+            </div>
+            <div class="promise">
+                <div class="promise-item">Supervisor app with push notifications</div>
+                <div class="promise-state">Not yet</div>
+                <div class="promise-note">The console works on a phone and raises a hazard
+                    on every open tab, but there is no application and no push.</div>
+            </div>
+            <div class="promise">
+                <div class="promise-item">Face recognition for identity</div>
+                <div class="promise-state">Dropped</div>
+                <div class="promise-note">A badge answers the same question without putting
+                    a face database on a construction site. This one we chose not to build.</div>
+            </div>
+        </div>
+
+        <div class="ledger">
+            <div class="ledger-row">
+                <div class="ledger-area">The decision</div>
+                <ul class="ledger-items">
+                    <li>Badge scan identifies the worker, then the camera rules on their equipment</li>
+                    <li>A pass has to hold for over a second, so one lucky frame cannot clear anybody</li>
+                    <li>Entry is marked against a name, refusals included</li>
+                    <li>Model speed shown live, in frames per second, on the gate view</li>
+                </ul>
+            </div>
+            <div class="ledger-row">
+                <div class="ledger-area">Policy</div>
+                <ul class="ledger-items">
+                    <li>Required equipment and detection confidence are settings, not constants</li>
+                    <li>A change takes effect on the next frame, across all three surfaces</li>
+                    <li>Only equipment the model can actually see is offered, because a requirement
+                        it could never satisfy would refuse everyone, permanently</li>
+                </ul>
+            </div>
+            <div class="ledger-row">
+                <div class="ledger-area">Evidence</div>
+                <ul class="ledger-items">
+                    <li>Every refusal keeps the frame that caused it, with the model's own boxes drawn in</li>
+                    <li>Images expire after thirty days; the decision they support does not</li>
+                    <li>Served through an authenticated route, never as a public file</li>
+                    <li>Operators can capture a frame on demand, kept out of the compliance figures</li>
+                </ul>
+            </div>
+            <div class="ledger-row">
+                <div class="ledger-area">Console</div>
+                <ul class="ledger-items">
+                    <li>Overview, personnel, captures, reports, analytics, policy, location, change log, alerts</li>
+                    <li>Per-worker scorecards, daily trend, and the hours refusals cluster in</li>
+                    <li>Named CSV exports for any date range</li>
+                </ul>
+            </div>
+            <div class="ledger-row">
+                <div class="ledger-area">Hazard alerts</div>
+                <ul class="ledger-items">
+                    <li>A critical alert overrides equipment compliance and pauses entry. Full
+                        protective gear is still not safe in a gas leak</li>
+                    <li>Raised either by a device declaring a severity, or by a raw sensor
+                        value crossing a threshold an administrator set</li>
+                    <li>Surfaces on the gate display, the device, and every open console tab</li>
+                    <li>Clearing one is recorded against the person who cleared it</li>
+                </ul>
+            </div>
+            <div class="ledger-row">
+                <div class="ledger-area">Accountability</div>
+                <ul class="ledger-items">
+                    <li>An append-only log across policy, personnel and alerts</li>
+                    <li>Names are kept alongside ids, so the trail still reads after an account is deleted</li>
+                    <li>Changes that weaken the gate are marked as such</li>
+                </ul>
+            </div>
+            <div class="ledger-row">
+                <div class="ledger-area">The device</div>
+                <ul class="ledger-items">
+                    <li>A fullscreen gate application that owns the camera and badge reader directly</li>
+                    <li>Decisions that cannot reach the server are held locally and retried, not lost</li>
+                    <li>Site position reported from the device, or set by hand until a module exists</li>
+                    <li>A pre-flight tool that names the broken link instead of leaving a blank screen</li>
+                </ul>
+            </div>
+            <div class="ledger-row">
+                <div class="ledger-area">Interface</div>
+                <ul class="ledger-items">
+                    <li>Rebuilt around one editorial design language, shared by every page</li>
+                    <li>A full-site layout audit: four real bugs found where content overflowed
+                        with no way to scroll to it</li>
+                    <li>Every page checked at phone, tablet and desktop widths</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="colophon">
+            <span><b>30</b> commits in round two</span>
+            <span><b>37</b> API endpoints</span>
+            <span><b>16</b> pages</span>
+            <span><b>7</b> database tables</span>
+            <span><b>~11,800</b> lines</span>
+            <span><b>2&ndash;10 August 2026</b></span>
+        </div>
+
+        <div class="notes">
+            <div>
+                <h3>What is not done</h3>
+                <ul class="note-list">
+                    <li>No hardware has been tested. The badge reader, GPS module and
+                        battery backup all have working code and none of it has met the
+                        real component yet.</li>
+                    <li>Inference runs on the server, not on the AI accelerator. That
+                        swap is waiting on a measurement, not a decision.</li>
+                    <li>The model knows three things: hardhat, safety vest, mask. Not
+                        gloves, not boots; those need a retrained model.</li>
+                    <li>There is no exit scan, so a head count means “admitted today”,
+                        not “still inside”. It is shown as the former.</li>
+                    <li>The sensor board is not built. Alerts are exercised through a
+                        simulator that calls the same endpoint the board will.</li>
+                </ul>
+            </div>
+            <div>
+                <h3>Decisions we would defend</h3>
+                <dl class="decisions">
+                    <dt>Refusals are photographed. Grants are not.</dt>
+                    <dd>A checkpoint that photographs everyone is a surveillance system
+                        with a safety feature attached.</dd>
+
+                    <dt>Making the gate weaker is as visible as making it stronger.</dt>
+                    <dd>Configurable policy without a log would make every compliance
+                        figure downstream unfalsifiable.</dd>
+
+                    <dt>The offline queue does not deduplicate.</dt>
+                    <dd>A decision written twice is untidy. A decision lost is the thing
+                        the queue exists to prevent.</dd>
+
+                    <dt>Any signed-in user can clear a hazard alert.</dt>
+                    <dd>It is a safety action, not a policy edit. A gas alarm should not
+                        wait for an administrator to be reachable.</dd>
+                </dl>
+            </div>
+        </div>
+    </div>
+</section>
+
 <!-- roadmap -->
 <section class="tint">
     <div class="wrap">
@@ -628,6 +926,7 @@
         <div class="foot-links">
             <a href="#how">How it works</a>
             <a href="#why">Why it matters</a>
+            <a href="#report">What we built</a>
             <a href="visit-site.html">Checkpoint</a>
             <a href="login.html" id="footAuthLink">Sign in</a>
             <a href="https://github.com/Bhavesh6/PPE-Detection" target="_blank" rel="noopener">Source</a>
