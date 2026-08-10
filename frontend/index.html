@@ -82,7 +82,6 @@
 
         /* Warm block — breaks a run of white without going dark. */
         .warm { background: var(--accent-soft); }
-        .warm .eyebrow { color: var(--accent); }
 
         /* Big imagery reads as considered; small imagery reads as decoration. */
         .shot, .device { border-radius: 22px; }
@@ -186,8 +185,13 @@
         .step h3 { font-size: 1.32rem; margin-bottom: 10px; }
         .step p { color: var(--ink-soft); font-size: .96rem; }
 
-        /* pull quote */
-        .quote { border-left: 2px solid var(--accent); padding-left: 26px; }
+        /* pull quote — an oversized opening mark carries the "this is a
+           quote" signal instead of a ruled border, so it reads as a
+           typographic moment rather than a bordered callout box. */
+        .quote .mark {
+            display: block; font-family: 'Fraunces', serif; font-weight: 600;
+            font-size: 3.4rem; line-height: 1; color: var(--accent); margin-bottom: 4px;
+        }
         .quote blockquote {
             margin: 0; font-family: 'Fraunces', serif; font-weight: 400;
             font-size: clamp(1.3rem, 2.6vw, 1.95rem); line-height: 1.34; letter-spacing: -.01em;
@@ -201,11 +205,6 @@
         .fact-src { font-size: .78rem; color: var(--ink-faint); margin-top: 8px; }
 
         .split { display: grid; gap: clamp(36px, 6vw, 76px); grid-template-columns: 1fr 1fr; align-items: center; }
-
-        .eyebrow {
-            font-size: .78rem; font-weight: 600; letter-spacing: .11em;
-            text-transform: uppercase; color: var(--accent); margin-bottom: 18px;
-        }
 
         footer { border-top: 1px solid var(--line); padding: 48px 0 64px; }
         .foot-grid { display: flex; flex-wrap: wrap; gap: 40px; justify-content: space-between; align-items: flex-start; }
@@ -267,9 +266,13 @@
 
         @media (max-width: 820px) {
             .steps, .facts { grid-template-columns: 1fr; gap: 34px; }
-            .split, .shots, .surfaces, .phases { grid-template-columns: 1fr; }
+            .split, .shots, .surfaces, .phases, .hero-grid { grid-template-columns: 1fr; }
             .phases { gap: 26px; }
             .nav-links a:not(.btn) { display: none; }
+            /* The desktop bleed (image running past its grid column) has
+               nothing to bleed past once the grid is one column — left in,
+               it pulls the image past the viewport's own edge instead. */
+            .hero-media { margin-right: 0; }
         }
         @media (prefers-reduced-motion: reduce) {
             * { transition-duration: .01ms !important; }
@@ -320,7 +323,6 @@
 <section class="tint" id="how">
     <div class="wrap">
         <div class="narrow">
-            <div class="eyebrow">How it works</div>
             <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">Three seconds at the gate</h2>
             <p class="lede" style="margin-top:20px">
                 No new habits to learn, no forms, nothing to remember. A worker
@@ -367,7 +369,6 @@
 <section>
     <div class="wrap">
         <div class="narrow">
-            <div class="eyebrow">The screen at the gate</div>
             <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">One word, readable across the yard</h2>
             <p class="lede" style="margin-top:20px">
                 These are real screens, not mock-ups — the detection boxes and the
@@ -393,7 +394,6 @@
 <section class="tint">
     <div class="wrap split">
         <div>
-            <div class="eyebrow">At the gate</div>
             <h2 style="font-size:clamp(1.8rem,3.4vw,2.5rem)">It tells them what to fix</h2>
             <p style="color:var(--ink-soft);margin-top:20px">
                 A refusal that just says “no” teaches nobody anything. This one names
@@ -418,7 +418,6 @@
 <section class="warm" id="why">
     <div class="wrap">
         <div class="narrow">
-            <div class="eyebrow">Why it matters</div>
             <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">The equipment was always there</h2>
             <p class="lede" style="margin-top:20px">
                 Sites rarely fail because nobody issued a helmet. They fail in the
@@ -449,6 +448,7 @@
 
 <section style="padding-top:clamp(48px,6vw,84px)">
     <div class="wrap narrow quote">
+        <span class="mark" aria-hidden="true">&#8220;</span>
         <blockquote>
             Manual inspection is labour-intensive, time-consuming and susceptible to
             human error — and the hardest thing of all to catch is the worker who
@@ -462,7 +462,6 @@
 <section class="tint">
     <div class="wrap">
         <div class="narrow">
-            <div class="eyebrow">The platform</div>
             <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">Three surfaces, one record</h2>
             <p class="lede" style="margin-top:20px">
                 The gate makes the call. Everyone else sees the part that concerns them.
@@ -512,7 +511,6 @@
 <section>
     <div class="wrap split">
         <div>
-            <div class="eyebrow">Not a new rule</div>
             <h2 style="font-size:clamp(1.8rem,3.4vw,2.5rem)">It checks what the law already asks for</h2>
             <p style="color:var(--ink-soft);margin-top:20px">
                 The BOCW Act, the Factories Act and the Occupational Safety Code
@@ -545,7 +543,6 @@
 <section class="tint">
     <div class="wrap">
         <div class="narrow">
-            <div class="eyebrow">Where it goes</div>
             <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">From a screen to a turnstile</h2>
             <p class="lede" style="margin-top:20px">
                 The decision already works. What follows is wiring it to something
@@ -594,7 +591,6 @@
 <!-- team -->
 <section>
     <div class="wrap narrow">
-        <div class="eyebrow">Who built it</div>
         <h2 style="font-size:clamp(1.8rem,3.4vw,2.5rem)">Team Mojito</h2>
         <p style="color:var(--ink-soft);margin-top:18px">
             Built for FAR AWAY 2026 — Agentic &amp; Autonomous Systems.
