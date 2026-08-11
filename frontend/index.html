@@ -269,57 +269,122 @@
            ruled rows, a label column, dense lists. Deliberately not the card
            grids the rest of the page uses — this is meant to be read as a
            record, not skimmed as marketing. */
-        .delta { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(24px, 3.5vw, 52px); margin-top: 34px; }
-        .delta h3 { font-size: 1.05rem; margin-bottom: 14px; }
-        .delta ul { margin: 0; padding-left: 17px; font-size: .93rem; color: var(--ink-soft); }
-        .delta li { padding: 4px 0; }
+        /* Round one against round two.
+           This comparison IS the argument of the section, so it carries real
+           visual weight instead of two bulleted lists side by side. Round one
+           is deliberately flatter, cooler and unelevated — it reads as the
+           past. Round two sits on paper with actual lift. The difference in
+           treatment does the work before anybody reads a word of it. */
+        .delta {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: clamp(18px, 2.6vw, 30px); margin-top: 38px; align-items: start;
+        }
+        .delta-card { border-radius: 18px; padding: 26px 26px 28px; }
+        .delta-then { border: 1px dashed var(--line); background: transparent; }
+        .delta-now {
+            background: var(--paper); border: 1px solid rgba(0,0,0,.05);
+            box-shadow: var(--lift-1);
+        }
+        .delta-tag {
+            font-size: .67rem; letter-spacing: .11em; text-transform: uppercase;
+            font-weight: 700; display: block;
+        }
+        .delta-then .delta-tag { color: var(--ink-faint); }
+        .delta-now .delta-tag { color: var(--accent); }
+        .delta h3 { font-size: 1.2rem; margin: 9px 0 5px; }
         .delta-then h3 { color: var(--ink-soft); }
-        .delta-then ul { color: var(--ink-faint); }
+        .delta-sub { font-size: .83rem; color: var(--ink-faint); margin-bottom: 17px; }
+        .delta ul { margin: 0; padding: 0; list-style: none; font-size: .92rem; }
+        .delta li { position: relative; padding: 5px 0 5px 24px; }
+        .delta-then li { color: var(--ink-faint); }
+        /* Hollow ring: present, but not delivered. */
+        .delta-then li::before {
+            content: ''; position: absolute; left: 2px; top: 1.05em;
+            width: 7px; height: 7px; border-radius: 50%;
+            border: 1.5px solid var(--line);
+        }
+        .delta-now li { color: var(--ink-soft); }
+        /* A tick drawn from two borders — no icon font, no emoji, and it
+           inherits the accent so it stays part of the palette. */
+        .delta-now li::before {
+            content: ''; position: absolute; left: 3px; top: .82em;
+            width: 5px; height: 10px;
+            border: solid var(--accent); border-width: 0 2px 2px 0;
+            transform: rotate(43deg);
+        }
 
-        /* Round one's own roadmap, marked against what exists — the honest
-           version needs three outcomes, not a tick and a cross, so the state
-           is a word rather than an icon. */
-        .promises { margin-top: 22px; border-top: 1px solid var(--line); }
+        /* Round one's own closing-slide roadmap, marked against what exists.
+           Everything listed shipped, so the state is carried by the tick and
+           the panel rather than by a status column repeating "Built" five
+           times. */
+        .promises {
+            margin-top: 22px; background: var(--paper);
+            border: 1px solid rgba(0,0,0,.05); border-radius: 18px;
+            box-shadow: var(--lift-1); padding: 6px 26px;
+        }
         .promise {
-            display: grid; grid-template-columns: 290px 1fr; gap: 6px 30px;
-            padding: 13px 0; border-bottom: 1px solid var(--line); align-items: baseline;
+            display: grid; grid-template-columns: 268px 1fr; gap: 6px 30px;
+            padding: 15px 0 15px 26px; border-bottom: 1px solid var(--line);
+            align-items: baseline; position: relative;
+        }
+        .promise::before {
+            content: ''; position: absolute; left: 2px; top: 1.55em;
+            width: 5px; height: 10px;
+            border: solid var(--accent); border-width: 0 2px 2px 0;
+            transform: rotate(43deg);
         }
         .promise-item { font-weight: 600; font-size: .93rem; }
         .promise-note { font-size: .9rem; color: var(--ink-soft); }
-        /* The ledger's own top rule closes this table — see .ledger-row:last-child. */
         .promise:last-child { border-bottom: none; }
 
-        .ledger { margin-top: 40px; border-top: 1px solid var(--line); }
+        /* The build itself, one card per area. As a rule-separated table this
+           was eight paragraphs of grey prose that scanned as a document; as
+           cards each area is findable, which is how somebody actually reads
+           it — looking for the one thing they care about. */
+        .ledger {
+            margin-top: 42px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+        }
         .ledger-row {
-            display: grid; grid-template-columns: 200px 1fr; gap: 10px 34px;
-            padding: 17px 0; border-bottom: 1px solid var(--line); align-items: start;
+            background: var(--paper); border: 1px solid rgba(0,0,0,.05);
+            border-radius: 16px; padding: 22px 24px 24px; box-shadow: var(--lift-1);
         }
-        .ledger-area { font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 1.02rem; }
-        .ledger-line { font-size: .91rem; color: var(--ink-soft); }
-        /* The colophon's own rule closes the ledger — without this the last
-           row's border and that rule stack into a visible double line. */
-        .ledger-row:last-child { border-bottom: none; }
+        .ledger-area {
+            font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 1.05rem;
+            padding-top: 11px; border-top: 2px solid var(--accent);
+            display: inline-block; margin-bottom: 9px;
+        }
+        .ledger-line { font-size: .9rem; color: var(--ink-soft); margin: 0; }
 
-        /* A colophon line, not another stat-card grid — the page already
-           spends its big-number treatment on the safety figures. */
+        /* The numbers judges actually scan. Previously a grey one-line
+           colophon, which buried them — the figures are the fastest evidence
+           of scope on the page and deserve the big-number treatment. */
         .colophon {
-            margin-top: 32px; padding-top: 22px; border-top: 1px solid var(--line);
-            display: flex; flex-wrap: wrap; gap: 6px 20px;
-            font-size: .87rem; color: var(--ink-faint);
+            margin-top: 38px; padding-top: 28px; border-top: 1px solid var(--line);
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+            gap: 22px 18px;
         }
-        .colophon b { color: var(--ink); font-weight: 600; }
+        .stat-n {
+            font-family: 'Fraunces', Georgia, serif; font-weight: 600;
+            font-size: clamp(1.55rem, 3vw, 2.15rem); line-height: 1;
+            letter-spacing: -.025em; color: var(--ink);
+        }
+        .stat-l { font-size: .76rem; color: var(--ink-faint); margin-top: 7px; }
 
-        .notes { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(24px, 3.5vw, 52px); margin-top: 60px; }
-        .decisions { margin: 12px 0 0; }
-        .decisions dt { font-weight: 600; font-size: .93rem; margin-top: 15px; }
+        .notes { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(18px, 2.6vw, 30px); margin-top: 22px; }
+        .decisions {
+            margin: 0; background: var(--paper); border: 1px solid rgba(0,0,0,.05);
+            border-radius: 16px; padding: 24px 24px 26px; box-shadow: var(--lift-1);
+        }
+        .decisions dt { font-weight: 600; font-size: .93rem; margin-top: 20px; }
         .decisions dt:first-child { margin-top: 0; }
-        .decisions dd { margin: 3px 0 0; font-size: .91rem; color: var(--ink-soft); }
+        .decisions dd { margin: 4px 0 0; font-size: .91rem; color: var(--ink-soft); }
 
         @media (max-width: 820px) {
             .steps, .facts { grid-template-columns: 1fr; gap: 34px; }
             .split, .shots, .surfaces, .phases, .hero-grid { grid-template-columns: 1fr; }
-            .delta, .notes, .ledger-row, .promise { grid-template-columns: 1fr; }
-            .ledger-row, .promise { gap: 6px; }
+            .delta, .notes, .ledger, .promise { grid-template-columns: 1fr; }
+            .promise { gap: 6px; }
             .phases { gap: 26px; }
             .nav-links a:not(.btn) { display: none; }
             /* The desktop bleed (image running past its grid column) has
@@ -605,8 +670,10 @@
         </div>
 
         <div class="delta">
-            <div class="delta-then">
+            <div class="delta-card delta-then">
+                <span class="delta-tag">Where we started</span>
                 <h3>Round one</h3>
+                <p class="delta-sub">A detector in a browser tab</p>
                 <ul>
                     <li>YOLOv8 reading protective equipment from any webcam</li>
                     <li>A dashboard that logged violations with a timestamp, and spoke
@@ -622,8 +689,10 @@
                        style="color:var(--ink-soft)">Round one source&nbsp;&rarr;</a>
                 </p>
             </div>
-            <div>
+            <div class="delta-card delta-now">
+                <span class="delta-tag">What we built</span>
                 <h3>Round two</h3>
+                <p class="delta-sub">A checkpoint that decides, and answers for it</p>
                 <ul>
                     <li>A badge-operated checkpoint that decides entry and writes it down</li>
                     <li>Named workers, not anonymous frames, with attendance on the record</li>
@@ -732,12 +801,12 @@
         </div>
 
         <div class="colophon">
-            <span><b>30</b> commits in round two</span>
-            <span><b>37</b> API endpoints</span>
-            <span><b>16</b> pages</span>
-            <span><b>7</b> database tables</span>
-            <span><b>~11,800</b> lines</span>
-            <span><b>2&ndash;10 August 2026</b></span>
+            <div><div class="stat-n">39</div><div class="stat-l">API endpoints</div></div>
+            <div><div class="stat-n">8</div><div class="stat-l">Database tables</div></div>
+            <div><div class="stat-n">16</div><div class="stat-l">Pages</div></div>
+            <div><div class="stat-n">3</div><div class="stat-l">Surfaces: gate, console, device</div></div>
+            <div><div class="stat-n">~12k</div><div class="stat-l">Lines written</div></div>
+            <div><div class="stat-n">9</div><div class="stat-l">Days, 2&ndash;11 August</div></div>
         </div>
 
         <div class="narrow" style="margin-top:52px">
