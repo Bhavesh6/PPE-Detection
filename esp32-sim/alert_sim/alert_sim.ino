@@ -44,20 +44,28 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 
-// ---- fill these in ----
-const char *WIFI_SSID = "YOUR_WIFI_SSID";
-const char *WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
-const char *API_BASE = "http://192.168.1.42:5000";
-
-// A device account created via the web sign-up (same as pi_app/.env's
-// SAFETYFIRST_EMAIL/PASSWORD). Leave both blank to sign in as a guest
-// instead — fine for this connectivity test, since /api/gate/alerts only
-// needs *any* signed-in session, not an admin one.
-const char *DEVICE_EMAIL = "";
-const char *DEVICE_PASSWORD = "";
-// ------------------------
+// WIFI_SSID, WIFI_PASSWORD, API_BASE, DEVICE_EMAIL, DEVICE_PASSWORD live in
+// secrets.h, next to this file — gitignored, so a real WiFi password or
+// device login never ends up in the tracked .ino the way it briefly did
+// here. Copy secrets.h.example to secrets.h and fill in real values; the
+// Arduino IDE picks up a same-folder header automatically, no include path
+// setup needed.
+#include "secrets.h"
 
 String authToken;
+
+// Simulated continuous telemetry state — declared here, ahead of every
+// function, because C++ doesn't hoist globals the way the loop()/setup()
+// style might suggest: a function defined earlier in the file can't see a
+// variable declared later, only a forward-declared or already-seen one.
+bool autoMode = false;
+unsigned long lastAutoSend = 0;
+const unsigned long AUTO_INTERVAL_MS = 4000;
+float simGas = 150.0;   // ppm — baseline chosen well under the 400/800
+                        // warning/critical thresholds this project's demo
+                        // has configured on the Alerts page
+float simTemp = 28.0;   // deg C — ambient, no threshold configured for this
+                        // kind by default, so it only ever logs quietly
 
 bool signIn() {
   HTTPClient http;
@@ -174,15 +182,7 @@ void printStatus() {
 // (small step each tick, gently pulled back toward a baseline) drifts the
 // way a real reading does, and an occasional larger jump gives the alert
 // system something real to catch without waiting on an actual leak.
-bool autoMode = false;
-unsigned long lastAutoSend = 0;
-const unsigned long AUTO_INTERVAL_MS = 4000;
-
-float simGas = 150.0;   // ppm — baseline chosen well under the 400/800
-                        // warning/critical thresholds this project's demo
-                        // has configured on the Alerts page
-float simTemp = 28.0;   // deg C — ambient, no threshold configured for this
-                        // kind by default, so it only ever logs quietly
+// (State variables live near authToken, above — see the comment there.)
 
 float driftValue(float current, float baseline, float noise, float minV, float maxV) {
   float pulled = current + (baseline - current) * 0.05;      // gentle pull home

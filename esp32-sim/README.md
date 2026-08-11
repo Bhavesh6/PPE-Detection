@@ -18,8 +18,11 @@ sketch is disposable, the endpoints aren't.
 
 1. Arduino IDE → Boards Manager → install **esp32** (by Espressif Systems).
 2. Library Manager → install **ArduinoJson** (by Benoit Blanchon, v6.x).
-3. Open `alert_sim/alert_sim.ino` and fill in `WIFI_SSID`, `WIFI_PASSWORD`,
-   and `API_BASE`.
+3. Copy `alert_sim/secrets.h.example` to `alert_sim/secrets.h` (same folder)
+   and fill in `WIFI_SSID`, `WIFI_PASSWORD`, and `API_BASE`. `secrets.h` is
+   gitignored so real WiFi/device credentials never end up in the tracked
+   `.ino` — the Arduino IDE picks up a same-folder header automatically, no
+   include-path setup needed.
 
    `API_BASE` is your PC's **LAN IP**, not `localhost` — the ESP32 is a
    separate device on the network. Find it with `ipconfig` (Windows) or
@@ -33,6 +36,16 @@ sketch is disposable, the endpoints aren't.
    only needs *any* signed-in session, not an admin one.
 
 4. Tools → Board → your ESP32 model, then Upload.
+
+   **On an ESP32-C3 SuperMini** (the tiny 11-pin board this project's demo
+   hardware actually is): select **ESP32C3 Dev Module**, and set **USB CDC
+   On Boot** to **Enabled** under Tools. This board has native USB, not a
+   CH340/CP2102 chip — skip that setting and the sketch runs fine but
+   Serial Monitor stays completely blank, which looks exactly like a
+   dead upload. Nothing else in this sketch needs to change for this
+   board; `WiFi.h`/`HTTPClient.h`/`ArduinoJson` all work identically
+   across ESP32 variants.
+
 5. Tools → Serial Monitor, **115200 baud**, line ending set to **Newline**.
 
 ## What it proves
