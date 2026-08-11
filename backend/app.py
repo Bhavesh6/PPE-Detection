@@ -6,8 +6,13 @@ from flask_cors import CORS
 
 load_dotenv()
 
-from config import Config
+from config import Config, check_secrets
 from extensions import db, jwt
+
+# At import, not inside __main__: production runs under gunicorn, which
+# imports this module and never executes that block — so a check placed
+# there would pass silently in the one environment it exists to protect.
+check_secrets()
 
 
 def _add_missing_columns():

@@ -20,8 +20,68 @@ def _database_uri():
     return url
 
 
+DEV_SECRET_KEY = "dev-secret-change-me"
+DEV_JWT_SECRET_KEY = "dev-jwt-secret-change-me"
+
+# Set by the platform itself, not by us. Their presence is the most reliable
+# "this is deployed, not somebody's laptop" signal available without asking
+# the deployer to remember another setting — which is exactly the thing that
+# gets forgotten and causes this problem in the first place.
+HOST_MARKERS = (
+    "RENDER",               # Render
+    "SPACE_ID",             # Hugging Face Spaces
+    "DYNO",                 # Heroku
+    "FLY_APP_NAME",         # Fly.io
+    "RAILWAY_ENVIRONMENT",  # Railway
+    "K_SERVICE",            # Google Cloud Run
+    "WEBSITE_INSTANCE_ID",  # Azure App Service
+)
+
+
+def _looks_deployed():
+    return any(os.environ.get(marker) for marker in HOST_MARKERS)
+
+
+def check_secrets():
+    """Refuse to serve traffic with the placeholder signing keys.
+
+    JWTs are signed with JWT_SECRET_KEY. The fallback below is a literal in
+    this file, so a deployment that never set the real one signs tokens with
+    a value anybody reading the repository already knows — and a forged token
+    is indistinguishable from a real one, including an admin's. That is not a
+    slow leak; it is account takeover from a published string.
+
+    Local development keeps the convenient defaults and only warns, because
+    the failure mode there is nobody's problem. Anything running on a known
+    host raises instead: better a container that refuses to start than one
+    that starts wide open and looks perfectly healthy.
+    """
+    weak = []
+    if os.environ.get("SECRET_KEY", DEV_SECRET_KEY) == DEV_SECRET_KEY:
+        weak.append("SECRET_KEY")
+    if os.environ.get("JWT_SECRET_KEY", DEV_JWT_SECRET_KEY) == DEV_JWT_SECRET_KEY:
+        weak.append("JWT_SECRET_KEY")
+    if not weak:
+        return
+
+    names = " and ".join(weak)
+    if _looks_deployed():
+        raise RuntimeError(
+            f"Refusing to start: {names} still set to the development default, "
+            "which is published in this repository's config.py — anyone could "
+            "forge an admin token. Generate one per variable with "
+            '`python -c "import secrets; print(secrets.token_urlsafe(48))"` '
+            "and set it in the host's environment settings."
+        )
+    print(
+        f"WARNING: {names} using the development default. Fine locally; this "
+        "will refuse to start once deployed. See .env.example.",
+        flush=True,
+    )
+
+
 class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+    SECRET_KEY = os.environ.get("SECRET_KEY", DEV_SECRET_KEY)
 
     SQLALCHEMY_DATABASE_URI = _database_uri()
     SQLALCHEMY_TRACK_MODIFICATIONS = False
@@ -34,7 +94,7 @@ class Config:
         else {}
     )
 
-    JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-jwt-secret-change-me")
+    JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", DEV_JWT_SECRET_KEY)
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=7)
 
     GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
