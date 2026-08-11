@@ -45,6 +45,7 @@ smoke                   critical smoke alert
 warn                    a non-critical warning — heads-up only, doesn't hold the gate
 reading <kind> <value>  a raw value, e.g. "reading gas 450" — set a threshold for
                         <kind> on the Alerts page first, or this just logs quietly
+auto                    toggle continuous simulated telemetry (see below)
 status                  reprint WiFi / sign-in state
 ```
 
@@ -54,6 +55,30 @@ a threshold on the Alerts page (e.g. gas: warning at 400, critical at 800,
 unit ppm, direction "above"), then send `reading gas 450` for a warning and
 `reading gas 900` for a critical, and watch the same gate-holding/popup
 behavior trigger from a number instead of a hardcoded severity string.
+
+## Continuous telemetry (`auto`)
+
+Typing individual `reading` commands proves the endpoint works, but it
+doesn't look or feel like a sensor. Send `auto` and the sketch instead
+posts a simulated gas ppm and temperature reading every 4 seconds on its
+own, each drifting from the last with a small random step (a real sensor's
+value doesn't jump around independently frame to frame) and, roughly once
+every couple of minutes, a larger random spike — so the gas value
+occasionally crosses into warning or critical territory on its own instead
+of only when you type a number.
+
+To watch it: open the Alerts page and leave `auto` running. The **Live
+Readings** panel updates with both values as they drift, gas trips a
+warning or critical banner on its own when the random walk crosses your
+configured threshold (400 / 800 ppm by default in this project's setup),
+and the Serial Monitor prints the same numbers it's sending so you can
+compare what the ESP32 thinks it sent against what shows up in the
+console. Send `auto` again to stop it.
+
+Temperature has no threshold configured by default, so it only ever
+appears in Live Readings and never raises an alert — a look at the "a
+sensor kind with no threshold set just logs" path from the other side of
+the wire, not just the admin UI.
 
 Then check the web admin console's **Alerts** page (or any open admin/
 operator tab — a critical one pops up as a banner everywhere) — if it shows

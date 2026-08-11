@@ -19,6 +19,11 @@
                             against whatever threshold is configured for
                             <kind> on the Alerts page; no threshold set for
                             that kind means it's just logged, nothing fires
+    auto                    toggle continuous simulated telemetry: gas and
+                            temperature readings sent every few seconds,
+                            drifting around a baseline with occasional
+                            random spikes — so a threshold trips on its own
+                            during a demo instead of only on typed commands
     status                  reprint WiFi/sign-in state
 
   Setup:
@@ -158,6 +163,50 @@ void printStatus() {
   Serial.println(WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString() : "not connected");
   Serial.print("Signed in: ");
   Serial.println(authToken.isEmpty() ? "no" : "yes");
+  Serial.print("Auto telemetry: ");
+  Serial.println(autoMode ? "on" : "off");
+}
+
+// ---- simulated continuous telemetry ----
+// No real sensor exists yet — this stands in for one until ESP32-main and
+// actual hardware arrive. A pure random value per tick would look fake and
+// would never organically cross a threshold twice in a row; a random walk
+// (small step each tick, gently pulled back toward a baseline) drifts the
+// way a real reading does, and an occasional larger jump gives the alert
+// system something real to catch without waiting on an actual leak.
+bool autoMode = false;
+unsigned long lastAutoSend = 0;
+const unsigned long AUTO_INTERVAL_MS = 4000;
+
+float simGas = 150.0;   // ppm — baseline chosen well under the 400/800
+                        // warning/critical thresholds this project's demo
+                        // has configured on the Alerts page
+float simTemp = 28.0;   // deg C — ambient, no threshold configured for this
+                        // kind by default, so it only ever logs quietly
+
+float driftValue(float current, float baseline, float noise, float minV, float maxV) {
+  float pulled = current + (baseline - current) * 0.05;      // gentle pull home
+  float step = (random(-100, 101) / 100.0) * noise;           // small random step
+  float next = pulled + step;
+  if (next < minV) next = minV;
+  if (next > maxV) next = maxV;
+  return next;
+}
+
+void sendSimulatedTelemetry() {
+  // Roughly once every couple of minutes on average (1-in-40 chance per
+  // 4s tick), not on a fixed schedule — a predictable spike would look
+  // scripted, not sensed.
+  if (random(0, 40) == 0) {
+    simGas += random(350, 650);
+  }
+
+  simGas = driftValue(simGas, 150.0, 15.0, 0, 1200);
+  simTemp = driftValue(simTemp, 28.0, 0.6, 15, 55);
+
+  Serial.printf("[auto] gas=%.0fppm  temperature=%.1fC\n", simGas, simTemp);
+  reportReading("gas", simGas);
+  reportReading("temperature", simTemp);
 }
 
 void setup() {
@@ -178,44 +227,60 @@ void setup() {
     Serial.println("Could not sign in — check API_BASE and that the backend is running and reachable.");
   }
 
+  // An unconnected analog pin floats on real noise — good enough entropy
+  // for demo telemetry, and this board has no real sensor to seed from.
+  randomSeed(analogRead(0) + millis());
+
   Serial.println("\nType a command and press Enter:");
   Serial.println("  gas | smoke | warn        pre-decided severity (/api/gate/alerts)");
   Serial.println("  reading <kind> <value>    raw value, e.g. \"reading gas 450\" (/api/gate/sensors)");
   Serial.println("                            classified against whatever threshold is set");
   Serial.println("                            on the Alerts page for <kind> — configure one there first");
+  Serial.println("  auto                      toggle continuous simulated gas + temperature telemetry");
   Serial.println("  status                    reprint WiFi / sign-in state");
 }
 
 void loop() {
-  if (!Serial.available()) return;
+  if (Serial.available()) {
+    String line = Serial.readStringUntil('\n');
+    line.trim();
 
-  String line = Serial.readStringUntil('\n');
-  line.trim();
+    String lower = line;
+    lower.toLowerCase();
 
-  String lower = line;
-  lower.toLowerCase();
-
-  if (lower == "gas") {
-    reportAlert("gas", "critical", "Simulated gas leak (ESP32 serial trigger)");
-  } else if (lower == "smoke") {
-    reportAlert("smoke", "critical", "Simulated smoke detection (ESP32 serial trigger)");
-  } else if (lower == "warn") {
-    reportAlert("test", "warning", "Simulated warning, non-critical (ESP32 serial trigger)");
-  } else if (lower == "status") {
-    printStatus();
-  } else if (lower.startsWith("reading ")) {
-    // "reading <kind> <value>" — kind can't contain spaces, so the last
-    // token is the value and everything between "reading " and it is kind.
-    int lastSpace = line.lastIndexOf(' ');
-    String kind = line.substring(8, lastSpace);
-    String valueStr = line.substring(lastSpace + 1);
-    kind.trim();
-    if (kind.length() == 0 || valueStr.length() == 0) {
-      Serial.println("Usage: reading <kind> <value>, e.g. reading gas 450");
-    } else {
-      reportReading(kind.c_str(), valueStr.toFloat());
+    if (lower == "gas") {
+      reportAlert("gas", "critical", "Simulated gas leak (ESP32 serial trigger)");
+    } else if (lower == "smoke") {
+      reportAlert("smoke", "critical", "Simulated smoke detection (ESP32 serial trigger)");
+    } else if (lower == "warn") {
+      reportAlert("test", "warning", "Simulated warning, non-critical (ESP32 serial trigger)");
+    } else if (lower == "auto") {
+      autoMode = !autoMode;
+      lastAutoSend = 0; // send the first reading immediately, not after a full interval
+      Serial.println(autoMode
+        ? "Auto telemetry ON — sending simulated gas + temperature every 4s"
+        : "Auto telemetry OFF");
+    } else if (lower == "status") {
+      printStatus();
+    } else if (lower.startsWith("reading ")) {
+      // "reading <kind> <value>" — kind can't contain spaces, so the last
+      // token is the value and everything between "reading " and it is kind.
+      int lastSpace = line.lastIndexOf(' ');
+      String kind = line.substring(8, lastSpace);
+      String valueStr = line.substring(lastSpace + 1);
+      kind.trim();
+      if (kind.length() == 0 || valueStr.length() == 0) {
+        Serial.println("Usage: reading <kind> <value>, e.g. reading gas 450");
+      } else {
+        reportReading(kind.c_str(), valueStr.toFloat());
+      }
+    } else if (lower.length()) {
+      Serial.println("Unknown command. Try: gas | smoke | warn | reading <kind> <value> | auto | status");
     }
-  } else if (lower.length()) {
-    Serial.println("Unknown command. Try: gas | smoke | warn | reading <kind> <value> | status");
+  }
+
+  if (autoMode && millis() - lastAutoSend >= AUTO_INTERVAL_MS) {
+    lastAutoSend = millis();
+    sendSimulatedTelemetry();
   }
 }
