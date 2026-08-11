@@ -12,6 +12,7 @@ ENV/
 .env
 backend/app.db
 *.db
+esp32-sim/**/secrets.h
 
 # IDE / OS
 .idea/
