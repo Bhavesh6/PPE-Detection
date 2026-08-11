@@ -1,0 +1,22 @@
+# Binary files must never get line-ending conversion. Without this, git on
+# Windows rewrites LF to CRLF inside them on checkout, which silently
+# corrupts the file — a PDF that opens here would fail to open after a
+# fresh clone.
+*.pdf   binary
+*.pt    binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.mp3   binary
+*.woff  binary
+*.woff2 binary
+
+# Source stays LF in the repo and is checked out however the platform wants.
+*.py    text eol=lf
+*.js    text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.md    text eol=lf
+*.ino   text eol=lf
+*.h     text eol=lf
