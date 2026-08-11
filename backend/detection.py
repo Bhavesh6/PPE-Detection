@@ -6,13 +6,14 @@ from datetime import datetime, timezone
 
 import cv2
 import numpy as np
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
 
 import alerts
 import audit
 import evidence
 import site_settings
+import tts
 from extensions import db
 from models import DetectionRecord, User
 from ppe_detection import load_model, process_frame
@@ -371,6 +372,26 @@ def sensor_readings():
 
     rows = SensorReading.query.order_by(SensorReading.kind).all()
     return jsonify({"success": True, "readings": [r.to_dict() for r in rows]})
+
+
+@detection_bp.route("/speech", methods=["GET"])
+@jwt_required()
+def speech():
+    """Spoken audio for a gate announcement (ElevenLabs, cached — see tts.py).
+
+    A 503 with no body is the expected response when ElevenLabs isn't
+    configured, not an error to alarm over — the frontend's speak() falls
+    back to the browser's own voice on anything other than a 200, so a
+    checkpoint with no API key set just sounds the way it always did.
+    """
+    audio, error = tts.synthesize(request.args.get("text", ""))
+    if error:
+        return jsonify({"success": False, "message": error}), 503
+    return Response(audio, mimetype="audio/mpeg", headers={
+        # A given phrase's audio never changes — safe to cache hard, both in
+        # the browser and on any CDN in front of this in production.
+        "Cache-Control": "public, max-age=31536000, immutable",
+    })
 
 
 @detection_bp.route("/alerts/<int:alert_id>/acknowledge", methods=["POST"])

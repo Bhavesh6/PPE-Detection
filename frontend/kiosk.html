@@ -286,6 +286,35 @@
             requiredPpe.forEach((item) => setCheck(item, state));
         }
 
+        // ElevenLabs when it's configured on the backend, the browser's own
+        // voice otherwise — a kiosk with no key set just sounds the way it
+        // always did, it doesn't go silent.
+        let announceAudio = null;
+
+        function stopAnnouncing() {
+            if (announceAudio) { announceAudio.pause(); announceAudio = null; }
+            if ('speechSynthesis' in window) speechSynthesis.cancel();
+        }
+
+        async function speak(msg) {
+            stopAnnouncing();
+            try {
+                const res = await Auth.fetch(`/api/speech?text=${encodeURIComponent(msg)}`);
+                if (res.ok) {
+                    const url = URL.createObjectURL(await res.blob());
+                    const audio = new Audio(url);
+                    audio.addEventListener('ended', () => URL.revokeObjectURL(url));
+                    announceAudio = audio;
+                    await audio.play();
+                    return;
+                }
+            } catch (e) { /* network hiccup or no key configured — fall through */ }
+
+            if ('speechSynthesis' in window) {
+                speechSynthesis.speak(new SpeechSynthesisUtterance(msg));
+            }
+        }
+
         function render(verdict, missing, activeAlert) {
             const panel = el('kVerdict');
             if (verdict === 'alert_hold') {
@@ -315,15 +344,13 @@
             }
 
             // Speak only on a change, so it doesn't chatter every poll.
-            if (verdict !== lastVerdict && 'speechSynthesis' in window) {
+            if (verdict !== lastVerdict) {
                 if (verdict === 'denied') {
-                    speechSynthesis.speak(new SpeechSynthesisUtterance(
-                        missing.length ? `Access denied. Put on your ${missing.join(' and ')}.` : 'Access denied.'
-                    ));
+                    speak(missing.length ? `Access denied. Put on your ${missing.join(' and ')}.` : 'Access denied.');
                 } else if (verdict === 'granted') {
-                    speechSynthesis.speak(new SpeechSynthesisUtterance('Access granted.'));
+                    speak('Access granted.');
                 } else if (verdict === 'alert_hold') {
-                    speechSynthesis.speak(new SpeechSynthesisUtterance('Entry paused. A site alert is active.'));
+                    speak('Entry paused. A site alert is active.');
                 }
             }
             lastVerdict = verdict;

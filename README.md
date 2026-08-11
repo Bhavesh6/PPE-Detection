@@ -38,6 +38,10 @@ section to get it running.
 - An audit log for policy changes and personnel deletions — closes the
   accountability gap that making policy configurable would otherwise open.
 - Live inference performance readout (FPS / latency) on the gate view.
+- Spoken gate announcements ("Access granted.", "Put on your hardhat...") via
+  ElevenLabs, cached on disk per phrase so a repeated sentence never pays for
+  or waits on synthesis twice. Falls back to the browser's built-in voice
+  with no configuration required — `ELEVENLABS_API_KEY` is optional.
 - Site location: an admin-set point today, but the API and admin UI are
   already built to take a live fix the moment a GPS module is wired in (see
   [gps_reporter.py](pi_app/gps_reporter.py)) — no further backend changes
@@ -167,7 +171,8 @@ backend/
   alerts.py                     Cached "is a critical alert active" check + report/acknowledge
   evidence.py                    Refusal-frame capture, path-traversal-guarded serving, retention purge
   audit.py                        Append-only change log for policy/personnel/alert changes
-  ppe_detection.py                 YOLOv8 model loading + inference
+  tts.py                            Spoken gate announcements (ElevenLabs), cached on disk per phrase
+  ppe_detection.py                   YOLOv8 model loading + inference
   make_admin.py                    CLI: flag a user as admin
   seed_workers.py                   CLI: create demo workers with fake badge IDs
 frontend/                            Static HTML/CSS/JS, no build step
@@ -281,6 +286,8 @@ python checkpoint.py
 | `CORS_ORIGINS` | `http://localhost:8000,http://127.0.0.1:8000` | Comma-separated frontend origins allowed to call the API |
 | `EVIDENCE_DIR` | `backend/instance/evidence` | Where refusal photos are written — point at a mounted volume in production |
 | `EVIDENCE_RETENTION_DAYS` | `30` | How long refusal images are kept before auto-purge |
+| `ELEVENLABS_API_KEY` | *(blank)* | Optional — spoken gate announcements. Blank keeps the browser's own (robotic) voice; nothing breaks either way |
+| `ELEVENLABS_VOICE_ID` | `21m00Tcm4TlvDq8ikWAM` ("Rachel") | Any voice_id from your ElevenLabs library |
 
 Pi app env vars (`pi_app/.env`) are documented in
 [`pi_app/README.md`](pi_app/README.md) and `pi_app/.env.example`.
