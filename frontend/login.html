@@ -66,6 +66,27 @@
             font-size: .84rem; color: var(--muted); cursor: pointer;
         }
         .remember-row input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+        /* Show/hide password. The button sits inside the field's own box, so
+           the input gets right padding to keep typed text from running under
+           it — at 44px that holds even for a long password on a narrow phone. */
+        .pw-wrap { position: relative; }
+        .pw-wrap .field { padding-right: 44px; }
+        .pw-toggle {
+            position: absolute; top: 0; right: 0; height: 100%; width: 40px;
+            display: flex; align-items: center; justify-content: center;
+            background: none; border: none; padding: 0; cursor: pointer;
+            color: var(--faint); font-size: .88rem; border-radius: var(--radius);
+            transition: color .15s ease;
+        }
+        .pw-toggle:hover { color: var(--ink-strong); }
+        /* Keyboard users need to see this too — it is a real control, not
+           decoration, so it takes the same focus ring the fields do. */
+        .pw-toggle:focus-visible {
+            outline: none; color: var(--ink);
+            box-shadow: 0 0 0 3px rgba(15,23,42,.07);
+        }
+        .pw-toggle[aria-pressed="true"] { color: var(--accent); }
     </style>
 </head>
 <body>
@@ -97,11 +118,22 @@
                     </div>
                     <div>
                         <label class="field-label" for="loginPassword">Password</label>
-                        <input type="password" id="loginPassword" class="field" required autocomplete="current-password">
+                        <div class="pw-wrap">
+                            <input type="password" id="loginPassword" class="field" required autocomplete="current-password">
+                            <button type="button" class="pw-toggle" data-pw-for="loginPassword"
+                                    aria-label="Show password" aria-pressed="false" title="Show password">
+                                <i class="fas fa-eye" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </div>
                     <label class="remember-row">
                         <input type="checkbox" id="rememberMe" checked>
-                        <span>Keep me signed in on this device</span>
+                        <!-- Precise on purpose. "Keep me signed in on this device" reads
+                             as a promise about reloading, which it is not: unchecked still
+                             survives a refresh (sessionStorage) and only clears when the
+                             browser closes. Saying which event ends the session stops that
+                             looking like a bug. -->
+                        <span>Stay signed in after I close the browser</span>
                     </label>
                     <button type="submit" id="loginSubmitBtn" class="btn btn-primary" style="width:100%">Sign in</button>
                 </form>
@@ -117,7 +149,13 @@
                     </div>
                     <div>
                         <label class="field-label" for="signupPassword">Password</label>
-                        <input type="password" id="signupPassword" class="field" required minlength="8" autocomplete="new-password">
+                        <div class="pw-wrap">
+                            <input type="password" id="signupPassword" class="field" required minlength="8" autocomplete="new-password">
+                            <button type="button" class="pw-toggle" data-pw-for="signupPassword"
+                                    aria-label="Show password" aria-pressed="false" title="Show password">
+                                <i class="fas fa-eye" aria-hidden="true"></i>
+                            </button>
+                        </div>
                         <p style="font-size:.76rem;color:var(--faint);margin-top:6px">At least 8 characters</p>
                     </div>
                     <button type="submit" id="signupSubmitBtn" class="btn btn-primary" style="width:100%">Create account</button>
@@ -298,6 +336,42 @@
                 submitBtn.disabled = false;
                 submitBtn.textContent = originalLabel;
             }
+        });
+
+        // ---- show / hide password ----
+        // Delegated so both the sign-in and sign-up fields are covered by one
+        // handler, including the sign-up form while it is still hidden.
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('.pw-toggle');
+            if (!btn) return;
+            const input = document.getElementById(btn.dataset.pwFor);
+            if (!input) return;
+
+            const nowVisible = input.type === 'password';
+            input.type = nowVisible ? 'text' : 'password';
+            btn.setAttribute('aria-pressed', String(nowVisible));
+            btn.setAttribute('aria-label', nowVisible ? 'Hide password' : 'Show password');
+            btn.title = nowVisible ? 'Hide password' : 'Show password';
+            btn.querySelector('i').className = nowVisible ? 'fas fa-eye-slash' : 'fas fa-eye';
+
+            // Clicking the button takes focus off the field; put it back with
+            // the caret at the end so typing continues where it left off
+            // rather than jumping to the start.
+            input.focus();
+            const end = input.value.length;
+            try { input.setSelectionRange(end, end); } catch (err) { /* type=text only */ }
+        });
+
+        // Never leave a password on screen after leaving the page — a
+        // revealed field would otherwise still be readable when the browser
+        // restores the form on back-navigation.
+        window.addEventListener('pagehide', () => {
+            document.querySelectorAll('.pw-toggle[aria-pressed="true"]').forEach((btn) => {
+                const input = document.getElementById(btn.dataset.pwFor);
+                if (input) input.type = 'password';
+                btn.setAttribute('aria-pressed', 'false');
+                btn.querySelector('i').className = 'fas fa-eye';
+            });
         });
     </script>
 </body>
