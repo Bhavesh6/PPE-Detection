@@ -11,12 +11,13 @@ its session is gone, so it's serialized once with to_dict() and the row
 itself is left behind.
 """
 
+import math
 import threading
 from datetime import datetime, timezone
 
 import site_settings
 from extensions import db
-from models import SensorAlert, SensorReading
+from models import SensorAlert, SensorReading, SensorReadingLog
 
 SEVERITIES = ("warning", "critical")
 
@@ -110,7 +111,27 @@ def evaluate_reading(kind, value):
     return None, cfg
 
 
-def _save_reading(kind, value, unit):
+# auto mode alone posts every ~4s per kind, forever — with no cap the log
+# grows without bound for as long as a demo (or a real deployment) stays
+# up. This is plenty for a trend chart or a short history list (both cap
+# well under this), so the oldest rows past it are just dead weight.
+MAX_LOG_ROWS_PER_KIND = 2000
+
+
+def _prune_reading_log(kind):
+    stale_ids = (
+        db.session.query(SensorReadingLog.id)
+        .filter(SensorReadingLog.kind == kind)
+        .order_by(SensorReadingLog.timestamp.desc())
+        .offset(MAX_LOG_ROWS_PER_KIND)
+        .subquery()
+    )
+    SensorReadingLog.query.filter(SensorReadingLog.id.in_(db.session.query(stale_ids.c.id))).delete(
+        synchronize_session=False
+    )
+
+
+def _save_reading(kind, value, unit, source=None):
     row = db.session.get(SensorReading, kind)
     if row is None:
         row = SensorReading(kind=kind, value=value, unit=unit)
@@ -118,17 +139,22 @@ def _save_reading(kind, value, unit):
     else:
         row.value = value
         row.unit = unit
+    # Appended alongside the overwrite above, not instead of it — the
+    # snapshot answers "what's it reading right now", this answers
+    # "what has it read" (see SensorReadingLog's docstring).
+    db.session.add(SensorReadingLog(kind=kind, value=value, unit=unit, source=source))
+    _prune_reading_log(kind)
     db.session.commit()
 
 
 def report_reading(kind, value, unit=None, source=None):
     """A device reporting a raw sensor value (e.g. gas ppm).
 
-    Always stores the latest value for the console's live readout. If it
-    crosses a configured threshold, raises the exact same alert report()
-    does — a threshold breach IS an alert, just triggered by a number
-    instead of a device deciding the severity itself. Returns
-    ({kind, value, severity, alert}, error).
+    Always stores the latest value for the console's live readout, and
+    logs it to the full history. If it crosses a configured threshold,
+    raises the exact same alert report() does — a threshold breach IS an
+    alert, just triggered by a number instead of a device deciding the
+    severity itself. Returns ({kind, value, severity, alert}, error).
     """
     kind = str(kind or "").strip()
     if not kind:
@@ -138,9 +164,20 @@ def report_reading(kind, value, unit=None, source=None):
         value = float(value)
     except (TypeError, ValueError):
         return None, "value must be a number"
+    # NaN/Infinity survive float() but not JSON: Python serializes them as
+    # the bare tokens NaN/Infinity, which every browser's JSON.parse
+    # rejects. One such reading is stored, then returned forever by
+    # /api/alerts/readings — breaking the live readout for every client
+    # until the row is deleted by hand. Reject it at the door instead.
+    if not math.isfinite(value):
+        return None, "value must be a finite number"
 
     severity, cfg = evaluate_reading(kind, value)
-    _save_reading(kind, value, unit or (cfg or {}).get("unit"))
+    # Bounded to the column width — SQLite ignores the declared length and
+    # stores an oversized string happily, but Postgres (what DATABASE_URL
+    # points at in production) raises DataError and 500s the request.
+    unit = str(unit).strip()[:20] if unit else (cfg or {}).get("unit")
+    _save_reading(kind, value, unit, source)
 
     alert = None
     if severity:

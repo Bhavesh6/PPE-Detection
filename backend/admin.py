@@ -13,7 +13,8 @@ import evidence
 import site_settings
 from detection import get_all_states, remove_state
 from extensions import db
-from models import AttendanceRecord, AuditEvent, DetectionRecord, SensorAlert, User
+from models import AttendanceRecord, AuditEvent, DetectionRecord, SensorAlert, User, _iso_utc
+from params import int_arg
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -46,11 +47,11 @@ def _user_summary(user, states, last_seen=None):
         # admin / operator / guest — what the console filters by. Distinct
         # from `role_title`, which is the job ("Site Engineer").
         "role": "admin" if user.is_admin else ("guest" if user.is_guest else "operator"),
-        "created_at": user.created_at.isoformat(),
+        "created_at": _iso_utc(user.created_at),
         # Derived from the decision record rather than stored on the user:
         # a column would need writing on every frame, and this is read far
         # less often than it would be written.
-        "last_seen": last_seen.isoformat() if last_seen else None,
+        "last_seen": _iso_utc(last_seen),
         "active": state["active"] if state else False,
         "live": state["live"] if state else dict(EMPTY_COUNTS),
         "totals": state["totals"] if state else dict(EMPTY_COUNTS),
@@ -136,8 +137,8 @@ def delete_user(user_id):
 @admin_required
 def list_violations():
     """Refusals, newest first, with the worker attached."""
-    page = max(int(request.args.get("page", 1)), 1)
-    per_page = min(int(request.args.get("per_page", 20)), 100)
+    page = int_arg("page", 1, 1, 1_000_000)
+    per_page = int_arg("per_page", 20, 1, 100)
 
     # Expire old images here rather than on a scheduler — this app has no
     # background worker, and the retention promise shouldn't depend on one
@@ -211,8 +212,8 @@ def list_audit():
     Read-only by design: there is no endpoint to edit or delete entries,
     because a log an administrator can quietly rewrite proves nothing.
     """
-    page = max(int(request.args.get("page", 1)), 1)
-    per_page = min(int(request.args.get("per_page", 50)), 200)
+    page = int_arg("page", 1, 1, 1_000_000)
+    per_page = int_arg("per_page", 50, 1, 200)
 
     query = AuditEvent.query.order_by(AuditEvent.timestamp.desc())
     total = query.count()
@@ -236,8 +237,8 @@ def list_alerts():
     reachable by any signed-in user; this is the admin-only record of
     everything that's ever fired.
     """
-    page = max(int(request.args.get("page", 1)), 1)
-    per_page = min(int(request.args.get("per_page", 20)), 100)
+    page = int_arg("page", 1, 1, 1_000_000)
+    per_page = int_arg("per_page", 20, 1, 100)
 
     query = SensorAlert.query.order_by(SensorAlert.timestamp.desc())
     total = query.count()
@@ -333,7 +334,7 @@ def analytics():
     *when* it fails tells you what to change. Everything here is derived from
     DetectionRecord — no estimates, no synthetic figures.
     """
-    days = min(max(int(request.args.get("days", 30)), 1), 365)
+    days = int_arg("days", 30, 1, 365)
     now = datetime.now(timezone.utc)
     start = now - timedelta(days=days)
     prev_start = start - timedelta(days=days)

@@ -27,6 +27,9 @@ desktop.ini
 output/
 runs/
 .vercel
+# Flask's request log — every URL hit, including anything passed as a query
+# param; noise at best, a credential leak at worst.
+backend/app.log
 # Added by code-review-graph
 .code-review-graph/
 

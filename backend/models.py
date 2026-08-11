@@ -6,6 +6,22 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from extensions import db
 
 
+def _iso_utc(dt):
+    """SQLite drops tzinfo on write, so a value stamped with
+    datetime.now(timezone.utc) reads back naive. isoformat() on that naive
+    value has no offset, and JS's Date() parses an offset-less date-time
+    string as local time — turning a fresh UTC timestamp into one that
+    looks hours old (or in the future) to any client not in UTC. Every
+    value here is written as UTC (see the column defaults below), so
+    marking it explicitly on the way out is correct, not a guess.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 class User(db.Model):
     __tablename__ = "users"
 
@@ -62,7 +78,7 @@ class User(db.Model):
             "role": self.role,
             "age": self.age,
             "photo_url": self.photo_url,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "created_at": _iso_utc(self.created_at),
         }
 
 
@@ -112,7 +128,7 @@ class AttendanceRecord(db.Model):
             "id": self.id,
             "user_id": self.user_id,
             "name": self.user.name if self.user else None,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": _iso_utc(self.timestamp),
             "granted": self.granted,
             "missing_ppe": [p for p in self.missing_ppe.split(",") if p],
         }
@@ -147,7 +163,7 @@ class DetectionRecord(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": _iso_utc(self.timestamp),
             "detections": json.loads(self.detections_json),
             "violation_count": self.violation_count,
             "verdict": self.verdict,
@@ -179,7 +195,37 @@ class SensorReading(db.Model):
             "kind": self.kind,
             "value": self.value,
             "unit": self.unit,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "updated_at": _iso_utc(self.updated_at),
+        }
+
+
+class SensorReadingLog(db.Model):
+    """Every value a sensor has ever reported, one row per report —
+    SensorReading above only keeps the latest per kind, overwritten on
+    each call, so a trend or a past value is gone the moment a newer
+    reading lands unless it's kept somewhere else. This is that somewhere
+    else: an append-only feed for a history list or a trend chart, the
+    same relationship SensorAlert has to "what's active right now".
+    """
+
+    __tablename__ = "sensor_reading_log"
+
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(40), nullable=False, index=True)
+    value = db.Column(db.Float, nullable=False)
+    unit = db.Column(db.String(20), nullable=True)
+    source = db.Column(db.String(80), nullable=True)
+    timestamp = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                          nullable=False, index=True)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "value": self.value,
+            "unit": self.unit,
+            "source": self.source,
+            "timestamp": _iso_utc(self.timestamp),
         }
 
 
@@ -218,13 +264,13 @@ class SensorAlert(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": _iso_utc(self.timestamp),
             "kind": self.kind,
             "severity": self.severity,
             "message": self.message,
             "source": self.source,
             "active": self.active,
-            "acknowledged_at": self.acknowledged_at.isoformat() if self.acknowledged_at else None,
+            "acknowledged_at": _iso_utc(self.acknowledged_at),
             "acknowledged_by": self.acknowledged_by,
         }
 
@@ -259,7 +305,7 @@ class AuditEvent(db.Model):
     def to_dict(self):
         return {
             "id": self.id,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": _iso_utc(self.timestamp),
             "actor_id": self.actor_id,
             "actor_name": self.actor_name,
             "action": self.action,

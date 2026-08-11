@@ -19,11 +19,12 @@
                             against whatever threshold is configured for
                             <kind> on the Alerts page; no threshold set for
                             that kind means it's just logged, nothing fires
-    auto                    toggle continuous simulated telemetry: gas and
-                            temperature readings sent every few seconds,
-                            drifting around a baseline with occasional
-                            random spikes — so a threshold trips on its own
-                            during a demo instead of only on typed commands
+    auto                    toggle continuous simulated telemetry: gas,
+                            temperature, and humidity readings sent every
+                            few seconds, drifting around a baseline with
+                            occasional random spikes (gas only) — so a
+                            threshold trips on its own during a demo
+                            instead of only on typed commands
     status                  reprint WiFi/sign-in state
 
   Setup:
@@ -66,6 +67,9 @@ float simGas = 150.0;   // ppm — baseline chosen well under the 400/800
                         // has configured on the Alerts page
 float simTemp = 28.0;   // deg C — ambient, no threshold configured for this
                         // kind by default, so it only ever logs quietly
+float simHumidity = 55.0;  // percent — a real DHT11 reads roughly 20-90%;
+                            // this stands in for it until one's wired up,
+                            // same no-threshold-by-default treatment as temp
 
 bool signIn() {
   HTTPClient http;
@@ -203,10 +207,12 @@ void sendSimulatedTelemetry() {
 
   simGas = driftValue(simGas, 150.0, 15.0, 0, 1200);
   simTemp = driftValue(simTemp, 28.0, 0.6, 15, 55);
+  simHumidity = driftValue(simHumidity, 55.0, 1.5, 20, 90);
 
-  Serial.printf("[auto] gas=%.0fppm  temperature=%.1fC\n", simGas, simTemp);
+  Serial.printf("[auto] gas=%.0fppm  temperature=%.1fC  humidity=%.0f%%\n", simGas, simTemp, simHumidity);
   reportReading("gas", simGas);
   reportReading("temperature", simTemp);
+  reportReading("humidity", simHumidity);
 }
 
 void setup() {
@@ -236,7 +242,7 @@ void setup() {
   Serial.println("  reading <kind> <value>    raw value, e.g. \"reading gas 450\" (/api/gate/sensors)");
   Serial.println("                            classified against whatever threshold is set");
   Serial.println("                            on the Alerts page for <kind> — configure one there first");
-  Serial.println("  auto                      toggle continuous simulated gas + temperature telemetry");
+  Serial.println("  auto                      toggle continuous simulated gas + temperature + humidity telemetry");
   Serial.println("  status                    reprint WiFi / sign-in state");
 }
 
@@ -258,7 +264,7 @@ void loop() {
       autoMode = !autoMode;
       lastAutoSend = 0; // send the first reading immediately, not after a full interval
       Serial.println(autoMode
-        ? "Auto telemetry ON — sending simulated gas + temperature every 4s"
+        ? "Auto telemetry ON — sending simulated gas + temperature + humidity every 4s"
         : "Auto telemetry OFF");
     } else if (lower == "status") {
       printStatus();

@@ -73,25 +73,30 @@ behavior trigger from a number instead of a hardcoded severity string.
 
 Typing individual `reading` commands proves the endpoint works, but it
 doesn't look or feel like a sensor. Send `auto` and the sketch instead
-posts a simulated gas ppm and temperature reading every 4 seconds on its
-own, each drifting from the last with a small random step (a real sensor's
-value doesn't jump around independently frame to frame) and, roughly once
-every couple of minutes, a larger random spike — so the gas value
-occasionally crosses into warning or critical territory on its own instead
-of only when you type a number.
+posts simulated gas ppm, temperature, and humidity readings every 4
+seconds on its own, each drifting from the last with a small random step
+(a real sensor's value doesn't jump around independently frame to frame)
+and, for gas only, roughly once every couple of minutes, a larger random
+spike — so the gas value occasionally crosses into warning or critical
+territory on its own instead of only when you type a number.
 
 To watch it: open the Alerts page and leave `auto` running. The **Live
-Readings** panel updates with both values as they drift, gas trips a
+Readings** panel updates with all three values as they drift, gas trips a
 warning or critical banner on its own when the random walk crosses your
 configured threshold (400 / 800 ppm by default in this project's setup),
 and the Serial Monitor prints the same numbers it's sending so you can
 compare what the ESP32 thinks it sent against what shows up in the
 console. Send `auto` again to stop it.
 
-Temperature has no threshold configured by default, so it only ever
-appears in Live Readings and never raises an alert — a look at the "a
-sensor kind with no threshold set just logs" path from the other side of
-the wire, not just the admin UI.
+Temperature and humidity have no threshold configured by default, so they
+only ever appear in Live Readings and never raise an alert — a look at the
+"a sensor kind with no threshold set just logs" path from the other side
+of the wire, not just the admin UI. Humidity here is a stand-in for a real
+DHT11: the sketch has no sensor hardware, so it fakes a plausible
+20-90% range the same way it fakes gas and temperature. When a physical
+DHT11 is wired to the real ESP32 board, `simHumidity`'s random walk gets
+replaced with an actual `dht.readHumidity()` call — the `/api/gate/sensors`
+endpoint it reports to doesn't change.
 
 Then check the web admin console's **Alerts** page (or any open admin/
 operator tab — a critical one pops up as a banner everywhere) — if it shows

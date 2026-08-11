@@ -16,6 +16,7 @@ import site_settings
 import tts
 from extensions import db
 from models import DetectionRecord, User
+from params import int_arg
 from ppe_detection import load_model, process_frame
 
 detection_bp = Blueprint("detection", __name__, url_prefix="/api")
@@ -294,8 +295,8 @@ def get_results():
 @jwt_required()
 def get_history():
     user_id = int(get_jwt_identity())
-    page = max(int(request.args.get("page", 1)), 1)
-    per_page = min(int(request.args.get("per_page", 50)), 200)
+    page = int_arg("page", 1, 1, 1_000_000)
+    per_page = int_arg("per_page", 50, 1, 200)
     # Filtering has to happen here, not client-side on one already-paginated
     # page — otherwise "Page 1 of N" is computed from the unfiltered total
     # while the visible rows are a filtered subset of just page 1.
@@ -372,6 +373,36 @@ def sensor_readings():
 
     rows = SensorReading.query.order_by(SensorReading.kind).all()
     return jsonify({"success": True, "readings": [r.to_dict() for r in rows]})
+
+
+@detection_bp.route("/alerts/readings/history", methods=["GET"])
+@jwt_required()
+def sensor_readings_history():
+    """Every value reported for one sensor kind, newest first — the trend
+    chart and log behind the single live number /alerts/readings gives.
+    Same session-only gating as that endpoint: a diagnostic feed, not an
+    admin control.
+    """
+    from models import SensorReadingLog
+
+    kind = (request.args.get("kind") or "").strip()
+    if not kind:
+        return jsonify({"success": False, "message": "kind is required"}), 400
+
+    page = int_arg("page", 1, 1, 1_000_000)
+    per_page = int_arg("per_page", 50, 1, 500)
+
+    query = SensorReadingLog.query.filter_by(kind=kind).order_by(SensorReadingLog.timestamp.desc())
+    total = query.count()
+    rows = query.offset((page - 1) * per_page).limit(per_page).all()
+
+    return jsonify({
+        "success": True,
+        "readings": [r.to_dict() for r in rows],
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+    })
 
 
 @detection_bp.route("/speech", methods=["GET"])
