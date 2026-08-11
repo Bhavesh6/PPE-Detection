@@ -62,3 +62,20 @@ class Config:
         for origin in os.environ.get("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
         if origin.strip()
     ]
+
+    # Spoken gate announcements. Blank key means "not configured" — the
+    # frontend falls back to the browser's own (robotic) speechSynthesis
+    # rather than the gate breaking when nobody's set this up yet.
+    ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+    # Default is "Rachel", one of ElevenLabs' stock premade voices — any
+    # voice_id from their library or a cloned voice works here.
+    ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
+
+    # Cached synthesized audio, one file per distinct phrase. The gate
+    # speaks maybe half a dozen distinct sentences ever — "Access granted."
+    # fires on every clean pass — so paying ElevenLabs and waiting on the
+    # network for the same sentence repeatedly would be pure waste.
+    SPEECH_CACHE_DIR = os.environ.get(
+        "SPEECH_CACHE_DIR",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "speech"),
+    )
