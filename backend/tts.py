@@ -12,6 +12,13 @@ has nothing to serve. The frontend already falls back to the browser's own
 speechSynthesis when the request comes back empty, so a missing or
 exhausted key never blocks the gate itself — it only makes the gate sound
 robotic again, which is the state everyone was already used to.
+
+A 402 "Free users cannot use library voices via the API" here doesn't mean
+the plan needs upgrading — it means ELEVENLABS_VOICE_ID points at a voice
+that's only been viewed or favorited in the Voice Library, not actually
+added to the account. Open the voice at elevenlabs.io/app/voice-library,
+click "Add to my voices" so it shows up on /app/voices, then use that same
+ID — free-tier API access works fine for a voice added that way.
 """
 
 import hashlib
