@@ -12,7 +12,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 import alerts
 import site_settings
 from extensions import db
-from models import AttendanceRecord, User
+from models import AttendanceRecord, User, _iso_utc
 
 gate_bp = Blueprint("gate", __name__, url_prefix="/api/gate")
 
@@ -101,7 +101,7 @@ def attendance_me():
         .all()
     )
     days_present = {ts.date() for (ts,) in all_granted}
-    last_seen = records[0].timestamp.isoformat() if records else None
+    last_seen = _iso_utc(records[0].timestamp) if records else None
     return jsonify({
         "success": True,
         "records": [r.to_dict() for r in records],

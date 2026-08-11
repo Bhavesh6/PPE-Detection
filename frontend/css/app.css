@@ -163,7 +163,7 @@ select:focus-visible {
   animation: alert-banner-pulse 1.8s ease-in-out infinite;
 }
 .alert-banner.is-warning { background: var(--accent-soft); color: var(--accent); border-bottom-color: #ecccbf; }
-.alert-banner strong { font-weight: 700; }
+.alert-banner strong { font-weight: 700; text-transform: capitalize; }
 /* A long message wraps to several lines — align-items:center on a single
    row would center the icon against that whole tall block, floating it in
    the middle of the paragraph instead of level with its first line. Two
