@@ -1,3 +1,13 @@
+---
+title: SafetyFirst PPE Detection
+emoji: 🦺
+colorFrom: blue
+colorTo: red
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # SafetyFirst — PPE Compliance Checkpoint
 
 **Team Mojito** — original concept by **Jasbir Singh Monga**, built with
