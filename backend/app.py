@@ -7,7 +7,7 @@ from flask_cors import CORS
 load_dotenv()
 
 from config import Config, check_secrets
-from extensions import db, jwt
+from extensions import db, jwt, limiter
 
 # At import, not inside __main__: production runs under gunicorn, which
 # imports this module and never executes that block — so a check placed
@@ -59,6 +59,7 @@ def create_app():
 
     db.init_app(app)
     jwt.init_app(app)
+    limiter.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
 
     from admin import admin_bp
@@ -97,6 +98,13 @@ def create_app():
     @jwt.invalid_token_loader
     def handle_invalid_token(reason):
         return jsonify({"success": False, "message": "Invalid or expired token"}), 401
+
+    @app.errorhandler(429)
+    def handle_rate_limit(e):
+        # Matches the {success, message} shape every other error response
+        # uses — Flask-Limiter's default is plain text, which would be the
+        # one endpoint on this API that looks different when it fails.
+        return jsonify({"success": False, "message": "Too many requests — slow down and try again shortly."}), 429
 
     return app
 

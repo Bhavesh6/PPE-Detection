@@ -4,6 +4,8 @@ Used by the checkpoint device. Separate from detection.py because these are
 about *who* is at the gate, not what the camera can see.
 """
 
+from functools import wraps
+
 from datetime import datetime, time, timezone
 
 from flask import Blueprint, jsonify, request
@@ -11,10 +13,35 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 import alerts
 import site_settings
-from extensions import db
+from extensions import db, limiter
 from models import AttendanceRecord, User, _iso_utc
 
 gate_bp = Blueprint("gate", __name__, url_prefix="/api/gate")
+
+
+def device_required(fn):
+    """A hazard report or sensor reading needs a real account behind it.
+
+    Guest sign-in (/api/auth/guest) needs no credentials at all — under
+    plain @jwt_required(), that meant anyone who could reach the API could
+    create a guest session and post a fabricated critical alert, holding
+    the gate for everyone with zero authentication. Kept separate from
+    admin_required in admin.py: this isn't a policy change, just a device
+    stating a fact, so any real (non-guest) account works, not only an
+    admin's.
+    """
+    @wraps(fn)
+    @jwt_required()
+    def wrapper(*args, **kwargs):
+        user = db.session.get(User, int(get_jwt_identity()))
+        if user is None or user.is_guest:
+            return jsonify({
+                "success": False,
+                "message": "A guest session cannot report gate alerts or sensor readings — sign in with a real account",
+            }), 403
+        return fn(*args, **kwargs)
+
+    return wrapper
 
 
 @gate_bp.route("/worker", methods=["GET"])
@@ -152,17 +179,22 @@ def report_location():
 
 
 @gate_bp.route("/alerts", methods=["POST"])
-@jwt_required()
+@device_required
+# A malfunctioning or malicious device retrying in a tight loop shouldn't
+# be able to flood the alert log — 60/min is 4x the ESP32 sketches' normal
+# 4s auto-report cadence (15/min), enough headroom for the 401-retry path
+# in postJson() without ever throttling legitimate use.
+@limiter.limit("60 per minute")
 def report_alert():
     """A sensor reporting a site hazard.
 
-    Not admin-gated — same reasoning as /location: this is a device
-    reporting a fact, not someone changing a policy. There's no sensor
-    hardware wired up yet, so this endpoint currently has two callers in
-    practice: the admin console's "Simulate Alert" button (for testing/
-    demos) and, once the ESP32-main sensor board exists, that board
-    itself — both hit the same endpoint the same way, so nothing here
-    changes when the real hardware arrives.
+    Admin-gated in spirit, not in code: any real (non-guest) account can
+    call this, same as /location — this is a device reporting a fact, not
+    someone changing a policy, so it doesn't need to be an admin's account
+    specifically, just a real one. In practice this endpoint has two
+    callers: the admin console's "Simulate Alert" button, and the ESP32
+    sensor board (esp32-main/ppe_sensors) — both hit the same endpoint the
+    same way.
     """
     data = request.get_json(silent=True) or {}
     alert, error = alerts.report(
@@ -175,7 +207,8 @@ def report_alert():
 
 
 @gate_bp.route("/sensors", methods=["POST"])
-@jwt_required()
+@device_required
+@limiter.limit("60 per minute")
 def report_sensor_reading():
     """A device reporting a raw sensor value (e.g. gas ppm, temperature).
 
