@@ -58,6 +58,7 @@
 */
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <DHT.h>
@@ -88,11 +89,28 @@ unsigned long lastAutoSend = 0;
 // once this sketch is flashed instead.
 const unsigned long AUTO_INTERVAL_MS = 4000;
 
+// Reused across every request rather than constructed per-call — TLS
+// session resumption needs the same client object, and setInsecure() only
+// needs setting once.
+WiFiClientSecure secureClient;
+
+// Picks plain TCP or TLS based on the URL's own scheme, so the same
+// sketch works whether API_BASE is a local "http://" LAN address (while
+// developing) or a hosted "https://" one (once deployed) — nothing to
+// remember to flip when that changes, since it reads it from the URL that
+// was already going to be built anyway.
+bool beginRequest(HTTPClient &http, const String &url) {
+  if (url.startsWith("https://")) {
+    return http.begin(secureClient, url);
+  }
+  return http.begin(url);
+}
+
 bool signIn() {
   HTTPClient http;
   bool useCredentials = strlen(DEVICE_EMAIL) > 0 && strlen(DEVICE_PASSWORD) > 0;
   String url = String(API_BASE) + (useCredentials ? "/api/auth/login" : "/api/auth/guest");
-  http.begin(url);
+  beginRequest(http, url);
   http.addHeader("Content-Type", "application/json");
 
   int code;
@@ -139,7 +157,7 @@ int postJson(const char *path, const String &payload) {
   }
 
   HTTPClient http;
-  http.begin(String(API_BASE) + path);
+  beginRequest(http, String(API_BASE) + path);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("Authorization", "Bearer " + authToken);
   int code = http.POST(payload);
@@ -149,7 +167,7 @@ int postJson(const char *path, const String &payload) {
   // needing a reboot.
   if (code == 401 && signIn()) {
     http.end();
-    http.begin(String(API_BASE) + path);
+    beginRequest(http, String(API_BASE) + path);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("Authorization", "Bearer " + authToken);
     code = http.POST(payload);
@@ -232,6 +250,12 @@ void setup() {
   // than trusting whatever a given core version defaults to.
   analogSetPinAttenuation(MQ9_PIN, ADC_11db);
   dht.begin();
+
+  // No cert pinning — this is a demo device signing in with our own
+  // account, not something that needs to survive a MITM audit. Only
+  // matters at all once API_BASE is an https:// URL; beginRequest() never
+  // touches this client for a plain http:// one.
+  secureClient.setInsecure();
 
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to WiFi");
