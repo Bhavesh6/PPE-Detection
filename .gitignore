@@ -12,7 +12,10 @@ ENV/
 .env
 backend/app.db
 *.db
-esp32-sim/**/secrets.h
+# One pattern for every ESP32 sketch folder, current and future — each
+# copies secrets.h.example to secrets.h locally, and none of those should
+# ever be trackable regardless of which sketch folder they live in.
+**/secrets.h
 
 # IDE / OS
 .idea/
