@@ -73,15 +73,15 @@ section to get it running.
   latest value per sensor. [`esp32-sim/`](esp32-sim/) can exercise this
   without any real sensor.
 
-**Designed, not yet built:**
+**ESP32-CAM + ESP32-main split** — one board dedicated to video streaming
+(not yet wired), one to sensors and alert reporting. The sensor half is
+built: [`esp32-main/ppe_sensors/`](esp32-main/ppe_sensors/) reads a real
+MQ-9 gas sensor and DHT11 temperature/humidity sensor and posts to
+`/api/gate/alerts` / `/api/gate/sensors`, the same endpoints the
+[`esp32-sim/`](esp32-sim/) throwaway sketch used while this hardware
+didn't exist yet — that sketch is kept as a hardware-free fallback.
 
-- **ESP32-CAM + ESP32-main split**, once dedicated sensor/camera hardware is
-  available — one board dedicated to video streaming, one to sensors/comms/
-  alert logic. Not started; no sensors owned yet. The alerts system above is
-  ready for it: whatever code runs on ESP32-main just needs to `POST` to
-  `/api/gate/alerts`. [`esp32-sim/`](esp32-sim/) has a throwaway sketch for
-  testing that an ESP32 can reach the backend and authenticate at all,
-  ahead of both the real sensor board and the Raspberry Pi existing.
+**Designed, not yet built:**
 
 **Untested on real hardware** — everything below has code but has never
 touched actual hardware:
@@ -322,12 +322,15 @@ touch display, MFRC522 RFID reader, Quectel EC200U 4G module, GPS antenna
 (not yet wired to a receiver module), Waveshare UPS HAT (E) — I²C fuel
 gauge, 4×21700 cells, ~4hr backup, 5V/6A out.
 
-Planned, not owned yet: dedicated ESP32-CAM (video streaming) + ESP32-main
-(sensors/comms/alerts) — deliberately two boards, not one, so the camera
-stream doesn't compete with sensor/comms work on the same chip.
+Owned and wired: an ESP32-C3 SuperMini running
+[`esp32-main/ppe_sensors/`](esp32-main/ppe_sensors/), with a real MQ-9 gas
+sensor and DHT11 temperature/humidity sensor attached — deliberately kept
+off the Pi's own GPIO so sensor timing doesn't compete with camera/badge
+work on the same board. Planned, not owned yet: a dedicated ESP32-CAM for
+video streaming, as a second board rather than adding a camera to the C3.
 
-None of the above has touched real hardware yet in this codebase — `python
-doctor.py` in `pi_app/` is the tool to run the moment it does.
+`pi_app/doctor.py` is the tool to run the moment the RFID reader or GPS
+module get wired in — neither has touched real hardware yet.
 
 ---
 
