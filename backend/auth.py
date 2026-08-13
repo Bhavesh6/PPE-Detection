@@ -7,7 +7,7 @@ from flask_jwt_extended import create_access_token, get_jwt_identity, jwt_requir
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
-from extensions import db
+from extensions import db, limiter
 from models import User
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/auth")
@@ -21,6 +21,10 @@ def _validation_error(message):
 
 
 @auth_bp.route("/signup", methods=["POST"])
+# Mass account creation is the abuse this guards against, not a single
+# person signing up — 5/hour comfortably covers a real user retrying a
+# typo'd password.
+@limiter.limit("5 per hour")
 def signup():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
@@ -47,6 +51,10 @@ def signup():
 
 
 @auth_bp.route("/login", methods=["POST"])
+# Brute-forcing a password is the target here — 10/minute is generous for
+# a person who mistyped their own password a few times, hostile to a
+# script trying thousands of guesses.
+@limiter.limit("10 per minute")
 def login():
     data = request.get_json(silent=True) or {}
     email = (data.get("email") or "").strip().lower()
@@ -61,6 +69,11 @@ def login():
 
 
 @auth_bp.route("/guest", methods=["POST"])
+# Guests can no longer report gate alerts or sensor readings (see
+# gate.device_required), so this is no longer the hole it used to be — but
+# unlimited guest creation still bloats the users table for no reason, so
+# it stays capped.
+@limiter.limit("20 per hour")
 def guest_login():
     guest_id = uuid.uuid4().hex[:10]
     user = User(
