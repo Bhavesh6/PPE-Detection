@@ -12,6 +12,8 @@ Same "blank key means not configured" convention as tts.py/ElevenLabs — a
 missing GEMINI_API_KEY makes the widget say so rather than breaking.
 """
 
+import time
+
 import requests
 from flask import current_app
 
@@ -125,20 +127,28 @@ def ask(message, role, history=None):
     contents.append({"role": "user", "parts": [{"text": message}]})
 
     model = current_app.config["GEMINI_MODEL"]
-    try:
-        res = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
-            params={"key": current_app.config["GEMINI_API_KEY"]},
-            json={
-                "system_instruction": {"parts": [{"text": system_prompt}]},
-                "contents": contents,
-                "generationConfig": {"maxOutputTokens": 400, "temperature": 0.3},
-            },
-            timeout=20,
-        )
-    except requests.RequestException as exc:
-        current_app.logger.warning("Gemini request failed: %s", exc)
-        return None, "Could not reach the help assistant"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.3},
+    }
+
+    # A 503 here means Google's own model is transiently overloaded, not
+    # that anything is wrong with the request — confirmed by hand, three
+    # identical requests in a row came back 503/200/503. Google's own docs
+    # say to retry on this; one retry after a short pause turns a coin-flip
+    # failure into something that only fails if it's unlucky twice in a row.
+    res = None
+    for attempt in range(2):
+        try:
+            res = requests.post(url, params={"key": current_app.config["GEMINI_API_KEY"]}, json=payload, timeout=20)
+        except requests.RequestException as exc:
+            current_app.logger.warning("Gemini request failed: %s", exc)
+            return None, "Could not reach the help assistant"
+        if res.status_code != 503 or attempt == 1:
+            break
+        time.sleep(1.5)
 
     if not res.ok:
         current_app.logger.warning("Gemini returned %s: %s", res.status_code, res.text[:200])
