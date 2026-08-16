@@ -165,11 +165,17 @@ def ask(message, role, history=None):
             time.sleep(backoff[attempt])
 
     if not res.ok:
-        current_app.logger.warning("Gemini returned %s: %s", res.status_code, res.text[:200])
+        current_app.logger.warning("Gemini returned %s: %s", res.status_code, res.text[:300])
         # The status code belongs in the log, not in front of somebody
-        # asking how to configure a threshold — especially 503/429, which
-        # mean "busy, ask again" rather than anything the user did wrong.
-        if res.status_code in (503, 429):
+        # asking how to configure a threshold. But 429 and 503 are NOT the
+        # same thing and shouldn't share a message: 503 is "try again in a
+        # second", while 429 on the free tier is usually the *daily* cap,
+        # where "ask again in a moment" is actively wrong advice — it sends
+        # someone retrying a request that cannot succeed until tomorrow.
+        if res.status_code == 429:
+            return None, ("The assistant has hit its daily free-tier limit. "
+                          "It'll work again tomorrow, or sooner on a larger quota.")
+        if res.status_code == 503:
             return None, "The assistant is busy right now — ask again in a moment."
         return None, "The assistant couldn't answer that just now."
 
