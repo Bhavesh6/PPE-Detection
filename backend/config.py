@@ -145,4 +145,9 @@ class Config:
     # rather than the page breaking when nobody's set this up yet. Free tier
     # via Google AI Studio (aistudio.google.com), no card required.
     GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+    # An alias, not a pinned version — gemini-2.0-flash (the original
+    # default here) was retired server-side and every request started
+    # 404ing with no code change on our end. -latest always resolves to
+    # whatever Google currently recommends, trading a small chance of
+    # behavior drift for not silently breaking again the same way.
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
