@@ -131,7 +131,13 @@ def ask(message, role, history=None):
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
-        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.3},
+        # 400 was too tight and truncated structured answers mid-sentence —
+        # this model spends a real chunk of its budget on internal
+        # reasoning before any visible text comes out (seen directly:
+        # thoughtsTokenCount of 90+ on a two-word answer), so the visible
+        # reply needs real headroom on top of that, not just room for the
+        # few sentences the system prompt actually asks for.
+        "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.3},
     }
 
     # A 503 here means Google's own model is transiently overloaded, not
