@@ -114,9 +114,46 @@ const Chatbot = {
   _append(log, role, text, isTyping, isError) {
     const row = document.createElement('div');
     row.className = `chatbot-msg chatbot-msg-${role}${isTyping ? ' is-typing' : ''}${isError ? ' is-error' : ''}`;
-    row.textContent = text;
+    // Only the assistant's own text is ever markdown-rendered — the
+    // user's typed input and the typing/error placeholders stay as plain
+    // escaped text via textContent, both because there's no formatting to
+    // render there and to keep the injection surface as small as
+    // possible.
+    if (role === 'assistant' && !isTyping && !isError) {
+      row.innerHTML = this._renderMarkdownLite(text);
+    } else {
+      row.textContent = text;
+    }
     log.appendChild(row);
     log.scrollTop = log.scrollHeight;
     return row;
+  },
+
+  // A small, deliberately limited Markdown-ish renderer — bold and bullet
+  // lists only, which covers what the system prompt actually asks the
+  // model for ("a few sentences or a short list"). HTML-escapes first and
+  // only then re-introduces the few tags this builds itself, so nothing
+  // in the model's output (or, indirectly, in what a user typed earlier
+  // in the conversation and the model echoed back) can inject real HTML.
+  _renderMarkdownLite(text) {
+    const escape = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const bold = (s) => s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    const lines = escape(text).split('\n');
+    let html = '';
+    let inList = false;
+    for (const raw of lines) {
+      const line = raw.trim();
+      const bullet = /^[*-]\s+(.*)/.exec(line);
+      if (bullet) {
+        if (!inList) { html += '<ul>'; inList = true; }
+        html += `<li>${bold(bullet[1])}</li>`;
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        if (line) html += `<p>${bold(line)}</p>`;
+      }
+    }
+    if (inList) html += '</ul>';
+    return html;
   },
 };

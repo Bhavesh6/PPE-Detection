@@ -757,6 +757,15 @@ table.data tbody tr:hover { background: #fafbfd; }
 .chatbot-msg-assistant.is-error { color: var(--danger); background: var(--danger-soft); }
 .chatbot-msg-assistant.is-typing { color: var(--faint); font-style: italic; }
 
+/* Markdown-lite rendering (js/chatbot.js's _renderMarkdownLite) — only
+   ever appears inside an assistant bubble, never a user one. */
+.chatbot-msg-assistant p { margin: 0 0 8px; }
+.chatbot-msg-assistant p:last-child { margin-bottom: 0; }
+.chatbot-msg-assistant ul { margin: 0 0 8px; padding-left: 18px; }
+.chatbot-msg-assistant ul:last-child { margin-bottom: 0; }
+.chatbot-msg-assistant li { margin: 3px 0; }
+.chatbot-msg-assistant li::marker { color: var(--accent); }
+
 .chatbot-form {
   display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--border);
   flex-shrink: 0;
