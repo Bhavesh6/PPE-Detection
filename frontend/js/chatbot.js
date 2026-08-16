@@ -10,6 +10,32 @@ const Chatbot = {
   _open: false,
   _busy: false,
 
+  // The conversation survives navigation. The assistant's whole job is to
+  // say "go to the Settings page" — following that advice used to wipe the
+  // conversation that gave it, which made the widget worse the more useful
+  // its answer was. sessionStorage rather than localStorage: this should
+  // outlive a page load, not a browser session.
+  STORE_KEY: 'ppe_chat_history',
+  STORE_OPEN_KEY: 'ppe_chat_open',
+
+  _load() {
+    try {
+      this._history = JSON.parse(sessionStorage.getItem(this.STORE_KEY)) || [];
+      this._open = sessionStorage.getItem(this.STORE_OPEN_KEY) === '1';
+    } catch (e) {
+      this._history = [];
+      this._open = false;
+    }
+    if (!Array.isArray(this._history)) this._history = [];
+  },
+
+  _save() {
+    try {
+      sessionStorage.setItem(this.STORE_KEY, JSON.stringify(this._history));
+      sessionStorage.setItem(this.STORE_OPEN_KEY, this._open ? '1' : '0');
+    } catch (e) { /* private mode, or quota — the chat still works, it just won't persist */ }
+  },
+
   // Openers offered as clickable chips on first open. Someone who has just
   // been handed this product doesn't know what it can answer — a blank box
   // with a cursor is the least helpful thing to show them. Scoped to match
@@ -39,6 +65,7 @@ const Chatbot = {
     // chase down later.
     if (this._mounted) return;
     this._mounted = true;
+    this._load();
 
     const user = Auth.getUser() || {};
     const role = user.is_admin ? 'admin' : user.is_guest ? 'guest' : 'operator';
@@ -111,8 +138,9 @@ const Chatbot = {
       toggle.setAttribute('aria-label', open ? 'Close help assistant' : 'Open help assistant');
       toggle.classList.toggle('is-open', open);
       wrap.classList.toggle('is-open', open);
+      this._save();
       if (open) {
-        if (!log.children.length) this._greet(log, role);
+        if (!log.children.length) this._paint(log, role);
         // Focus after the panel is actually visible, or the browser has
         // nothing focusable to move to yet.
         requestAnimationFrame(() => input.focus());
@@ -127,10 +155,15 @@ const Chatbot = {
 
     resetBtn.addEventListener('click', () => {
       this._history = [];
+      this._save();
       log.innerHTML = '';
-      this._greet(log, role);
+      this._paint(log, role);
       input.focus();
     });
+
+    // Reopen where they left off — a conversation that survives navigation
+    // but makes you re-open the panel on every page hasn't really survived.
+    if (this._open) setOpen(true);
 
     // A send button that looks pressable but does nothing on an empty box
     // is a small lie; disable it until there's something to send.
@@ -172,11 +205,21 @@ const Chatbot = {
     try {
       const res = await Auth.fetch('/api/chat', {
         method: 'POST',
-        body: JSON.stringify({ message: text, history: this._history.slice(0, -1) }),
+        body: JSON.stringify({
+          message: text,
+          history: this._history.slice(0, -1),
+          // Filename only — the server maps it against a fixed table of
+          // known pages, so anything else is simply ignored.
+          page: window.location.pathname.split('/').pop(),
+        }),
       });
       const d = await res.json();
       typing.remove();
       if (!res.ok || !d.success) {
+        // Errors are shown but deliberately not pushed into _history —
+        // "the assistant is busy" isn't part of the conversation and
+        // shouldn't be replayed as context on the next question, or after
+        // navigating to another page.
         this._append(log, 'assistant', d.message || 'Something went wrong — try again in a moment.', { isError: true });
       } else {
         this._append(log, 'assistant', d.reply);
@@ -186,11 +229,22 @@ const Chatbot = {
       typing.remove();
       this._append(log, 'assistant', 'Could not reach the assistant.', { isError: true });
     } finally {
+      this._save();
       this._busy = false;
       input.disabled = false;
       send.disabled = !input.value.trim();
       input.focus();
     }
+  },
+
+  // Draws whatever the panel should currently show: a replayed
+  // conversation if there is one, otherwise the greeting and openers.
+  _paint(log, role) {
+    if (this._history.length) {
+      for (const turn of this._history) this._append(log, turn.role, turn.text);
+      return;
+    }
+    this._greet(log, role);
   },
 
   _greet(log, role) {

@@ -446,7 +446,15 @@ def chat():
     role = "admin" if user.is_admin else ("guest" if user.is_guest else "operator")
 
     data = request.get_json(silent=True) or {}
-    reply, error = chatbot.ask(data.get("message"), role, history=data.get("history"))
+    reply, error = chatbot.ask(
+        data.get("message"), role,
+        history=data.get("history"),
+        # Which page they're asking from, so "how do I set this up?" has a
+        # referent. Client-supplied and therefore untrusted — chatbot.py
+        # only ever uses it as a lookup key into a fixed dict, never
+        # interpolates it into the prompt directly.
+        page=data.get("page"),
+    )
     if error:
         return jsonify({"success": False, "message": error}), 503
     return jsonify({"success": True, "reply": reply})

@@ -1,4 +1,4 @@
-"""In-app help chatbot via Google Gemini's free tier.
+"""In-app help chatbot, Gemini first with Groq as a fallback.
 
 Answers "how do I..." questions about SafetyFirst itself, scoped to what
 the asking account can actually see and do — a guest gets pointed at the
@@ -8,8 +8,11 @@ system prompt per role, not a permissions check on the model's output: the
 model is told what's true for this account and asked to stay inside it,
 same trust boundary as any other text a client sends us.
 
-Same "blank key means not configured" convention as tts.py/ElevenLabs — a
-missing GEMINI_API_KEY makes the widget say so rather than breaking.
+Two providers, tried in order, because both free tiers have daily caps and
+running out mid-demo is the failure that actually matters here — they're
+unlikely to be exhausted at the same moment. Either key may be blank; only
+a request with no working provider at all reports itself unconfigured,
+same "blank key means not configured" convention as tts.py/ElevenLabs.
 """
 
 import time
@@ -19,6 +22,23 @@ from flask import current_app
 
 MAX_MESSAGE_LEN = 800
 MAX_HISTORY_TURNS = 6  # each turn is a user+model pair; older context is dropped, not summarized
+
+# What the person is actually looking at when they ask. Without this,
+# "how do I set this up?" on the Alerts page is unanswerable — the model
+# has no idea what "this" is. Keyed by the page's filename, since that's
+# what the browser can cheaply report and it doesn't change with routing.
+PAGE_CONTEXT = {
+    "admin.html": "the Overview page — live gate state, who is currently active, and quick counts",
+    "alerts.html": "the Alerts page — hazard alerts, sensor thresholds (warning/critical per sensor kind), live readings, and reading history charts",
+    "analytics.html": "the Analytics page — compliance rate, daily granted/denied trend, missing-PPE breakdown, hour-of-day histogram, per-worker scorecards",
+    "audit.html": "the Change Log page — the append-only record of who changed what policy, personnel, or alert setting and when",
+    "gps.html": "the Site Location page — where the checkpoint device reports its GPS position",
+    "history.html": "their own records page — this person's past gate checks and verdicts",
+    "reports.html": "the Reports page — CSV exports of gate decisions for a chosen date range",
+    "settings.html": "the Checkpoint Policy page — which PPE items are required, and the detection confidence threshold",
+    "violations.html": "the Captures page — every refusal, with the camera frame kept as evidence",
+    "visit-site.html": "the Gate Control page — the live camera check that decides whether the gate opens",
+}
 
 _BASE_PROMPT = """You are the in-app help assistant for SafetyFirst, a PPE
 (personal protective equipment) compliance checkpoint system. A camera
@@ -103,13 +123,153 @@ the UI, not through this chat.
 }
 
 
+def _build_system_prompt(role, page):
+    """Role prompt plus, if we know it, what they're currently looking at."""
+    prompt = SYSTEM_PROMPTS.get(role, SYSTEM_PROMPTS["guest"])
+    hint = PAGE_CONTEXT.get((page or "").strip().lower())
+    if hint:
+        prompt += (
+            f"\nRight now they are looking at {hint}. If their question is "
+            "vague about location (\"this\", \"here\", \"this page\"), assume "
+            "they mean that. Don't mention the page name unless it's useful."
+        )
+    return prompt
+
+
+def _trim_history(history):
+    """Normalize to [{role, text}] and cap length. Anything the client sends
+    is untrusted shape as much as untrusted content, so nothing here assumes
+    the keys or types are what they should be."""
+    turns = []
+    for turn in (history or [])[-(MAX_HISTORY_TURNS * 2):]:
+        if not isinstance(turn, dict):
+            continue
+        text = str(turn.get("text", ""))[:MAX_MESSAGE_LEN].strip()
+        if not text:
+            continue
+        role = "assistant" if turn.get("role") == "assistant" else "user"
+        turns.append({"role": role, "text": text})
+    return turns
+
+
+def _ask_gemini(system_prompt, turns, message):
+    """Return (reply, error, exhausted). `exhausted` means the daily quota
+    is gone, which is the signal to try the next provider rather than to
+    give up — a plain error isn't, since a broken request would fail the
+    same way everywhere."""
+    key = current_app.config["GEMINI_API_KEY"]
+    if not key:
+        return None, None, True
+
+    contents = [
+        {"role": "model" if t["role"] == "assistant" else "user", "parts": [{"text": t["text"]}]}
+        for t in turns
+    ]
+    contents.append({"role": "user", "parts": [{"text": message}]})
+
+    model = current_app.config["GEMINI_MODEL"]
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        # 400 was too tight and truncated structured answers mid-sentence —
+        # this model spends a real chunk of its budget on internal reasoning
+        # before any visible text comes out (seen directly: thoughtsTokenCount
+        # of 90+ on a two-word answer), so the visible reply needs real
+        # headroom on top of that.
+        "contents": contents,
+        "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.3},
+    }
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+
+    # A 503 means Google's own model is transiently overloaded, not that
+    # anything is wrong with the request — confirmed by hand, identical
+    # requests in a row came back 503/200/503. Their docs say to retry.
+    res = None
+    backoff = (1.0, 2.5)
+    for attempt in range(3):
+        try:
+            res = requests.post(url, params={"key": key}, json=payload, timeout=20)
+        except requests.RequestException as exc:
+            current_app.logger.warning("Gemini request failed: %s", exc)
+            return None, "Could not reach the assistant", False
+        if res.status_code != 503:
+            break
+        if attempt < len(backoff):
+            time.sleep(backoff[attempt])
+
+    if res.status_code == 429:
+        current_app.logger.warning("Gemini quota exhausted: %s", res.text[:200])
+        return None, None, True
+    if not res.ok:
+        current_app.logger.warning("Gemini returned %s: %s", res.status_code, res.text[:300])
+        if res.status_code == 503:
+            return None, "The assistant is busy right now — ask again in a moment.", False
+        return None, "The assistant couldn't answer that just now.", False
+
+    try:
+        return res.json()["candidates"][0]["content"]["parts"][0]["text"].strip(), None, False
+    except (KeyError, IndexError, ValueError):
+        # A prompt Gemini's safety filters blocked outright has no candidates
+        # at all rather than an error status — same effect from here, so
+        # treat it as an error. Not "exhausted": another provider would
+        # likely refuse it too, and retrying costs the user a wait for
+        # nothing.
+        current_app.logger.warning("Gemini gave no usable reply: %s", res.text[:200])
+        return None, "The assistant couldn't answer that.", False
+
+
+def _ask_groq(system_prompt, turns, message):
+    """Same contract as _ask_gemini. Groq speaks the OpenAI chat format, so
+    the message shape differs from Gemini's contents/parts."""
+    key = current_app.config["GROQ_API_KEY"]
+    if not key:
+        return None, None, True
+
+    messages = [{"role": "system", "content": system_prompt}]
+    messages += [{"role": t["role"], "content": t["text"]} for t in turns]
+    messages.append({"role": "user", "content": message})
+
+    try:
+        res = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={
+                "model": current_app.config["GROQ_MODEL"],
+                "messages": messages,
+                "max_tokens": 700,
+                "temperature": 0.3,
+            },
+            timeout=20,
+        )
+    except requests.RequestException as exc:
+        current_app.logger.warning("Groq request failed: %s", exc)
+        return None, "Could not reach the assistant", False
+
+    if res.status_code == 429:
+        current_app.logger.warning("Groq quota exhausted: %s", res.text[:200])
+        return None, None, True
+    if not res.ok:
+        current_app.logger.warning("Groq returned %s: %s", res.status_code, res.text[:300])
+        return None, "The assistant couldn't answer that just now.", False
+
+    try:
+        return res.json()["choices"][0]["message"]["content"].strip(), None, False
+    except (KeyError, IndexError, ValueError):
+        current_app.logger.warning("Groq gave no usable reply: %s", res.text[:200])
+        return None, "The assistant couldn't answer that.", False
+
+
 def enabled():
-    return bool(current_app.config["GEMINI_API_KEY"])
+    return bool(current_app.config["GEMINI_API_KEY"] or current_app.config["GROQ_API_KEY"])
 
 
-def ask(message, role, history=None):
-    """Return (reply_text, error). history is a list of {role, text} dicts,
-    oldest first, already trimmed by the caller to MAX_HISTORY_TURNS."""
+def ask(message, role, history=None, page=None):
+    """Return (reply_text, error).
+
+    Tries each configured provider in turn, moving on only when one reports
+    its quota gone — a genuine error (bad request, blocked prompt) fails the
+    same way everywhere, so retrying it just makes the user wait longer for
+    the same answer.
+    """
     message = (message or "").strip()
     if not message:
         return None, "No message supplied"
@@ -118,75 +278,21 @@ def ask(message, role, history=None):
     if not enabled():
         return None, "The help assistant is not configured on this server"
 
-    system_prompt = SYSTEM_PROMPTS.get(role, SYSTEM_PROMPTS["guest"])
+    system_prompt = _build_system_prompt(role, page)
+    turns = _trim_history(history)
 
-    contents = []
-    for turn in (history or [])[-(MAX_HISTORY_TURNS * 2):]:
-        gemini_role = "model" if turn.get("role") == "assistant" else "user"
-        contents.append({"role": gemini_role, "parts": [{"text": str(turn.get("text", ""))[:MAX_MESSAGE_LEN]}]})
-    contents.append({"role": "user", "parts": [{"text": message}]})
+    last_error = None
+    for provider in (_ask_gemini, _ask_groq):
+        reply, error, exhausted = provider(system_prompt, turns, message)
+        if reply:
+            return reply, None
+        if not exhausted:
+            return None, error
+        last_error = error
 
-    model = current_app.config["GEMINI_MODEL"]
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-    payload = {
-        "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": contents,
-        # 400 was too tight and truncated structured answers mid-sentence —
-        # this model spends a real chunk of its budget on internal
-        # reasoning before any visible text comes out (seen directly:
-        # thoughtsTokenCount of 90+ on a two-word answer), so the visible
-        # reply needs real headroom on top of that, not just room for the
-        # few sentences the system prompt actually asks for.
-        "generationConfig": {"maxOutputTokens": 1024, "temperature": 0.3},
-    }
-
-    # A 503 here means Google's own model is transiently overloaded, not
-    # that anything is wrong with the request — confirmed by hand, identical
-    # requests in a row came back 503/200/503. Google's own docs say to
-    # retry on this.
-    #
-    # Started at one retry; the free tier turned out to 503 often enough
-    # that two failures in a row were still landing in front of the user,
-    # so this is now three attempts with a widening pause. The added
-    # latency is only paid on a request that would otherwise have simply
-    # failed, and a help widget is somewhere a few extra seconds is much
-    # cheaper than an error.
-    res = None
-    backoff = (1.0, 2.5)
-    for attempt in range(3):
-        try:
-            res = requests.post(url, params={"key": current_app.config["GEMINI_API_KEY"]}, json=payload, timeout=20)
-        except requests.RequestException as exc:
-            current_app.logger.warning("Gemini request failed: %s", exc)
-            return None, "Could not reach the help assistant"
-        if res.status_code != 503:
-            break
-        if attempt < len(backoff):
-            time.sleep(backoff[attempt])
-
-    if not res.ok:
-        current_app.logger.warning("Gemini returned %s: %s", res.status_code, res.text[:300])
-        # The status code belongs in the log, not in front of somebody
-        # asking how to configure a threshold. But 429 and 503 are NOT the
-        # same thing and shouldn't share a message: 503 is "try again in a
-        # second", while 429 on the free tier is usually the *daily* cap,
-        # where "ask again in a moment" is actively wrong advice — it sends
-        # someone retrying a request that cannot succeed until tomorrow.
-        if res.status_code == 429:
-            return None, ("The assistant has hit its daily free-tier limit. "
-                          "It'll work again tomorrow, or sooner on a larger quota.")
-        if res.status_code == 503:
-            return None, "The assistant is busy right now — ask again in a moment."
-        return None, "The assistant couldn't answer that just now."
-
-    try:
-        data = res.json()
-        reply = data["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError, ValueError):
-        # A prompt Gemini's safety filters blocked outright has no
-        # candidates at all rather than an error status — same effect as
-        # an error from the caller's point of view, so treat it as one.
-        current_app.logger.warning("Gemini response had no usable reply: %s", res.text[:200])
-        return None, "The help assistant couldn't answer that"
-
-    return reply.strip(), None
+    # Every provider is out of quota (or none is configured, though enabled()
+    # already ruled that out above).
+    return None, last_error or (
+        "The assistant has hit its daily free-tier limit. It'll work again "
+        "tomorrow, or sooner on a larger quota."
+    )

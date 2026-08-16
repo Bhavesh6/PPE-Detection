@@ -160,3 +160,11 @@ class Config:
     # the codebase; the quota headroom is worth far more here than the
     # capability difference.
     GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
+
+    # Fallback provider, tried only when Gemini reports its quota gone.
+    # Both free tiers have daily caps and running dry mid-demo is the
+    # failure that actually matters — two independent providers are
+    # unlikely to be exhausted at the same moment. Blank is fine; the
+    # chain just has one link then. Free key: console.groq.com
+    GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+    GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
