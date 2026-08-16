@@ -141,24 +141,37 @@ def ask(message, role, history=None):
     }
 
     # A 503 here means Google's own model is transiently overloaded, not
-    # that anything is wrong with the request — confirmed by hand, three
-    # identical requests in a row came back 503/200/503. Google's own docs
-    # say to retry on this; one retry after a short pause turns a coin-flip
-    # failure into something that only fails if it's unlucky twice in a row.
+    # that anything is wrong with the request — confirmed by hand, identical
+    # requests in a row came back 503/200/503. Google's own docs say to
+    # retry on this.
+    #
+    # Started at one retry; the free tier turned out to 503 often enough
+    # that two failures in a row were still landing in front of the user,
+    # so this is now three attempts with a widening pause. The added
+    # latency is only paid on a request that would otherwise have simply
+    # failed, and a help widget is somewhere a few extra seconds is much
+    # cheaper than an error.
     res = None
-    for attempt in range(2):
+    backoff = (1.0, 2.5)
+    for attempt in range(3):
         try:
             res = requests.post(url, params={"key": current_app.config["GEMINI_API_KEY"]}, json=payload, timeout=20)
         except requests.RequestException as exc:
             current_app.logger.warning("Gemini request failed: %s", exc)
             return None, "Could not reach the help assistant"
-        if res.status_code != 503 or attempt == 1:
+        if res.status_code != 503:
             break
-        time.sleep(1.5)
+        if attempt < len(backoff):
+            time.sleep(backoff[attempt])
 
     if not res.ok:
         current_app.logger.warning("Gemini returned %s: %s", res.status_code, res.text[:200])
-        return None, f"Help assistant returned {res.status_code}"
+        # The status code belongs in the log, not in front of somebody
+        # asking how to configure a threshold — especially 503/429, which
+        # mean "busy, ask again" rather than anything the user did wrong.
+        if res.status_code in (503, 429):
+            return None, "The assistant is busy right now — ask again in a moment."
+        return None, "The assistant couldn't answer that just now."
 
     try:
         data = res.json()
