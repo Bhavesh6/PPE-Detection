@@ -11,10 +11,11 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 
 import alerts
 import audit
+import chatbot
 import evidence
 import site_settings
 import tts
-from extensions import db
+from extensions import db, limiter
 from models import DetectionRecord, User
 from params import int_arg
 from ppe_detection import load_model, process_frame
@@ -423,6 +424,32 @@ def speech():
         # the browser and on any CDN in front of this in production.
         "Cache-Control": "public, max-age=31536000, immutable",
     })
+
+
+@detection_bp.route("/chat", methods=["POST"])
+@jwt_required()
+# A free-tier external API call per message — capped independently of the
+# provider's own limits so one runaway tab can't burn through the shared
+# quota for every other signed-in user.
+@limiter.limit("20 per hour")
+def chat():
+    """In-app help chatbot (Gemini, see chatbot.py) — answers scoped to
+    what the asking account can actually see, not a general-purpose chat.
+
+    A 503 with no body-worth-showing is the expected response when
+    GEMINI_API_KEY isn't configured; the widget just says help isn't
+    available right now rather than the page breaking.
+    """
+    user = db.session.get(User, int(get_jwt_identity()))
+    if user is None:
+        return jsonify({"success": False, "message": "User not found"}), 404
+    role = "admin" if user.is_admin else ("guest" if user.is_guest else "operator")
+
+    data = request.get_json(silent=True) or {}
+    reply, error = chatbot.ask(data.get("message"), role, history=data.get("history"))
+    if error:
+        return jsonify({"success": False, "message": error}), 503
+    return jsonify({"success": True, "reply": reply})
 
 
 @detection_bp.route("/alerts/<int:alert_id>/acknowledge", methods=["POST"])
