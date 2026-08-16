@@ -242,6 +242,15 @@ const Shell = {
         Auth.logout();
       });
     });
+
+    // typeof check, not window.Chatbot — Chatbot is a top-level const in
+    // chatbot.js, and const/let declarations in a classic script never
+    // become window properties, so `if (window.Chatbot)` is always false
+    // even when chatbot.js loaded correctly. Guarded rather than assumed
+    // present so a page that includes shell.js without chatbot.js (there
+    // shouldn't be one, but nothing enforces it) doesn't hard-fail the
+    // rest of the shell over a help widget.
+    if (typeof Chatbot !== 'undefined') Chatbot.mount();
   },
 
   // Polls for an active sensor alert on every page carrying the shell —

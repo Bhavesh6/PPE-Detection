@@ -139,3 +139,10 @@ class Config:
         "SPEECH_CACHE_DIR",
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "instance", "speech"),
     )
+
+    # In-app help chatbot. Same "blank means not configured" convention as
+    # ElevenLabs above — the widget just tells the user it's unavailable
+    # rather than the page breaking when nobody's set this up yet. Free tier
+    # via Google AI Studio (aistudio.google.com), no card required.
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
