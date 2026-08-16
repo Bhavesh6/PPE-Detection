@@ -150,4 +150,13 @@ class Config:
     # 404ing with no code change on our end. -latest always resolves to
     # whatever Google currently recommends, trading a small chance of
     # behavior drift for not silently breaking again the same way.
-    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+    #
+    # ...and specifically the *lite* alias, because the free tier's daily
+    # request cap is per-model (quota id
+    # GenerateRequestsPerDayPerProjectPerModel-FreeTier), and the flagship
+    # alias gets the smallest allowance of the lot — 20 requests/day, which
+    # a single afternoon of testing exhausts. Lite is a smaller model, but
+    # this is answering "which page is that setting on", not reasoning over
+    # the codebase; the quota headroom is worth far more here than the
+    # capability difference.
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-lite-latest")
