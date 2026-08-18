@@ -73,6 +73,11 @@ GPS_INTERVAL = float(os.environ.get("SAFETYFIRST_GPS_INTERVAL", "20"))
 # enough that a revocation reaches the gate quickly, rare enough that it is
 # not meaningful load next to the frame traffic.
 ROSTER_SYNC_INTERVAL = float(os.environ.get("SAFETYFIRST_ROSTER_SYNC_INTERVAL", "60"))
+# How often a gate that booted offline retries signing in.
+SIGNIN_RETRY_INTERVAL = float(os.environ.get("SAFETYFIRST_SIGNIN_RETRY_INTERVAL", "20"))
+# Shown while the gate is up but has never reached the backend. Matched
+# exactly when clearing it, so a real error raised later isn't wiped.
+OFFLINE_MESSAGE = "Offline — no contact with the service"
 QUEUE_FLUSH_INTERVAL = float(os.environ.get("SAFETYFIRST_QUEUE_FLUSH_INTERVAL", "15"))
 
 REQUEST_TIMEOUT = 20
@@ -141,6 +146,9 @@ class State:
     # yet; it exists so failover can later tell "cache is cold" apart from
     # "cache says this badge is unknown".
     cache_ready: bool = False
+    # Whether the device account has been authenticated. False when the gate
+    # booted with no backend and is still retrying.
+    signed_in: bool = False
 
     # gate flow
     mode: str = IDLE
@@ -161,7 +169,15 @@ class ApiClient:
     def _headers(self):
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
-    def sign_in(self) -> tuple[bool, str]:
+    def sign_in(self) -> tuple[bool, str, bool]:
+        """Returns (ok, detail, reachable).
+
+        `reachable` separates the two failures, which need opposite handling:
+        a rejected credential is a misconfiguration nobody can fix by waiting,
+        while an unreachable backend is the ordinary outage this gate is
+        supposed to survive. Collapsing them into one boolean is what made
+        the gate refuse to start during an outage.
+        """
         if EMAIL and PASSWORD:
             try:
                 res = self.session.post(
@@ -171,20 +187,26 @@ class ApiClient:
                 data = res.json()
                 if res.ok and data.get("success"):
                     self.token = data["token"]
-                    return True, data["user"]["name"]
+                    return True, data["user"]["name"], True
             except requests.RequestException:
-                return False, "Cannot reach the API"
-            return False, "Device credentials rejected"
+                return False, "Cannot reach the API", False
+            except ValueError:
+                # Reached something that isn't the API — a tunnel error page,
+                # a captive portal. Answering is not the same as being it.
+                return False, "Unexpected response from the API", False
+            return False, "Device credentials rejected", True
 
         try:
             res = self.session.post(f"{self.base}/api/auth/guest", timeout=10)
             data = res.json()
             if res.ok and data.get("success"):
                 self.token = data["token"]
-                return True, data["user"]["name"]
-            return False, "Guest session refused"
+                return True, data["user"]["name"], True
+            return False, "Guest session refused", True
         except requests.RequestException:
-            return False, "Cannot reach the API"
+            return False, "Cannot reach the API", False
+        except ValueError:
+            return False, "Unexpected response from the API", False
 
     def start(self) -> bool:
         try:
@@ -410,6 +432,38 @@ def queue_flush_loop(state: State, api: ApiClient, queue: OfflineQueue) -> None:
         with state.lock:
             state.pending_count = queue.count()
         time.sleep(QUEUE_FLUSH_INTERVAL)
+
+
+def signin_retry_loop(state: State, api: ApiClient) -> None:
+    """Keep trying to sign in after booting without a backend.
+
+    Only runs when the gate started offline. Without it, a Pi that rebooted
+    during an outage would stay unauthenticated until someone noticed and
+    restarted it by hand — which is the same failure as refusing to boot,
+    just deferred.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+
+        ok, detail, reachable = api.sign_in()
+        if ok:
+            api.start()
+            with state.lock:
+                state.signed_in = True
+                state.connected = True
+                if state.message == OFFLINE_MESSAGE:
+                    state.message = ""
+            print(f"Signed in as {detail}")
+            return
+
+        if reachable:
+            # Reachable but refusing us: waiting cannot fix a bad credential,
+            # so say so once rather than logging the same rejection forever.
+            print(f"Sign-in still failing: {detail}", file=sys.stderr)
+
+        time.sleep(SIGNIN_RETRY_INTERVAL)
 
 
 def roster_sync_loop(state: State, api: ApiClient, store) -> None:
@@ -991,16 +1045,31 @@ def main() -> int:
     state = State()
     api = ApiClient(API_BASE)
 
-    ok, detail = api.sign_in()
-    if not ok:
+    # A gate that refuses to boot without the backend is useless in exactly
+    # the situation offline mode exists for: the power comes back, the Pi
+    # restarts, and the network is still down. So an unreachable backend is
+    # survivable — the gate comes up and keeps trying in the background.
+    #
+    # A *rejected* credential is different and still fatal. Waiting cannot
+    # fix it, and falling back to a guest session would silently detach the
+    # gate from its device account, filing every decision against a
+    # throwaway identity. Better to fail where someone will read the reason.
+    ok, detail, reachable = api.sign_in()
+    if ok:
+        print(f"Signed in as {detail}")
+        state.signed_in = True
+        if not api.start():
+            print("Could not start a detection session.", file=sys.stderr)
+            return 1
+    elif reachable:
         print(f"Sign-in failed: {detail}", file=sys.stderr)
-        print(f"Is the API running at {API_BASE}?", file=sys.stderr)
+        print("The backend answered and refused these credentials — check "
+              "SAFETYFIRST_EMAIL / SAFETYFIRST_PASSWORD.", file=sys.stderr)
         return 1
-    print(f"Signed in as {detail}")
-
-    if not api.start():
-        print("Could not start a detection session.", file=sys.stderr)
-        return 1
+    else:
+        print(f"Starting offline: {detail} ({API_BASE})", file=sys.stderr)
+        print("The gate will keep retrying in the background.", file=sys.stderr)
+        state.message = OFFLINE_MESSAGE
 
     reader = open_reader()
     print(f"Badge reader: {reader.name}")
@@ -1024,6 +1093,8 @@ def main() -> int:
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
     threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
     threading.Thread(target=roster_sync_loop, args=(state, api, store), daemon=True).start()
+    if not state.signed_in:
+        threading.Thread(target=signin_retry_loop, args=(state, api), daemon=True).start()
 
     root = tk.Tk()
     CheckpointApp(root, state, api, queue)
