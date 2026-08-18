@@ -143,6 +143,56 @@ class Meter(tk.Canvas):
         self.itemconfigure(self._track, fill=track)
 
 
+class ScreenToggle(tk.Canvas):
+    """Corner-bracket icon for the fullscreen toggle.
+
+    Drawn rather than typed: the usual fullscreen glyphs (U+26F6 and the
+    diagonal arrows) aren't in DejaVu Sans, and a missing glyph renders as a
+    hollow box — worse than no icon at all. Lines always draw.
+
+    Brackets point outward to go fullscreen and inward to leave it, so the
+    icon shows what will happen rather than what is currently true.
+    """
+
+    SIZE = 18
+    PAD = 3          # inset from the canvas edge
+    # Deliberately shorter than half the span. At exactly half, arms from
+    # neighbouring corners meet and the icon closes into a plain square,
+    # which reads as nothing at all.
+    ARM = 4
+
+    def __init__(self, parent, bg, command):
+        super().__init__(parent, width=self.SIZE, height=self.SIZE, bg=bg,
+                         highlightthickness=0, bd=0)
+        self.bind("<Button-1>", lambda _e: command())
+        self._fullscreen = True
+        self._colour = FAINT
+
+    def render(self, fullscreen: bool, colour: str = None, bg: str = None) -> None:
+        self._fullscreen = fullscreen
+        if colour:
+            self._colour = colour
+        if bg:
+            self.configure(bg=bg)
+        self.delete("all")
+
+        s, p, a = self.SIZE, self.PAD, self.ARM
+        near, far = p, s - p
+        # Outward: arms run from each corner along both edges. Inward: the
+        # same brackets mirrored to sit around the middle.
+        if not self._fullscreen:
+            corners = [(near, near, 1, 1), (far, near, -1, 1),
+                       (near, far, 1, -1), (far, far, -1, -1)]
+        else:
+            mid_n, mid_f = p + a, s - p - a
+            corners = [(mid_n, mid_n, -1, -1), (mid_f, mid_n, 1, -1),
+                       (mid_n, mid_f, -1, 1), (mid_f, mid_f, 1, 1)]
+
+        for x, y, dx, dy in corners:
+            self.create_line(x, y, x + a * dx, y, fill=self._colour, width=2)
+            self.create_line(x, y, x, y + a * dy, fill=self._colour, width=2)
+
+
 class CheckRow(tk.Frame):
     """One PPE requirement, as a pill.
 

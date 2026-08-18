@@ -54,7 +54,7 @@ from gps_reporter import open_gps
 from local_alerts import LocalAlerts
 from local_store import LocalStore
 from offline_queue import OfflineQueue
-from ui import CheckRow, Meter, Type, surface
+from ui import CheckRow, Meter, ScreenToggle, Type, surface
 
 try:
     from dotenv import load_dotenv
@@ -706,11 +706,12 @@ class CheckpointApp:
 
         root.title("SafetyFirst Checkpoint")
         root.configure(bg=ui.BG)
-        if not WINDOWED:
-            root.attributes("-fullscreen", True)
-        root.config(cursor="none")
+        self._fullscreen = not WINDOWED
+        root.attributes("-fullscreen", self._fullscreen)
+        self._apply_cursor()
         root.bind("<Escape>", lambda _e: self.shutdown())
         root.bind("<space>", lambda _e: self._clear_gate())
+        root.bind("<F11>", lambda _e: self._toggle_fullscreen())
 
         root.protocol("WM_DELETE_WINDOW", self.shutdown)
 
@@ -739,6 +740,13 @@ class CheckpointApp:
         self.exit_btn.bind("<ButtonPress-1>", self._exit_press)
         self.exit_btn.bind("<ButtonRelease-1>", self._exit_release)
         self._exit_after = None
+
+        # Drop out of fullscreen without closing the gate. A plain tap, not
+        # a hold like the exit: this is reversible in one more tap, so
+        # guarding it would only make it feel broken.
+        self.screen_btn = ScreenToggle(bar, ui.BG, self._toggle_fullscreen)
+        self.screen_btn.pack(side="right", padx=(0, 14))
+        self.screen_btn.render(self._fullscreen)
 
         self.clock = tk.Label(bar, text="--:--", bg=ui.BG, fg=ui.INK, font=t.mono_lg)
         self.clock.pack(side="right", padx=(0, 18))
@@ -1153,6 +1161,21 @@ class CheckpointApp:
                                   fg=ui.OK if snap["connected"] else ui.FAINT)
 
         self.root.after(33, self._tick)
+
+    def _apply_cursor(self) -> None:
+        """Hide the pointer only while the gate owns the screen.
+
+        A kiosk shouldn't show a stray arrow over the verdict, but leaving it
+        hidden in windowed mode makes the machine unusable — the whole point
+        of dropping out of fullscreen is to reach the desktop underneath.
+        """
+        self.root.config(cursor="none" if self._fullscreen else "")
+
+    def _toggle_fullscreen(self, _event=None) -> None:
+        self._fullscreen = not self._fullscreen
+        self.root.attributes("-fullscreen", self._fullscreen)
+        self._apply_cursor()
+        self.screen_btn.render(self._fullscreen)
 
     def _exit_press(self, _event=None) -> None:
         """Arm the exit. Held long enough, the gate closes; released early,
