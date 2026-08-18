@@ -49,7 +49,9 @@ from PIL import Image, ImageTk
 
 import ui
 from badge_reader import open_reader
+from alert_receiver import start_receiver
 from gps_reporter import open_gps
+from local_alerts import LocalAlerts
 from local_store import LocalStore
 from offline_queue import OfflineQueue
 from ui import CheckRow, Meter, Type, surface
@@ -78,6 +80,15 @@ SIGNIN_RETRY_INTERVAL = float(os.environ.get("SAFETYFIRST_SIGNIN_RETRY_INTERVAL"
 # Shown while the gate is up but has never reached the backend. Matched
 # exactly when clearing it, so a real error raised later isn't wiped.
 OFFLINE_MESSAGE = "Offline — no contact with the service"
+# LAN receiver so sensors can still report a hazard with the cloud down.
+# The token is required: this endpoint can hold the gate, so it must not run
+# open. Unset means the receiver stays off entirely.
+LOCAL_ALERT_PORT = int(os.environ.get("SAFETYFIRST_LOCAL_ALERT_PORT", "8081"))
+LOCAL_ALERT_TOKEN = os.environ.get("SAFETYFIRST_LOCAL_ALERT_TOKEN", "")
+# How often locally-raised alerts are retried against the cloud. Shorter
+# than the roster sync: a hazard the console hasn't seen is time-sensitive
+# in a way a roster refresh is not.
+ALERT_REPLAY_INTERVAL = float(os.environ.get("SAFETYFIRST_ALERT_REPLAY_INTERVAL", "10"))
 QUEUE_FLUSH_INTERVAL = float(os.environ.get("SAFETYFIRST_QUEUE_FLUSH_INTERVAL", "15"))
 
 REQUEST_TIMEOUT = 20
@@ -244,6 +255,19 @@ class ApiClient:
             return res.json().get("present_count", 0) if res.ok else 0
         except requests.RequestException:
             return 0
+
+    def report_alert(self, kind: str, severity: str, message: str, source: str) -> bool:
+        """Replay a locally-raised alert. True only if the cloud stored it."""
+        try:
+            res = self.session.post(
+                f"{self.base}/api/gate/alerts",
+                json={"kind": kind, "severity": severity,
+                      "message": message, "source": source},
+                headers=self._headers(), timeout=10,
+            )
+            return res.ok
+        except requests.RequestException:
+            return False
 
     def fetch_roster(self) -> dict | None:
         """Everything needed to rule offline, in one consistent snapshot."""
@@ -434,6 +458,29 @@ def queue_flush_loop(state: State, api: ApiClient, queue: OfflineQueue) -> None:
         time.sleep(QUEUE_FLUSH_INTERVAL)
 
 
+def alert_replay_loop(state: State, api: ApiClient, local_alerts) -> None:
+    """Push locally-raised alerts to the cloud once it is reachable.
+
+    Stops at the first failure in a cycle, like the attendance queue: if the
+    oldest can't get through the network is still down and the rest won't
+    either. Order is preserved — a warning followed by a critical must not
+    arrive the other way round, since the console reads the latest as the
+    current state of the site.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+
+        for row_id, kind, severity, message, source in local_alerts.pending():
+            if not api.report_alert(kind, severity, message, source):
+                break
+            local_alerts.mark_synced(row_id)
+            print(f"[alerts] replayed {severity} {kind} to the cloud")
+
+        time.sleep(ALERT_REPLAY_INTERVAL)
+
+
 def signin_retry_loop(state: State, api: ApiClient) -> None:
     """Keep trying to sign in after booting without a backend.
 
@@ -516,7 +563,7 @@ def gps_loop(state: State, api: ApiClient, gps) -> None:
         time.sleep(GPS_INTERVAL)
 
 
-def badge_loop(state: State, api: ApiClient, reader) -> None:
+def badge_loop(state: State, api: ApiClient, reader, local_alerts) -> None:
     """Turn badge scans into gate sessions."""
     while True:
         with state.lock:
@@ -533,6 +580,12 @@ def badge_loop(state: State, api: ApiClient, reader) -> None:
             if mode == IDLE:
                 count = api.present_today()
                 active = api.active_alerts()
+                # Anything raised locally while the cloud was unreachable
+                # counts too, and outranks nothing — a hazard the cloud has
+                # not seen yet is still a hazard. Local entries drop out of
+                # this list once replayed, so the cloud's own copy takes
+                # over rather than the gate holding on two of the same.
+                active = list(active) + local_alerts.active()
                 critical = next((a for a in active if a.get("severity") == "critical"), None)
                 with state.lock:
                     state.present_today = count
@@ -1088,8 +1141,26 @@ def main() -> int:
     store = LocalStore()
     print(f"Local cache: {store.summary()}")
 
+    local_alerts = LocalAlerts()
+    waiting = local_alerts.unsynced_count()
+    if waiting:
+        print(f"{waiting} local alert(s) not yet accepted by the cloud — holding the gate until they are")
+
+    # Sensors can reach the gate directly when the cloud can't be reached.
+    # Off unless a token is set: this endpoint can hold the gate, so running
+    # it open would let anyone on the network stop the site.
+    receiver = start_receiver(
+        local_alerts, LOCAL_ALERT_TOKEN, store.policy,
+        port=LOCAL_ALERT_PORT,
+    )
+    if receiver:
+        print(f"Local alert receiver: listening on :{LOCAL_ALERT_PORT}")
+    else:
+        print("Local alert receiver: off (set SAFETYFIRST_LOCAL_ALERT_TOKEN to enable)")
+
     threading.Thread(target=capture_loop, args=(state, api), daemon=True).start()
-    threading.Thread(target=badge_loop, args=(state, api, reader), daemon=True).start()
+    threading.Thread(target=badge_loop, args=(state, api, reader, local_alerts), daemon=True).start()
+    threading.Thread(target=alert_replay_loop, args=(state, api, local_alerts), daemon=True).start()
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
     threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
     threading.Thread(target=roster_sync_loop, args=(state, api, store), daemon=True).start()
