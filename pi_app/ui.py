@@ -170,6 +170,10 @@ class CheckRow(tk.Frame):
             "ok": (OK_CARD, OK_LINE, OK, "✓", "DETECTED"),
             "bad": (BAD_CARD, BAD_LINE, BAD, "✕", "MISSING"),
             "idle": (PANEL, LINE, FAINT, "–", "WAITING"),
+            # Shown before anyone badges in: the gate is listing what this
+            # site demands, not yet ruling on a person. Amber, because it's
+            # an instruction to read on the way up — not a pass or a fail.
+            "required": (PANEL, LINE, AMBER, "•", "REQUIRED"),
         }[state]
         bg, line, fg, glyph, word = palette
         self.configure(bg=bg, highlightbackground=line, highlightcolor=line)

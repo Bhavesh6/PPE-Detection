@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import base64
 import os
+import sqlite3
 import sys
 import threading
 import time
@@ -49,6 +50,7 @@ from PIL import Image, ImageTk
 import ui
 from badge_reader import open_reader
 from gps_reporter import open_gps
+from local_store import LocalStore
 from offline_queue import OfflineQueue
 from ui import CheckRow, Meter, Type, surface
 
@@ -67,6 +69,10 @@ CAMERA_INDEX = int(os.environ.get("SAFETYFIRST_CAMERA", "0"))
 SEND_INTERVAL = float(os.environ.get("SAFETYFIRST_INTERVAL", "0.5"))
 WINDOWED = os.environ.get("SAFETYFIRST_WINDOWED", "") == "1"
 GPS_INTERVAL = float(os.environ.get("SAFETYFIRST_GPS_INTERVAL", "20"))
+# How often the local mirror refreshes while the cloud is reachable. Often
+# enough that a revocation reaches the gate quickly, rare enough that it is
+# not meaningful load next to the frame traffic.
+ROSTER_SYNC_INTERVAL = float(os.environ.get("SAFETYFIRST_ROSTER_SYNC_INTERVAL", "60"))
 QUEUE_FLUSH_INTERVAL = float(os.environ.get("SAFETYFIRST_QUEUE_FLUSH_INTERVAL", "15"))
 
 REQUEST_TIMEOUT = 20
@@ -81,6 +87,15 @@ DENIED_HOLD = 12.0      # longer: they need time to read what to put on
 # PPE must read clean for this long before the gate opens, so a single lucky
 # frame can't clear someone who isn't actually wearing the equipment.
 CONFIRM_SECONDS = 1.2
+# How long the on-screen exit must be held before the gate closes. Long
+# enough that a brush past the screen can't trigger it, short enough that
+# it doesn't feel broken to whoever means it.
+EXIT_HOLD_MS = 900
+# Camera hot-plug. Retry often enough that plugging one in feels immediate,
+# and only declare it gone after a run of failed reads — a single dropped
+# frame is normal on USB and must not blank a working gate.
+CAMERA_RETRY_SECONDS = 2.0
+CAMERA_LOST_AFTER_FAILURES = 15
 
 BG = "#070b14"
 PANEL = "#0b1120"
@@ -122,6 +137,10 @@ class State:
     # The active critical alert, if any — polled even while idle, so the
     # gate shows "paused" before anyone badges in, not only mid-check.
     active_alert: dict | None = None
+    # Whether the local mirror has ever been filled. Nothing depends on it
+    # yet; it exists so failover can later tell "cache is cold" apart from
+    # "cache says this badge is unknown".
+    cache_ready: bool = False
 
     # gate flow
     mode: str = IDLE
@@ -204,6 +223,20 @@ class ApiClient:
         except requests.RequestException:
             return 0
 
+    def fetch_roster(self) -> dict | None:
+        """Everything needed to rule offline, in one consistent snapshot."""
+        try:
+            res = self.session.get(
+                f"{self.base}/api/gate/roster",
+                headers=self._headers(), timeout=20,
+            )
+            if not res.ok:
+                return None
+            data = res.json()
+            return data if data.get("success") else None
+        except (requests.RequestException, ValueError):
+            return None
+
     def mark_attendance(self, user_id: int, granted: bool, missing: list) -> bool:
         try:
             return self.session.post(
@@ -251,29 +284,72 @@ class ApiClient:
             return None
 
 
-def capture_loop(state: State, api: ApiClient) -> None:
-    """Camera at full rate for a live-looking feed; inference throttled."""
-    cap = cv2.VideoCapture(CAMERA_INDEX)
+def _open_camera(index: int):
+    """Open the capture device, or None if it isn't there yet."""
+    cap = cv2.VideoCapture(index)
+    if not cap.isOpened():
+        cap.release()
+        return None
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    return cap
 
-    if not cap.isOpened():
-        with state.lock:
-            state.message = f"Camera {CAMERA_INDEX} not available"
-        return
 
+def capture_loop(state: State, api: ApiClient) -> None:
+    """Camera at full rate for a live-looking feed; inference throttled.
+
+    The camera is (re)opened from inside the loop rather than once at start,
+    so the gate is plug-and-play: it can boot before the camera is plugged in,
+    and it recovers on its own if the cable is pulled and put back. Opening
+    once and giving up meant a camera attached seconds after launch was never
+    picked up, and the screen sat there claiming no camera while a perfectly
+    good one was connected — silent until someone thought to restart it.
+    """
+    cap = None
+    read_failures = 0
+    last_open_attempt = 0.0
     last_sent = 0.0
+
     while True:
         with state.lock:
             if not state.running:
                 break
             checking = state.mode == PROFILE
 
+        if cap is None:
+            now = time.time()
+            if now - last_open_attempt < CAMERA_RETRY_SECONDS:
+                time.sleep(0.1)
+                continue
+            last_open_attempt = now
+            cap = _open_camera(CAMERA_INDEX)
+            if cap is None:
+                with state.lock:
+                    state.frame = None
+                    state.message = f"Camera {CAMERA_INDEX} not available"
+                continue
+            read_failures = 0
+            with state.lock:
+                # Only clear our own message; a backend error must survive.
+                if state.message.startswith(f"Camera {CAMERA_INDEX}"):
+                    state.message = ""
+
         ok, frame = cap.read()
         if not ok:
-            time.sleep(0.1)
+            # One bad read is normal; a run of them means the device went away.
+            read_failures += 1
+            if read_failures >= CAMERA_LOST_AFTER_FAILURES:
+                cap.release()
+                cap = None
+                read_failures = 0
+                with state.lock:
+                    state.frame = None
+                    state.message = f"Camera {CAMERA_INDEX} disconnected"
+            else:
+                time.sleep(0.1)
             continue
 
+        read_failures = 0
         with state.lock:
             state.frame = frame.copy()
 
@@ -295,7 +371,8 @@ def capture_loop(state: State, api: ApiClient) -> None:
                     if result.get("required_ppe"):
                         state.required = result["required_ppe"]
 
-    cap.release()
+    if cap is not None:
+        cap.release()
 
 
 def record_attendance(state: State, api: ApiClient, queue: OfflineQueue,
@@ -333,6 +410,38 @@ def queue_flush_loop(state: State, api: ApiClient, queue: OfflineQueue) -> None:
         with state.lock:
             state.pending_count = queue.count()
         time.sleep(QUEUE_FLUSH_INTERVAL)
+
+
+def roster_sync_loop(state: State, api: ApiClient, store) -> None:
+    """Keep the local mirror fresh while the cloud is reachable.
+
+    Nothing reads this cache yet — it is filled now so that when failover
+    lands it has something to fail over *to*. A cache first populated at the
+    moment the network dies is useless, which is the whole reason this runs
+    on a timer during normal operation rather than on demand.
+
+    Failures are silent by design: a sync that can't reach the cloud is the
+    ordinary case this feature exists for, not an error worth putting on a
+    gate display that workers are reading.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+
+        payload = api.fetch_roster()
+        if payload is not None:
+            try:
+                count = store.replace_all(payload)
+                with state.lock:
+                    state.cache_ready = True
+                print(f"[sync] cached {count} workers")
+            except (sqlite3.Error, KeyError, TypeError) as exc:
+                # A malformed payload must not kill the thread — the old
+                # cache stays valid and the next tick tries again.
+                print(f"[sync] could not cache roster: {exc}", file=sys.stderr)
+
+        time.sleep(ROSTER_SYNC_INTERVAL)
 
 
 def gps_loop(state: State, api: ApiClient, gps) -> None:
@@ -433,8 +542,19 @@ class CheckpointApp:
         tk.Label(bar, text="  CHECKPOINT", bg=ui.BG, fg=ui.FAINT,
                  font=t.eyebrow).pack(side="left")
 
+        # A way back to the desktop that doesn't need a keyboard. The gate
+        # hides the cursor and runs on a wall-mounted touchscreen, so Esc/q
+        # alone strands whoever is standing at it. Hold rather than tap: a
+        # stray brush against a kiosk must not drop the gate mid-shift.
+        self.exit_btn = tk.Label(bar, text="  HOLD TO EXIT  ", bg=ui.BG,
+                                 fg=ui.FAINT, font=t.eyebrow)
+        self.exit_btn.pack(side="right")
+        self.exit_btn.bind("<ButtonPress-1>", self._exit_press)
+        self.exit_btn.bind("<ButtonRelease-1>", self._exit_release)
+        self._exit_after = None
+
         self.clock = tk.Label(bar, text="--:--", bg=ui.BG, fg=ui.INK, font=t.mono_lg)
-        self.clock.pack(side="right")
+        self.clock.pack(side="right", padx=(0, 18))
         self.status = tk.Label(bar, text="●  CONNECTING", bg=ui.BG, fg=ui.FAINT,
                                font=t.eyebrow)
         self.status.pack(side="right", padx=(0, 18))
@@ -492,7 +612,12 @@ class CheckpointApp:
         self.checks_box = tk.Frame(panel, bg=ui.PANEL)
         self.checks = {}
         self._checks_for = None
-        self._build_checks(list(state.required))
+        # Header for the idle-state preview of site policy. Only the waiting
+        # screen uses it — once someone is being checked, the rows speak for
+        # themselves and a label would just crowd the verdict.
+        self.req_head = tk.Label(panel, text="REQUIRED TO PASS", bg=ui.PANEL,
+                                 fg=ui.FAINT, anchor="w", font=t.eyebrow)
+        self._build_checks(list(self.state.required))
 
         # --- footer: meter + hint
         foot = tk.Frame(panel, bg=ui.PANEL)
@@ -537,7 +662,7 @@ class CheckpointApp:
         sitting on the panel has to be told."""
         self.panel.configure(bg=bg)
         for w in (self.eyebrow, self.head, self.word, self.note,
-                  self.checks_box, self.foot, self.hint, self.glyph):
+                  self.checks_box, self.req_head, self.foot, self.hint, self.glyph):
             w.configure(bg=bg)
         self.meter.repaint(bg, ui.LINE)
         self.card.configure(bg=card_bg, highlightbackground=card_line,
@@ -553,9 +678,8 @@ class CheckpointApp:
             alert = snap["active_alert"]
             self._paint(ui.HAZ_BG, ui.HAZ_CARD, ui.HAZ_LINE) if alert else self._paint(ui.PANEL, ui.CARD, ui.LINE)
             self._hide(self.card)
-            self._hide(self.checks_box)
             self._hide(self.glyph)
-            self._show(self.eyebrow, fill="x", pady=(52, 4))
+            self._show(self.eyebrow, fill="x", pady=(30, 4))
             self._show(self.head, fill="x")
             self._show(self.note, fill="x", pady=(8, 0))
             if alert:
@@ -573,6 +697,30 @@ class CheckpointApp:
                 self.note.configure(
                     text=snap["banner"] or "Hold your badge against the reader to begin.",
                     fg=ui.BAD if snap["banner"] else ui.MUTED)
+            # Idle is what the gate shows almost all the time, so the panel
+            # spends it telling people what they'll be checked against —
+            # readable on the walk up, which is the only moment they can
+            # still do something about it. Suppressed during an alert: the
+            # gate isn't going to accept anyone, so listing gear would only
+            # compete with the reason it's paused.
+            if alert:
+                self._hide(self.req_head)
+                self._hide(self.checks_box)
+            else:
+                self._build_checks(snap["required"])
+                if snap["required"]:
+                    # checks_box first: coming back from a verdict it is
+                    # already packed, and the header has to be re-inserted
+                    # above it rather than appended to the end of the panel.
+                    self._show(self.checks_box, fill="x")
+                    self._show(self.req_head, fill="x", pady=(26, 8),
+                               before=self.checks_box)
+                    for row in self.checks.values():
+                        row.set_state("required")
+                else:
+                    self._hide(self.req_head)
+                    self._hide(self.checks_box)
+
             self.meter.set(0)
             self.hint.configure(
                 text=f"{snap['present_today']} ON SITE TODAY" if snap["present_today"] else "",
@@ -593,6 +741,7 @@ class CheckpointApp:
         self._show(self.eyebrow, fill="x", pady=(0, 3))
         self._show(self.head, fill="x")
         self._show(self.note, fill="x", pady=(6, 14))
+        self._hide(self.req_head)      # idle-only; the rows now carry a ruling
         self._show(self.checks_box, fill="x")
 
         if mode == PROFILE and snap["verdict"] == "alert_hold":
@@ -796,6 +945,11 @@ class CheckpointApp:
             self._photo = ImageTk.PhotoImage(
                 Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
             self.video.configure(image=self._photo)
+        elif self._photo is not None:
+            # Camera went away — drop the last frame rather than leaving a
+            # frozen image that reads as a live feed.
+            self._photo = None
+            self.video.configure(image="")
 
         self._render(snap)
         self.clock.configure(text=time.strftime("%H:%M"))
@@ -812,6 +966,19 @@ class CheckpointApp:
                                   fg=ui.OK if snap["connected"] else ui.FAINT)
 
         self.root.after(33, self._tick)
+
+    def _exit_press(self, _event=None) -> None:
+        """Arm the exit. Held long enough, the gate closes; released early,
+        nothing happens — so the control is discoverable without being a
+        hazard."""
+        self.exit_btn.configure(text="  RELEASE TO CANCEL  ", fg=ui.AMBER)
+        self._exit_after = self.root.after(EXIT_HOLD_MS, self.shutdown)
+
+    def _exit_release(self, _event=None) -> None:
+        if self._exit_after is not None:
+            self.root.after_cancel(self._exit_after)
+            self._exit_after = None
+        self.exit_btn.configure(text="  HOLD TO EXIT  ", fg=ui.FAINT)
 
     def shutdown(self) -> None:
         with self.state.lock:
@@ -849,10 +1016,14 @@ def main() -> int:
         print(f"{backlog} attendance record(s) waiting from a previous outage — will retry")
     state.pending_count = backlog
 
+    store = LocalStore()
+    print(f"Local cache: {store.summary()}")
+
     threading.Thread(target=capture_loop, args=(state, api), daemon=True).start()
     threading.Thread(target=badge_loop, args=(state, api, reader), daemon=True).start()
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
     threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
+    threading.Thread(target=roster_sync_loop, args=(state, api, store), daemon=True).start()
 
     root = tk.Tk()
     CheckpointApp(root, state, api, queue)
