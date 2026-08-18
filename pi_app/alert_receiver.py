@@ -35,6 +35,7 @@ class _Handler(BaseHTTPRequestHandler):
     token = ""
     policy_provider = None
     on_alert = None
+    on_badge = None
 
     protocol_version = "HTTP/1.1"
 
@@ -84,6 +85,23 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         cls = type(self)
+        if self.path.rstrip("/") == "/api/gate/badge":
+            # A badge presented to a reader that isn't wired to this Pi —
+            # a networked reader, or the master board reporting over Wi-Fi
+            # rather than USB. Same token as the hazard endpoints: a stranger
+            # who could post badges could walk the gate through a check for
+            # somebody who isn't there.
+            tag = (data.get("tag") or "").strip()
+            if not tag:
+                self._reply(400, {"success": False, "message": "tag is required"})
+                return
+            if cls.on_badge is None:
+                self._reply(503, {"success": False, "message": "No badge consumer attached"})
+                return
+            cls.on_badge(tag)
+            self._reply(201, {"success": True, "tag": tag})
+            return
+
         if self.path.rstrip("/") == "/api/gate/alerts":
             kind = (data.get("kind") or "").strip()
             severity = (data.get("severity") or "").strip()
@@ -138,7 +156,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def start_receiver(store, token: str, policy_provider, port: int = 8081,
-                   on_alert=None) -> ThreadingHTTPServer | None:
+                   on_alert=None, on_badge=None) -> ThreadingHTTPServer | None:
     """Start the LAN receiver, or return None if it must not run.
 
     Refuses to start without a token — see the module docstring.
@@ -150,6 +168,7 @@ def start_receiver(store, token: str, policy_provider, port: int = 8081,
     _Handler.token = token
     _Handler.policy_provider = staticmethod(policy_provider)
     _Handler.on_alert = staticmethod(on_alert) if on_alert else None
+    _Handler.on_badge = staticmethod(on_badge) if on_badge else None
 
     server = ThreadingHTTPServer(("0.0.0.0", port), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()

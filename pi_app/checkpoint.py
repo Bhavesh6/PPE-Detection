@@ -1154,6 +1154,10 @@ def main() -> int:
     receiver = start_receiver(
         local_alerts, LOCAL_ALERT_TOKEN, store.policy,
         port=LOCAL_ALERT_PORT,
+        # Badges may arrive over the network as well as from the local
+        # reader — they land on the same queue, so the gate can't tell (or
+        # need to care) which reader a scan came from.
+        on_badge=reader.tags.put,
     )
     if receiver:
         print(f"Local alert receiver: listening on :{LOCAL_ALERT_PORT}")
