@@ -67,7 +67,9 @@ except ImportError:
 API_BASE = os.environ.get("SAFETYFIRST_API", "http://localhost:5000").rstrip("/")
 EMAIL = os.environ.get("SAFETYFIRST_EMAIL", "")
 PASSWORD = os.environ.get("SAFETYFIRST_PASSWORD", "")
-CAMERA_INDEX = int(os.environ.get("SAFETYFIRST_CAMERA", "0"))
+# Parsed per-attempt by _camera_candidates(), which accepts an index, a
+# comma-separated list, or a name fragment — so this is deliberately not
+# int()-ed here, where a name would raise at import and take the gate down.
 SEND_INTERVAL = float(os.environ.get("SAFETYFIRST_INTERVAL", "0.5"))
 WINDOWED = os.environ.get("SAFETYFIRST_WINDOWED", "") == "1"
 GPS_INTERVAL = float(os.environ.get("SAFETYFIRST_GPS_INTERVAL", "20"))
@@ -330,14 +332,80 @@ class ApiClient:
             return None
 
 
+def _video_nodes() -> list[tuple[int, str]]:
+    """(index, card name) for every capture node, lowest index first.
+
+    Read from sysfs rather than probed by opening each one: opening a device
+    to identify it is exactly what must be avoided when another process may
+    already have it.
+    """
+    found = []
+    for path in sorted(Path("/sys/class/video4linux").glob("video*")):
+        try:
+            idx = int(path.name.replace("video", ""))
+            name = (path / "name").read_text().strip()
+        except (OSError, ValueError):
+            continue
+        found.append((idx, name))
+    return sorted(found)
+
+
+def _camera_candidates() -> list[int]:
+    """Which capture indexes to try, in order.
+
+    SAFETYFIRST_CAMERA accepts an index ("0"), several ("0,2"), or a name
+    fragment ("HD camera"). Names matter once more than one camera is
+    attached, because indexes are assigned in enumeration order and shift
+    when a device is unplugged — pinning the gate to "0" is how it ends up
+    staring at the wrong lens after a reboot.
+    """
+    setting = (os.environ.get("SAFETYFIRST_CAMERA") or "0").strip()
+
+    parts = [p.strip() for p in setting.split(",") if p.strip()]
+    if all(p.isdigit() for p in parts):
+        return [int(p) for p in parts]
+
+    wanted = setting.lower()
+    matches = [idx for idx, name in _video_nodes() if wanted in name.lower()]
+    if matches:
+        _camera_candidates.warned = False
+        return matches
+
+    # Said once, not every retry: this runs on a two-second timer, so an
+    # unplugged camera would otherwise write a line a second for as long as
+    # the gate is up and bury everything else in the log.
+    if not getattr(_camera_candidates, "warned", False):
+        print(f"[camera] no device matching {setting!r}; falling back to index 0",
+              file=sys.stderr)
+        _camera_candidates.warned = True
+    return [0]
+
+
 def _open_camera(index: int):
-    """Open the capture device, or None if it isn't there yet."""
-    cap = cv2.VideoCapture(index)
+    """Open a capture device and prove it delivers a frame, else None.
+
+    isOpened() alone is not enough. A camera that needs a vendor daemon to
+    start streaming opens cleanly and then times out on every read, so the
+    gate would sit holding a device that produces nothing. Reading one frame
+    here is what separates "present" from "working", and lets the caller
+    move on to the next candidate.
+
+    V4L2 is requested explicitly: left to choose, OpenCV may pick GStreamer,
+    whose failed attempts have been seen to leave the device claimed - after
+    which every later retry fails against our own stale handle.
+    """
+    cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
     if not cap.isOpened():
         cap.release()
         return None
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+    ok, frame = cap.read()
+    if not ok or frame is None:
+        cap.release()
+        return None
     return cap
 
 
@@ -355,6 +423,7 @@ def capture_loop(state: State, api: ApiClient) -> None:
     read_failures = 0
     last_open_attempt = 0.0
     last_sent = 0.0
+    active_index = None
 
     while True:
         with state.lock:
@@ -368,16 +437,27 @@ def capture_loop(state: State, api: ApiClient) -> None:
                 time.sleep(0.1)
                 continue
             last_open_attempt = now
-            cap = _open_camera(CAMERA_INDEX)
+
+            # Try each candidate until one actually delivers a frame, so a
+            # camera that enumerates but never streams doesn't shut out a
+            # working one sitting on the next index.
+            for candidate in _camera_candidates():
+                cap = _open_camera(candidate)
+                if cap is not None:
+                    if candidate != active_index:
+                        print(f"[camera] using index {candidate}")
+                        active_index = candidate
+                    break
+
             if cap is None:
                 with state.lock:
                     state.frame = None
-                    state.message = f"Camera {CAMERA_INDEX} not available"
+                    state.message = "Camera not available"
                 continue
             read_failures = 0
             with state.lock:
                 # Only clear our own message; a backend error must survive.
-                if state.message.startswith(f"Camera {CAMERA_INDEX}"):
+                if state.message.startswith("Camera"):
                     state.message = ""
 
         ok, frame = cap.read()
@@ -390,7 +470,7 @@ def capture_loop(state: State, api: ApiClient) -> None:
                 read_failures = 0
                 with state.lock:
                     state.frame = None
-                    state.message = f"Camera {CAMERA_INDEX} disconnected"
+                    state.message = "Camera disconnected"
             else:
                 time.sleep(0.1)
             continue
