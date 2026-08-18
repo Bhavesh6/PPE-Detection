@@ -1124,7 +1124,17 @@ def main() -> int:
         print("The gate will keep retrying in the background.", file=sys.stderr)
         state.message = OFFLINE_MESSAGE
 
-    reader = open_reader()
+    # Built before the reader: a serial master reports hazards down the same
+    # wire as badges, so it needs somewhere to put them from its first line.
+    local_alerts = LocalAlerts()
+    waiting = local_alerts.unsynced_count()
+    if waiting:
+        print(f"{waiting} local alert(s) not yet accepted by the cloud — holding the gate until they are")
+
+    store = LocalStore()
+    print(f"Local cache: {store.summary()}")
+
+    reader = open_reader(alerts=local_alerts, policy_provider=store.policy)
     print(f"Badge reader: {reader.name}")
     reader.start()
 
@@ -1137,14 +1147,6 @@ def main() -> int:
     if backlog:
         print(f"{backlog} attendance record(s) waiting from a previous outage — will retry")
     state.pending_count = backlog
-
-    store = LocalStore()
-    print(f"Local cache: {store.summary()}")
-
-    local_alerts = LocalAlerts()
-    waiting = local_alerts.unsynced_count()
-    if waiting:
-        print(f"{waiting} local alert(s) not yet accepted by the cloud — holding the gate until they are")
 
     # Sensors can reach the gate directly when the cloud can't be reached.
     # Off unless a token is set: this endpoint can hold the gate, so running
