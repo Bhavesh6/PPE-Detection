@@ -29,6 +29,9 @@ Configuration comes from the environment (a .env beside this file works too):
     SAFETYFIRST_GPS_PORT    serial port for the GPS module (default /dev/ttyUSB0)
     SAFETYFIRST_GPS_INTERVAL  seconds between location reports (default 20)
     SAFETYFIRST_QUEUE_FLUSH_INTERVAL  seconds between retrying queued attendance records (default 15)
+    SAFETYFIRST_CCTV_URL    site camera on the local network, e.g.
+                            http://safetyfirst-cam.local (blank = no camera)
+    SAFETYFIRST_CCTV_INTERVAL  seconds between relayed frames (default 1.0)
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ from PIL import Image, ImageTk
 import ui
 from badge_reader import open_reader
 from alert_receiver import start_receiver
+from cctv_relay import CAMERA_URL as CCTV_CAMERA_URL, open_relay
 from gps_reporter import open_gps
 from local_alerts import LocalAlerts
 from local_store import LocalStore
@@ -1245,6 +1249,12 @@ def main() -> int:
     print(f"GPS: {gps.name}")
     gps.start()
 
+    # The site camera has a local link to this Pi and no route of its own
+    # to the backend, so the Pi carries its frames out. Started after the
+    # API client is signed in, and silent when no camera is configured.
+    cctv = open_relay(api)
+    print(f"Site camera: {'relaying from ' + CCTV_CAMERA_URL if cctv else 'none configured'}")
+
     queue = OfflineQueue()
     backlog = queue.count()
     if backlog:
@@ -1284,6 +1294,8 @@ def main() -> int:
         state.running = False
     reader.stop()
     gps.stop()
+    if cctv:
+        cctv.stop()
     return 0
 
 
