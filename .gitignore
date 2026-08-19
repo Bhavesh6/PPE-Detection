@@ -22,6 +22,11 @@ backend/app.db
 # copies secrets.h.example to secrets.h locally, and none of those should
 # ever be trackable regardless of which sketch folder they live in.
 **/secrets.h
+# And backups of it, which carry the same WiFi password and device
+# credentials. `**/secrets.h` does not match `secrets.h.bak` — the same
+# gap that left a plaintext .env backup trackable earlier.
+**/secrets.h.*
+!**/secrets.h.example
 
 # IDE / OS
 .idea/
