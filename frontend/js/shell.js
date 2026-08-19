@@ -15,6 +15,7 @@ const Shell = {
     { id: 'admin', href: 'admin.html', icon: 'fa-gauge-high', label: 'Overview', adminOnly: true },
     { id: 'alerts', href: 'alerts.html', icon: 'fa-triangle-exclamation', label: 'Alerts', adminOnly: true },
     { id: 'violations', href: 'violations.html', icon: 'fa-images', label: 'Captures', adminOnly: true },
+    { id: 'cctv', href: 'cctv.html', icon: 'fa-video', label: 'Site Camera', adminOnly: true },
     { id: 'reports', href: 'reports.html', icon: 'fa-file-lines', label: 'Reports', adminOnly: true },
     { id: 'analytics', href: 'analytics.html', icon: 'fa-chart-simple', label: 'Analytics', adminOnly: true },
     { id: 'settings', href: 'settings.html', icon: 'fa-sliders', label: 'Checkpoint Policy', adminOnly: true },

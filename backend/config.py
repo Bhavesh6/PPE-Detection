@@ -123,6 +123,17 @@ class Config:
         if origin.strip()
     ]
 
+    # Base URL of the site CCTV camera (esp32-main/cctv_cam), e.g.
+    # http://safetyfirst-cam.local or http://192.168.1.50 — no trailing
+    # path. Blank means no camera, and the console says so rather than
+    # showing a broken image.
+    #
+    # The backend connects *to* this address, so it must be reachable from
+    # the machine running this process — the same LAN as the camera. A
+    # tunnel does not help here: it exposes the backend outward, which is
+    # the opposite direction.
+    CCTV_URL = os.environ.get("CCTV_URL", "")
+
     # Spoken gate announcements. Blank key means "not configured" — the
     # frontend falls back to the browser's own (robotic) speechSynthesis
     # rather than the gate breaking when nobody's set this up yet.

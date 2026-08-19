@@ -235,9 +235,24 @@ def check_gps(scan):
         return
 
     if isinstance(reader, gps_reporter.NullGPSReader):
-        report(WARN, "GPS",
-               "No module detected on " + os.environ.get("SAFETYFIRST_GPS_PORT", "/dev/ttyUSB0") + ".\n"
-               "Check wiring (TX/RX/GND/VCC) and that pyserial + pynmea2 are installed.")
+        # Say which of the two failures this is. "Nothing plugged in" and
+        # "plugged in but talking to the wrong interface" need opposite
+        # fixes, and a single message covering both sends people to
+        # re-check cabling that was never the problem.
+        found = gps_reporter._quectel_ports()
+        if found:
+            detail = ("A Quectel modem is present but no interface answered AT:\n  "
+                      + "\n  ".join(found)
+                      + "\nCheck it is powered (STATUS LED on) and pyserial is installed.")
+        else:
+            port = os.environ.get("SAFETYFIRST_GPS_PORT")
+            detail = ("No Quectel modem on the USB bus"
+                      + (f", and {port} did not open" if port else
+                         ", and no SAFETYFIRST_GPS_PORT is set")
+                      + ".\nFor the TracX-1b: connect it over USB-C with the jumper on the\n"
+                        "USB pads. For a plain NMEA module: set SAFETYFIRST_GPS_PORT and\n"
+                        "install pyserial + pynmea2.")
+        report(WARN, "GPS", detail)
         return
 
     report(OK, "GPS", reader.name)

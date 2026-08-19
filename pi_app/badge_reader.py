@@ -148,16 +148,31 @@ class KeyboardReader(BadgeReader):
                 self.tags.put(tag)
 
 
-def open_reader() -> BadgeReader:
+def open_reader(alerts=None, policy_provider=None) -> BadgeReader:
     """Return the best available reader.
 
-    SAFETYFIRST_READER=keyboard forces the fallback, which is useful when
-    testing on a Pi that has the module attached.
+    Order is serial → SPI → keyboard. The master ESP32 wins when it's
+    attached because it carries hazard reports as well as badges, and only
+    one process can hold that port open — so if a master is present, this is
+    the thing that must own it.
+
+    SAFETYFIRST_READER forces one: serial | mfrc522 | keyboard.
     """
     preference = os.environ.get("SAFETYFIRST_READER", "auto").lower()
 
     if preference in ("keyboard", "stdin"):
         return KeyboardReader()
+
+    if preference in ("auto", "serial", "esp32"):
+        from serial_bridge import SerialBridgeReader, find_port
+
+        if preference != "auto" or find_port():
+            try:
+                return SerialBridgeReader(alerts=alerts, policy_provider=policy_provider)
+            except Exception as exc:  # noqa: BLE001 - no pyserial, no port, busy
+                if preference in ("serial", "esp32"):
+                    raise SystemExit(f"Serial master unavailable: {exc}")
+                print(f"[badge] serial master not available ({exc})")
 
     if preference in ("auto", "mfrc522"):
         try:

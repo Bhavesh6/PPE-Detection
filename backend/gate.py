@@ -14,7 +14,7 @@ from flask_jwt_extended import get_jwt_identity, jwt_required
 import alerts
 import site_settings
 from extensions import db, limiter
-from models import AttendanceRecord, User, _iso_utc
+from models import AttendanceRecord, SensorAlert, User, _iso_utc
 
 gate_bp = Blueprint("gate", __name__, url_prefix="/api/gate")
 
@@ -153,6 +153,66 @@ def attendance_today():
         "success": True,
         "records": [r.to_dict() for r in records],
         "present_count": len(present),
+    })
+
+
+@gate_bp.route("/roster", methods=["GET"])
+@device_required
+@limiter.limit("30 per minute")
+def roster():
+    """Everything the checkpoint needs to rule on its own while offline.
+
+    One call rather than three, because it is polled on a timer and the three
+    pieces have to agree with each other: a roster from one moment and a
+    policy from another can produce a verdict that matches neither.
+
+    Includes `rfid_tag`, which `to_worker_dict()` deliberately withholds —
+    the gate can't match a badge locally without it. That makes this endpoint
+    a badge-list disclosure, which is why it is device-only: a guest session
+    (no credentials at all) must never be able to enumerate them.
+
+    Deliberately not paginated. This is the whole roster by definition — a
+    partial one would silently turn absent workers into "badge not
+    recognised" the moment the network dropped.
+    """
+    users = User.query.filter(User.is_guest.is_(False)).all()
+
+    today_start = datetime.combine(datetime.now(timezone.utc).date(), time.min)
+    present_today = {
+        row.user_id
+        for row in AttendanceRecord.query.filter(
+            AttendanceRecord.granted.is_(True),
+            AttendanceRecord.timestamp >= today_start,
+        ).all()
+    }
+
+    workers = []
+    for user in users:
+        if not user.rfid_tag:
+            continue          # no badge, so nothing the gate could match on
+        entry = user.to_worker_dict()
+        entry["rfid_tag"] = user.rfid_tag
+        entry["already_present_today"] = user.id in present_today
+        workers.append(entry)
+
+    # Same set /api/alerts/active serves, so an offline gate pauses on exactly
+    # the alerts an online one would.
+    unresolved = (
+        SensorAlert.query.filter(SensorAlert.acknowledged_at.is_(None))
+        .order_by(SensorAlert.timestamp.desc())
+        .all()
+    )
+
+    return jsonify({
+        "success": True,
+        "workers": workers,
+        "policy": site_settings.get_all(),
+        "active_alerts": [row.to_dict() for row in unresolved],
+        "present_count": len(present_today),
+        # The device stamps its cache with this, not with its own clock: a Pi
+        # with no RTC battery boots at the epoch, and an offline record dated
+        # 1970 is worse than one dated slightly late.
+        "server_time": _iso_utc(datetime.now(timezone.utc)),
     })
 
 

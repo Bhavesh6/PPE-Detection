@@ -29,12 +29,16 @@ Configuration comes from the environment (a .env beside this file works too):
     SAFETYFIRST_GPS_PORT    serial port for the GPS module (default /dev/ttyUSB0)
     SAFETYFIRST_GPS_INTERVAL  seconds between location reports (default 20)
     SAFETYFIRST_QUEUE_FLUSH_INTERVAL  seconds between retrying queued attendance records (default 15)
+    SAFETYFIRST_CCTV_URL    site camera on the local network, e.g.
+                            http://safetyfirst-cam.local (blank = no camera)
+    SAFETYFIRST_CCTV_INTERVAL  seconds between relayed frames (default 1.0)
 """
 
 from __future__ import annotations
 
 import base64
 import os
+import sqlite3
 import sys
 import threading
 import time
@@ -48,9 +52,13 @@ from PIL import Image, ImageTk
 
 import ui
 from badge_reader import open_reader
+from alert_receiver import start_receiver
+from cctv_relay import CAMERA_URL as CCTV_CAMERA_URL, open_relay
 from gps_reporter import open_gps
+from local_alerts import LocalAlerts
+from local_store import LocalStore
 from offline_queue import OfflineQueue
-from ui import CheckRow, Meter, Type, surface
+from ui import CheckRow, Meter, ScreenToggle, Type, surface
 
 try:
     from dotenv import load_dotenv
@@ -63,10 +71,30 @@ except ImportError:
 API_BASE = os.environ.get("SAFETYFIRST_API", "http://localhost:5000").rstrip("/")
 EMAIL = os.environ.get("SAFETYFIRST_EMAIL", "")
 PASSWORD = os.environ.get("SAFETYFIRST_PASSWORD", "")
-CAMERA_INDEX = int(os.environ.get("SAFETYFIRST_CAMERA", "0"))
+# Parsed per-attempt by _camera_candidates(), which accepts an index, a
+# comma-separated list, or a name fragment — so this is deliberately not
+# int()-ed here, where a name would raise at import and take the gate down.
 SEND_INTERVAL = float(os.environ.get("SAFETYFIRST_INTERVAL", "0.5"))
 WINDOWED = os.environ.get("SAFETYFIRST_WINDOWED", "") == "1"
 GPS_INTERVAL = float(os.environ.get("SAFETYFIRST_GPS_INTERVAL", "20"))
+# How often the local mirror refreshes while the cloud is reachable. Often
+# enough that a revocation reaches the gate quickly, rare enough that it is
+# not meaningful load next to the frame traffic.
+ROSTER_SYNC_INTERVAL = float(os.environ.get("SAFETYFIRST_ROSTER_SYNC_INTERVAL", "60"))
+# How often a gate that booted offline retries signing in.
+SIGNIN_RETRY_INTERVAL = float(os.environ.get("SAFETYFIRST_SIGNIN_RETRY_INTERVAL", "20"))
+# Shown while the gate is up but has never reached the backend. Matched
+# exactly when clearing it, so a real error raised later isn't wiped.
+OFFLINE_MESSAGE = "Offline — no contact with the service"
+# LAN receiver so sensors can still report a hazard with the cloud down.
+# The token is required: this endpoint can hold the gate, so it must not run
+# open. Unset means the receiver stays off entirely.
+LOCAL_ALERT_PORT = int(os.environ.get("SAFETYFIRST_LOCAL_ALERT_PORT", "8081"))
+LOCAL_ALERT_TOKEN = os.environ.get("SAFETYFIRST_LOCAL_ALERT_TOKEN", "")
+# How often locally-raised alerts are retried against the cloud. Shorter
+# than the roster sync: a hazard the console hasn't seen is time-sensitive
+# in a way a roster refresh is not.
+ALERT_REPLAY_INTERVAL = float(os.environ.get("SAFETYFIRST_ALERT_REPLAY_INTERVAL", "10"))
 QUEUE_FLUSH_INTERVAL = float(os.environ.get("SAFETYFIRST_QUEUE_FLUSH_INTERVAL", "15"))
 
 REQUEST_TIMEOUT = 20
@@ -81,6 +109,15 @@ DENIED_HOLD = 12.0      # longer: they need time to read what to put on
 # PPE must read clean for this long before the gate opens, so a single lucky
 # frame can't clear someone who isn't actually wearing the equipment.
 CONFIRM_SECONDS = 1.2
+# How long the on-screen exit must be held before the gate closes. Long
+# enough that a brush past the screen can't trigger it, short enough that
+# it doesn't feel broken to whoever means it.
+EXIT_HOLD_MS = 900
+# Camera hot-plug. Retry often enough that plugging one in feels immediate,
+# and only declare it gone after a run of failed reads — a single dropped
+# frame is normal on USB and must not blank a working gate.
+CAMERA_RETRY_SECONDS = 2.0
+CAMERA_LOST_AFTER_FAILURES = 15
 
 BG = "#070b14"
 PANEL = "#0b1120"
@@ -122,6 +159,13 @@ class State:
     # The active critical alert, if any — polled even while idle, so the
     # gate shows "paused" before anyone badges in, not only mid-check.
     active_alert: dict | None = None
+    # Whether the local mirror has ever been filled. Nothing depends on it
+    # yet; it exists so failover can later tell "cache is cold" apart from
+    # "cache says this badge is unknown".
+    cache_ready: bool = False
+    # Whether the device account has been authenticated. False when the gate
+    # booted with no backend and is still retrying.
+    signed_in: bool = False
 
     # gate flow
     mode: str = IDLE
@@ -142,7 +186,15 @@ class ApiClient:
     def _headers(self):
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
 
-    def sign_in(self) -> tuple[bool, str]:
+    def sign_in(self) -> tuple[bool, str, bool]:
+        """Returns (ok, detail, reachable).
+
+        `reachable` separates the two failures, which need opposite handling:
+        a rejected credential is a misconfiguration nobody can fix by waiting,
+        while an unreachable backend is the ordinary outage this gate is
+        supposed to survive. Collapsing them into one boolean is what made
+        the gate refuse to start during an outage.
+        """
         if EMAIL and PASSWORD:
             try:
                 res = self.session.post(
@@ -152,20 +204,26 @@ class ApiClient:
                 data = res.json()
                 if res.ok and data.get("success"):
                     self.token = data["token"]
-                    return True, data["user"]["name"]
+                    return True, data["user"]["name"], True
             except requests.RequestException:
-                return False, "Cannot reach the API"
-            return False, "Device credentials rejected"
+                return False, "Cannot reach the API", False
+            except ValueError:
+                # Reached something that isn't the API — a tunnel error page,
+                # a captive portal. Answering is not the same as being it.
+                return False, "Unexpected response from the API", False
+            return False, "Device credentials rejected", True
 
         try:
             res = self.session.post(f"{self.base}/api/auth/guest", timeout=10)
             data = res.json()
             if res.ok and data.get("success"):
                 self.token = data["token"]
-                return True, data["user"]["name"]
-            return False, "Guest session refused"
+                return True, data["user"]["name"], True
+            return False, "Guest session refused", True
         except requests.RequestException:
-            return False, "Cannot reach the API"
+            return False, "Cannot reach the API", False
+        except ValueError:
+            return False, "Unexpected response from the API", False
 
     def start(self) -> bool:
         try:
@@ -203,6 +261,33 @@ class ApiClient:
             return res.json().get("present_count", 0) if res.ok else 0
         except requests.RequestException:
             return 0
+
+    def report_alert(self, kind: str, severity: str, message: str, source: str) -> bool:
+        """Replay a locally-raised alert. True only if the cloud stored it."""
+        try:
+            res = self.session.post(
+                f"{self.base}/api/gate/alerts",
+                json={"kind": kind, "severity": severity,
+                      "message": message, "source": source},
+                headers=self._headers(), timeout=10,
+            )
+            return res.ok
+        except requests.RequestException:
+            return False
+
+    def fetch_roster(self) -> dict | None:
+        """Everything needed to rule offline, in one consistent snapshot."""
+        try:
+            res = self.session.get(
+                f"{self.base}/api/gate/roster",
+                headers=self._headers(), timeout=20,
+            )
+            if not res.ok:
+                return None
+            data = res.json()
+            return data if data.get("success") else None
+        except (requests.RequestException, ValueError):
+            return None
 
     def mark_attendance(self, user_id: int, granted: bool, missing: list) -> bool:
         try:
@@ -251,29 +336,150 @@ class ApiClient:
             return None
 
 
-def capture_loop(state: State, api: ApiClient) -> None:
-    """Camera at full rate for a live-looking feed; inference throttled."""
-    cap = cv2.VideoCapture(CAMERA_INDEX)
+def _video_nodes() -> list[tuple[int, str]]:
+    """(index, card name) for every capture node, lowest index first.
+
+    Read from sysfs rather than probed by opening each one: opening a device
+    to identify it is exactly what must be avoided when another process may
+    already have it.
+    """
+    found = []
+    for path in sorted(Path("/sys/class/video4linux").glob("video*")):
+        try:
+            idx = int(path.name.replace("video", ""))
+            name = (path / "name").read_text().strip()
+        except (OSError, ValueError):
+            continue
+        found.append((idx, name))
+    return sorted(found)
+
+
+def _camera_candidates() -> list[int]:
+    """Which capture indexes to try, in order.
+
+    SAFETYFIRST_CAMERA accepts an index ("0"), several ("0,2"), or a name
+    fragment ("HD camera"). Names matter once more than one camera is
+    attached, because indexes are assigned in enumeration order and shift
+    when a device is unplugged — pinning the gate to "0" is how it ends up
+    staring at the wrong lens after a reboot.
+    """
+    setting = (os.environ.get("SAFETYFIRST_CAMERA") or "0").strip()
+
+    parts = [p.strip() for p in setting.split(",") if p.strip()]
+    if all(p.isdigit() for p in parts):
+        return [int(p) for p in parts]
+
+    wanted = setting.lower()
+    matches = [idx for idx, name in _video_nodes() if wanted in name.lower()]
+    if matches:
+        _camera_candidates.warned = False
+        return matches
+
+    # Said once, not every retry: this runs on a two-second timer, so an
+    # unplugged camera would otherwise write a line a second for as long as
+    # the gate is up and bury everything else in the log.
+    if not getattr(_camera_candidates, "warned", False):
+        print(f"[camera] no device matching {setting!r}; falling back to index 0",
+              file=sys.stderr)
+        _camera_candidates.warned = True
+    return [0]
+
+
+def _open_camera(index: int):
+    """Open a capture device and prove it delivers a frame, else None.
+
+    isOpened() alone is not enough. A camera that needs a vendor daemon to
+    start streaming opens cleanly and then times out on every read, so the
+    gate would sit holding a device that produces nothing. Reading one frame
+    here is what separates "present" from "working", and lets the caller
+    move on to the next candidate.
+
+    V4L2 is requested explicitly: left to choose, OpenCV may pick GStreamer,
+    whose failed attempts have been seen to leave the device claimed - after
+    which every later retry fails against our own stale handle.
+    """
+    cap = cv2.VideoCapture(index, cv2.CAP_V4L2)
+    if not cap.isOpened():
+        cap.release()
+        return None
+
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-    if not cap.isOpened():
-        with state.lock:
-            state.message = f"Camera {CAMERA_INDEX} not available"
-        return
+    ok, frame = cap.read()
+    if not ok or frame is None:
+        cap.release()
+        return None
+    return cap
 
+
+def capture_loop(state: State, api: ApiClient) -> None:
+    """Camera at full rate for a live-looking feed; inference throttled.
+
+    The camera is (re)opened from inside the loop rather than once at start,
+    so the gate is plug-and-play: it can boot before the camera is plugged in,
+    and it recovers on its own if the cable is pulled and put back. Opening
+    once and giving up meant a camera attached seconds after launch was never
+    picked up, and the screen sat there claiming no camera while a perfectly
+    good one was connected — silent until someone thought to restart it.
+    """
+    cap = None
+    read_failures = 0
+    last_open_attempt = 0.0
     last_sent = 0.0
+    active_index = None
+
     while True:
         with state.lock:
             if not state.running:
                 break
             checking = state.mode == PROFILE
 
+        if cap is None:
+            now = time.time()
+            if now - last_open_attempt < CAMERA_RETRY_SECONDS:
+                time.sleep(0.1)
+                continue
+            last_open_attempt = now
+
+            # Try each candidate until one actually delivers a frame, so a
+            # camera that enumerates but never streams doesn't shut out a
+            # working one sitting on the next index.
+            for candidate in _camera_candidates():
+                cap = _open_camera(candidate)
+                if cap is not None:
+                    if candidate != active_index:
+                        print(f"[camera] using index {candidate}")
+                        active_index = candidate
+                    break
+
+            if cap is None:
+                with state.lock:
+                    state.frame = None
+                    state.message = "Camera not available"
+                continue
+            read_failures = 0
+            with state.lock:
+                # Only clear our own message; a backend error must survive.
+                if state.message.startswith("Camera"):
+                    state.message = ""
+
         ok, frame = cap.read()
         if not ok:
-            time.sleep(0.1)
+            # One bad read is normal; a run of them means the device went away.
+            read_failures += 1
+            if read_failures >= CAMERA_LOST_AFTER_FAILURES:
+                cap.release()
+                cap = None
+                read_failures = 0
+                with state.lock:
+                    state.frame = None
+                    state.message = "Camera disconnected"
+            else:
+                time.sleep(0.1)
             continue
 
+        read_failures = 0
         with state.lock:
             state.frame = frame.copy()
 
@@ -295,7 +501,8 @@ def capture_loop(state: State, api: ApiClient) -> None:
                     if result.get("required_ppe"):
                         state.required = result["required_ppe"]
 
-    cap.release()
+    if cap is not None:
+        cap.release()
 
 
 def record_attendance(state: State, api: ApiClient, queue: OfflineQueue,
@@ -335,6 +542,93 @@ def queue_flush_loop(state: State, api: ApiClient, queue: OfflineQueue) -> None:
         time.sleep(QUEUE_FLUSH_INTERVAL)
 
 
+def alert_replay_loop(state: State, api: ApiClient, local_alerts) -> None:
+    """Push locally-raised alerts to the cloud once it is reachable.
+
+    Stops at the first failure in a cycle, like the attendance queue: if the
+    oldest can't get through the network is still down and the rest won't
+    either. Order is preserved — a warning followed by a critical must not
+    arrive the other way round, since the console reads the latest as the
+    current state of the site.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+
+        for row_id, kind, severity, message, source in local_alerts.pending():
+            if not api.report_alert(kind, severity, message, source):
+                break
+            local_alerts.mark_synced(row_id)
+            print(f"[alerts] replayed {severity} {kind} to the cloud")
+
+        time.sleep(ALERT_REPLAY_INTERVAL)
+
+
+def signin_retry_loop(state: State, api: ApiClient) -> None:
+    """Keep trying to sign in after booting without a backend.
+
+    Only runs when the gate started offline. Without it, a Pi that rebooted
+    during an outage would stay unauthenticated until someone noticed and
+    restarted it by hand — which is the same failure as refusing to boot,
+    just deferred.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+
+        ok, detail, reachable = api.sign_in()
+        if ok:
+            api.start()
+            with state.lock:
+                state.signed_in = True
+                state.connected = True
+                if state.message == OFFLINE_MESSAGE:
+                    state.message = ""
+            print(f"Signed in as {detail}")
+            return
+
+        if reachable:
+            # Reachable but refusing us: waiting cannot fix a bad credential,
+            # so say so once rather than logging the same rejection forever.
+            print(f"Sign-in still failing: {detail}", file=sys.stderr)
+
+        time.sleep(SIGNIN_RETRY_INTERVAL)
+
+
+def roster_sync_loop(state: State, api: ApiClient, store) -> None:
+    """Keep the local mirror fresh while the cloud is reachable.
+
+    Nothing reads this cache yet — it is filled now so that when failover
+    lands it has something to fail over *to*. A cache first populated at the
+    moment the network dies is useless, which is the whole reason this runs
+    on a timer during normal operation rather than on demand.
+
+    Failures are silent by design: a sync that can't reach the cloud is the
+    ordinary case this feature exists for, not an error worth putting on a
+    gate display that workers are reading.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+
+        payload = api.fetch_roster()
+        if payload is not None:
+            try:
+                count = store.replace_all(payload)
+                with state.lock:
+                    state.cache_ready = True
+                print(f"[sync] cached {count} workers")
+            except (sqlite3.Error, KeyError, TypeError) as exc:
+                # A malformed payload must not kill the thread — the old
+                # cache stays valid and the next tick tries again.
+                print(f"[sync] could not cache roster: {exc}", file=sys.stderr)
+
+        time.sleep(ROSTER_SYNC_INTERVAL)
+
+
 def gps_loop(state: State, api: ApiClient, gps) -> None:
     """Reports whatever fix the GPS reader currently has, on a timer.
 
@@ -353,7 +647,7 @@ def gps_loop(state: State, api: ApiClient, gps) -> None:
         time.sleep(GPS_INTERVAL)
 
 
-def badge_loop(state: State, api: ApiClient, reader) -> None:
+def badge_loop(state: State, api: ApiClient, reader, local_alerts) -> None:
     """Turn badge scans into gate sessions."""
     while True:
         with state.lock:
@@ -370,6 +664,12 @@ def badge_loop(state: State, api: ApiClient, reader) -> None:
             if mode == IDLE:
                 count = api.present_today()
                 active = api.active_alerts()
+                # Anything raised locally while the cloud was unreachable
+                # counts too, and outranks nothing — a hazard the cloud has
+                # not seen yet is still a hazard. Local entries drop out of
+                # this list once replayed, so the cloud's own copy takes
+                # over rather than the gate holding on two of the same.
+                active = list(active) + local_alerts.active()
                 critical = next((a for a in active if a.get("severity") == "critical"), None)
                 with state.lock:
                     state.present_today = count
@@ -410,11 +710,12 @@ class CheckpointApp:
 
         root.title("SafetyFirst Checkpoint")
         root.configure(bg=ui.BG)
-        if not WINDOWED:
-            root.attributes("-fullscreen", True)
-        root.config(cursor="none")
+        self._fullscreen = not WINDOWED
+        root.attributes("-fullscreen", self._fullscreen)
+        self._apply_cursor()
         root.bind("<Escape>", lambda _e: self.shutdown())
         root.bind("<space>", lambda _e: self._clear_gate())
+        root.bind("<F11>", lambda _e: self._toggle_fullscreen())
 
         root.protocol("WM_DELETE_WINDOW", self.shutdown)
 
@@ -433,8 +734,26 @@ class CheckpointApp:
         tk.Label(bar, text="  CHECKPOINT", bg=ui.BG, fg=ui.FAINT,
                  font=t.eyebrow).pack(side="left")
 
+        # A way back to the desktop that doesn't need a keyboard. The gate
+        # hides the cursor and runs on a wall-mounted touchscreen, so Esc/q
+        # alone strands whoever is standing at it. Hold rather than tap: a
+        # stray brush against a kiosk must not drop the gate mid-shift.
+        self.exit_btn = tk.Label(bar, text="  HOLD TO EXIT  ", bg=ui.BG,
+                                 fg=ui.FAINT, font=t.eyebrow)
+        self.exit_btn.pack(side="right")
+        self.exit_btn.bind("<ButtonPress-1>", self._exit_press)
+        self.exit_btn.bind("<ButtonRelease-1>", self._exit_release)
+        self._exit_after = None
+
+        # Drop out of fullscreen without closing the gate. A plain tap, not
+        # a hold like the exit: this is reversible in one more tap, so
+        # guarding it would only make it feel broken.
+        self.screen_btn = ScreenToggle(bar, ui.BG, self._toggle_fullscreen)
+        self.screen_btn.pack(side="right", padx=(0, 14))
+        self.screen_btn.render(self._fullscreen)
+
         self.clock = tk.Label(bar, text="--:--", bg=ui.BG, fg=ui.INK, font=t.mono_lg)
-        self.clock.pack(side="right")
+        self.clock.pack(side="right", padx=(0, 18))
         self.status = tk.Label(bar, text="●  CONNECTING", bg=ui.BG, fg=ui.FAINT,
                                font=t.eyebrow)
         self.status.pack(side="right", padx=(0, 18))
@@ -492,7 +811,12 @@ class CheckpointApp:
         self.checks_box = tk.Frame(panel, bg=ui.PANEL)
         self.checks = {}
         self._checks_for = None
-        self._build_checks(list(state.required))
+        # Header for the idle-state preview of site policy. Only the waiting
+        # screen uses it — once someone is being checked, the rows speak for
+        # themselves and a label would just crowd the verdict.
+        self.req_head = tk.Label(panel, text="REQUIRED TO PASS", bg=ui.PANEL,
+                                 fg=ui.FAINT, anchor="w", font=t.eyebrow)
+        self._build_checks(list(self.state.required))
 
         # --- footer: meter + hint
         foot = tk.Frame(panel, bg=ui.PANEL)
@@ -537,7 +861,7 @@ class CheckpointApp:
         sitting on the panel has to be told."""
         self.panel.configure(bg=bg)
         for w in (self.eyebrow, self.head, self.word, self.note,
-                  self.checks_box, self.foot, self.hint, self.glyph):
+                  self.checks_box, self.req_head, self.foot, self.hint, self.glyph):
             w.configure(bg=bg)
         self.meter.repaint(bg, ui.LINE)
         self.card.configure(bg=card_bg, highlightbackground=card_line,
@@ -553,9 +877,8 @@ class CheckpointApp:
             alert = snap["active_alert"]
             self._paint(ui.HAZ_BG, ui.HAZ_CARD, ui.HAZ_LINE) if alert else self._paint(ui.PANEL, ui.CARD, ui.LINE)
             self._hide(self.card)
-            self._hide(self.checks_box)
             self._hide(self.glyph)
-            self._show(self.eyebrow, fill="x", pady=(52, 4))
+            self._show(self.eyebrow, fill="x", pady=(30, 4))
             self._show(self.head, fill="x")
             self._show(self.note, fill="x", pady=(8, 0))
             if alert:
@@ -573,6 +896,30 @@ class CheckpointApp:
                 self.note.configure(
                     text=snap["banner"] or "Hold your badge against the reader to begin.",
                     fg=ui.BAD if snap["banner"] else ui.MUTED)
+            # Idle is what the gate shows almost all the time, so the panel
+            # spends it telling people what they'll be checked against —
+            # readable on the walk up, which is the only moment they can
+            # still do something about it. Suppressed during an alert: the
+            # gate isn't going to accept anyone, so listing gear would only
+            # compete with the reason it's paused.
+            if alert:
+                self._hide(self.req_head)
+                self._hide(self.checks_box)
+            else:
+                self._build_checks(snap["required"])
+                if snap["required"]:
+                    # checks_box first: coming back from a verdict it is
+                    # already packed, and the header has to be re-inserted
+                    # above it rather than appended to the end of the panel.
+                    self._show(self.checks_box, fill="x")
+                    self._show(self.req_head, fill="x", pady=(26, 8),
+                               before=self.checks_box)
+                    for row in self.checks.values():
+                        row.set_state("required")
+                else:
+                    self._hide(self.req_head)
+                    self._hide(self.checks_box)
+
             self.meter.set(0)
             self.hint.configure(
                 text=f"{snap['present_today']} ON SITE TODAY" if snap["present_today"] else "",
@@ -593,6 +940,7 @@ class CheckpointApp:
         self._show(self.eyebrow, fill="x", pady=(0, 3))
         self._show(self.head, fill="x")
         self._show(self.note, fill="x", pady=(6, 14))
+        self._hide(self.req_head)      # idle-only; the rows now carry a ruling
         self._show(self.checks_box, fill="x")
 
         if mode == PROFILE and snap["verdict"] == "alert_hold":
@@ -796,6 +1144,11 @@ class CheckpointApp:
             self._photo = ImageTk.PhotoImage(
                 Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
             self.video.configure(image=self._photo)
+        elif self._photo is not None:
+            # Camera went away — drop the last frame rather than leaving a
+            # frozen image that reads as a live feed.
+            self._photo = None
+            self.video.configure(image="")
 
         self._render(snap)
         self.clock.configure(text=time.strftime("%H:%M"))
@@ -813,6 +1166,34 @@ class CheckpointApp:
 
         self.root.after(33, self._tick)
 
+    def _apply_cursor(self) -> None:
+        """Hide the pointer only while the gate owns the screen.
+
+        A kiosk shouldn't show a stray arrow over the verdict, but leaving it
+        hidden in windowed mode makes the machine unusable — the whole point
+        of dropping out of fullscreen is to reach the desktop underneath.
+        """
+        self.root.config(cursor="none" if self._fullscreen else "")
+
+    def _toggle_fullscreen(self, _event=None) -> None:
+        self._fullscreen = not self._fullscreen
+        self.root.attributes("-fullscreen", self._fullscreen)
+        self._apply_cursor()
+        self.screen_btn.render(self._fullscreen)
+
+    def _exit_press(self, _event=None) -> None:
+        """Arm the exit. Held long enough, the gate closes; released early,
+        nothing happens — so the control is discoverable without being a
+        hazard."""
+        self.exit_btn.configure(text="  RELEASE TO CANCEL  ", fg=ui.AMBER)
+        self._exit_after = self.root.after(EXIT_HOLD_MS, self.shutdown)
+
+    def _exit_release(self, _event=None) -> None:
+        if self._exit_after is not None:
+            self.root.after_cancel(self._exit_after)
+            self._exit_after = None
+        self.exit_btn.configure(text="  HOLD TO EXIT  ", fg=ui.FAINT)
+
     def shutdown(self) -> None:
         with self.state.lock:
             self.state.running = False
@@ -824,18 +1205,43 @@ def main() -> int:
     state = State()
     api = ApiClient(API_BASE)
 
-    ok, detail = api.sign_in()
-    if not ok:
+    # A gate that refuses to boot without the backend is useless in exactly
+    # the situation offline mode exists for: the power comes back, the Pi
+    # restarts, and the network is still down. So an unreachable backend is
+    # survivable — the gate comes up and keeps trying in the background.
+    #
+    # A *rejected* credential is different and still fatal. Waiting cannot
+    # fix it, and falling back to a guest session would silently detach the
+    # gate from its device account, filing every decision against a
+    # throwaway identity. Better to fail where someone will read the reason.
+    ok, detail, reachable = api.sign_in()
+    if ok:
+        print(f"Signed in as {detail}")
+        state.signed_in = True
+        if not api.start():
+            print("Could not start a detection session.", file=sys.stderr)
+            return 1
+    elif reachable:
         print(f"Sign-in failed: {detail}", file=sys.stderr)
-        print(f"Is the API running at {API_BASE}?", file=sys.stderr)
+        print("The backend answered and refused these credentials — check "
+              "SAFETYFIRST_EMAIL / SAFETYFIRST_PASSWORD.", file=sys.stderr)
         return 1
-    print(f"Signed in as {detail}")
+    else:
+        print(f"Starting offline: {detail} ({API_BASE})", file=sys.stderr)
+        print("The gate will keep retrying in the background.", file=sys.stderr)
+        state.message = OFFLINE_MESSAGE
 
-    if not api.start():
-        print("Could not start a detection session.", file=sys.stderr)
-        return 1
+    # Built before the reader: a serial master reports hazards down the same
+    # wire as badges, so it needs somewhere to put them from its first line.
+    local_alerts = LocalAlerts()
+    waiting = local_alerts.unsynced_count()
+    if waiting:
+        print(f"{waiting} local alert(s) not yet accepted by the cloud — holding the gate until they are")
 
-    reader = open_reader()
+    store = LocalStore()
+    print(f"Local cache: {store.summary()}")
+
+    reader = open_reader(alerts=local_alerts, policy_provider=store.policy)
     print(f"Badge reader: {reader.name}")
     reader.start()
 
@@ -843,16 +1249,42 @@ def main() -> int:
     print(f"GPS: {gps.name}")
     gps.start()
 
+    # The site camera has a local link to this Pi and no route of its own
+    # to the backend, so the Pi carries its frames out. Started after the
+    # API client is signed in, and silent when no camera is configured.
+    cctv = open_relay(api)
+    print(f"Site camera: {'relaying from ' + CCTV_CAMERA_URL if cctv else 'none configured'}")
+
     queue = OfflineQueue()
     backlog = queue.count()
     if backlog:
         print(f"{backlog} attendance record(s) waiting from a previous outage — will retry")
     state.pending_count = backlog
 
+    # Sensors can reach the gate directly when the cloud can't be reached.
+    # Off unless a token is set: this endpoint can hold the gate, so running
+    # it open would let anyone on the network stop the site.
+    receiver = start_receiver(
+        local_alerts, LOCAL_ALERT_TOKEN, store.policy,
+        port=LOCAL_ALERT_PORT,
+        # Badges may arrive over the network as well as from the local
+        # reader — they land on the same queue, so the gate can't tell (or
+        # need to care) which reader a scan came from.
+        on_badge=reader.tags.put,
+    )
+    if receiver:
+        print(f"Local alert receiver: listening on :{LOCAL_ALERT_PORT}")
+    else:
+        print("Local alert receiver: off (set SAFETYFIRST_LOCAL_ALERT_TOKEN to enable)")
+
     threading.Thread(target=capture_loop, args=(state, api), daemon=True).start()
-    threading.Thread(target=badge_loop, args=(state, api, reader), daemon=True).start()
+    threading.Thread(target=badge_loop, args=(state, api, reader, local_alerts), daemon=True).start()
+    threading.Thread(target=alert_replay_loop, args=(state, api, local_alerts), daemon=True).start()
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
     threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
+    threading.Thread(target=roster_sync_loop, args=(state, api, store), daemon=True).start()
+    if not state.signed_in:
+        threading.Thread(target=signin_retry_loop, args=(state, api), daemon=True).start()
 
     root = tk.Tk()
     CheckpointApp(root, state, api, queue)
@@ -862,6 +1294,8 @@ def main() -> int:
         state.running = False
     reader.stop()
     gps.stop()
+    if cctv:
+        cctv.stop()
     return 0
 
 

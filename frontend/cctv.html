@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Site Camera — SafetyFirst Admin</title>
+    <meta name="description" content="Live view from the site CCTV camera.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+    <style>
+        .cam-frame {
+            position: relative;
+            border-radius: var(--radius);
+            overflow: hidden;
+            aspect-ratio: 4 / 3;
+            background: #0b0b0d;
+            border: 1px solid var(--border);
+        }
+        .cam-frame img {
+            width: 100%; height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+        .cam-empty {
+            position: absolute; inset: 0;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 10px; color: var(--faint); text-align: center; padding: 0 24px;
+        }
+        .cam-frame.is-stale img { opacity: .35; filter: grayscale(1); }
+
+        .fact { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; font-size: .84rem; }
+        .fact + .fact { border-top: 1px solid var(--border); }
+        .fact dt { color: var(--muted); }
+        .fact dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+
+        .badge.is-live i.fa-video { animation: pulse-dot 1.8s ease-in-out infinite; }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+        @media (prefers-reduced-motion: reduce) { .badge.is-live i.fa-video { animation: none; } }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+                    <section class="card lg:col-span-2">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-video"></i>Live View</span>
+                            <span class="badge badge-muted" id="statusBadge"><i class="fas fa-circle-question"></i>Checking…</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="cam-frame" id="camFrame">
+                                <img id="camImage" alt="Live view from the site camera" hidden>
+                                <div class="cam-empty" id="camEmpty">
+                                    <i class="fas fa-video-slash" style="font-size:1.4rem"></i>
+                                    <span id="camEmptyText">Connecting to the camera…</span>
+                                </div>
+                            </div>
+                            <div class="flex items-center justify-between gap-3 flex-wrap" style="margin-top:14px">
+                                <div class="flex items-center gap-2">
+                                    <button id="toggleBtn" class="btn btn-primary btn-sm">
+                                        <i class="fas fa-pause"></i><span>Pause</span>
+                                    </button>
+                                    <button id="fullBtn" class="btn btn-ghost btn-sm">
+                                        <i class="fas fa-expand"></i>Fullscreen
+                                    </button>
+                                </div>
+                                <label class="flex items-center gap-2" style="font-size:.82rem;color:var(--muted)">
+                                    Refresh
+                                    <select id="rateSelect" class="input input-sm" style="width:auto">
+                                        <option value="200">5 / sec</option>
+                                        <option value="350" selected>3 / sec</option>
+                                        <option value="1000">1 / sec</option>
+                                        <option value="5000">Every 5s</option>
+                                    </select>
+                                </label>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-circle-info"></i>Camera</span>
+                        </div>
+                        <div class="card-body">
+                            <dl style="margin:0">
+                                <div class="fact"><dt>Status</dt><dd id="factStatus">—</dd></div>
+                                <div class="fact"><dt>Address</dt><dd id="factUrl" style="word-break:break-all">—</dd></div>
+                                <div class="fact"><dt>Last frame</dt><dd id="factLast">—</dd></div>
+                                <div class="fact"><dt>Frames shown</dt><dd id="factCount">0</dd></div>
+                            </dl>
+                            <p class="text-muted" style="font-size:.8rem;margin-top:14px">
+                                Frames are relayed through the backend, so the camera itself
+                                never has to be reachable from your browser — only from the
+                                machine running the API.
+                            </p>
+                            <p class="text-muted" style="font-size:.8rem;margin-top:10px">
+                                This is a monitoring view. It does not run PPE detection and
+                                raises no records — the gate camera does that.
+                            </p>
+                        </div>
+                    </section>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260807a"></script>
+    <script src="js/auth.js?v=20260807a"></script>
+    <script src="js/shell.js?v=20260807a"></script>
+    <script src="js/chatbot.js?v=20260807a"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('cctv', {
+            title: 'Site Camera',
+            subtitle: 'Live view from the ESP32 camera watching the site',
+        });
+
+        const el = (id) => document.getElementById(id);
+
+        // A frame older than this means the feed has stopped even though
+        // the page is still "running" — worth showing, because a frozen
+        // picture otherwise looks like a very still yard.
+        const STALE_MS = 8000;
+
+        let running = true;
+        let timer = null;
+        let objectUrl = null;      // revoked on replace; leaking one per frame
+                                   // at 3/sec exhausts memory in minutes
+        let lastFrameAt = 0;
+        let frameCount = 0;
+        let consecutiveErrors = 0;
+
+        function setBadge(text, cls, icon) {
+            const b = el('statusBadge');
+            b.className = 'badge ' + cls;
+            b.innerHTML = `<i class="fas ${icon}"></i>${text}`;
+        }
+
+        function showEmpty(message) {
+            el('camEmpty').hidden = false;
+            el('camEmptyText').textContent = message;
+            el('camImage').hidden = true;
+        }
+
+        async function loadStatus() {
+            try {
+                const res = await Auth.fetch('/api/cctv/status');
+                const d = await res.json();
+                el('factUrl').textContent = d.url || 'not set';
+                el('factStatus').textContent = d.configured
+                    ? (d.reachable ? 'Responding' : 'Unreachable')
+                    : 'Not configured';
+                if (!d.configured) {
+                    running = false;
+                    setBadge('Not configured', 'badge-muted', 'fa-plug-circle-xmark');
+                    showEmpty(d.message || 'No camera configured.');
+                }
+                return d;
+            } catch (e) {
+                el('factStatus').textContent = 'Unknown';
+                return null;
+            }
+        }
+
+        // Sequential, not setInterval: a camera that takes longer to answer
+        // than the interval would otherwise accumulate overlapping requests
+        // until the browser's connection pool is full and every one of them
+        // is slow. Each frame is requested only once the previous settles.
+        async function tick() {
+            if (!running) return;
+
+            try {
+                const res = await Auth.fetch('/api/cctv/snapshot');
+                if (!res.ok) throw new Error(String(res.status));
+
+                const blob = await res.blob();
+                if (!blob.size) throw new Error('empty frame');
+
+                const next = URL.createObjectURL(blob);
+                const img = el('camImage');
+                img.src = next;
+                img.hidden = false;
+                el('camEmpty').hidden = true;
+                if (objectUrl) URL.revokeObjectURL(objectUrl);
+                objectUrl = next;
+
+                lastFrameAt = Date.now();
+                frameCount += 1;
+                consecutiveErrors = 0;
+                el('factCount').textContent = frameCount;
+                setBadge('Live', 'badge-ok is-live', 'fa-video');
+            } catch (e) {
+                consecutiveErrors += 1;
+                // One dropped frame is normal on wifi. Only say "offline"
+                // once it's clearly not a blip, so the badge doesn't flicker
+                // red every time a packet goes missing.
+                if (consecutiveErrors >= 3) {
+                    setBadge('Offline', 'badge-danger', 'fa-video-slash');
+                    el('factStatus').textContent = 'Unreachable';
+                    if (frameCount === 0) showEmpty('Cannot reach the camera.');
+                }
+            }
+
+            const delay = parseInt(el('rateSelect').value, 10) || 350;
+            timer = setTimeout(tick, delay);
+        }
+
+        function updateStale() {
+            const stale = lastFrameAt && (Date.now() - lastFrameAt) > STALE_MS;
+            el('camFrame').classList.toggle('is-stale', !!stale);
+            if (!lastFrameAt) { el('factLast').textContent = '—'; return; }
+            const secs = Math.round((Date.now() - lastFrameAt) / 1000);
+            el('factLast').textContent = secs < 2 ? 'just now' : `${secs}s ago`;
+        }
+        setInterval(updateStale, 1000);
+
+        function setRunning(on) {
+            running = on;
+            const btn = el('toggleBtn');
+            btn.innerHTML = on
+                ? '<i class="fas fa-pause"></i><span>Pause</span>'
+                : '<i class="fas fa-play"></i><span>Resume</span>';
+            if (on) {
+                tick();
+            } else {
+                clearTimeout(timer);
+                setBadge('Paused', 'badge-muted', 'fa-pause');
+            }
+        }
+
+        el('toggleBtn').addEventListener('click', () => setRunning(!running));
+
+        el('fullBtn').addEventListener('click', () => {
+            const frame = el('camFrame');
+            if (document.fullscreenElement) document.exitFullscreen();
+            else frame.requestFullscreen?.();
+        });
+
+        // Stop pulling frames when nobody is looking. Left running, a
+        // background tab keeps the backend and the camera busy indefinitely
+        // for a picture no one can see.
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                clearTimeout(timer);
+            } else if (running) {
+                tick();
+            }
+        });
+
+        (async function start() {
+            const status = await loadStatus();
+            if (status && status.configured) tick();
+        })();
+    </script>
+</body>
+</html>

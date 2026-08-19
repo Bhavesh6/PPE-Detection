@@ -10,12 +10,23 @@ ENV/
 
 # Environment secrets
 .env
+# Backups of it are just as sensitive as the original, and get made under
+# time pressure — before editing CORS origins for a new tunnel, say. The
+# bare `.env` pattern does not cover `.env.bak.1787086950`, so one careless
+# `git add -A` would publish every key in it.
+.env.*
+!.env.example
 backend/app.db
 *.db
 # One pattern for every ESP32 sketch folder, current and future — each
 # copies secrets.h.example to secrets.h locally, and none of those should
 # ever be trackable regardless of which sketch folder they live in.
 **/secrets.h
+# And backups of it, which carry the same WiFi password and device
+# credentials. `**/secrets.h` does not match `secrets.h.bak` — the same
+# gap that left a plaintext .env backup trackable earlier.
+**/secrets.h.*
+!**/secrets.h.example
 
 # IDE / OS
 .idea/
