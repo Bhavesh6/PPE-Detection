@@ -32,15 +32,33 @@ import time
 
 import requests
 
-# Where the camera lives on the local network, e.g.
-# http://safetyfirst-cam.local or http://192.168.1.50 — blank disables
-# the relay entirely.
-CAMERA_URL = os.environ.get("SAFETYFIRST_CCTV_URL", "").strip().rstrip("/")
+# These are read when open_relay() is called, never at import time.
+#
+# checkpoint.py imports this module *before* it calls load_dotenv(), so a
+# module-level os.environ read here would see the environment as it stood
+# before the .env file was parsed — which is to say, without any of it.
+# The relay would then report "none configured" no matter what .env said,
+# and the failure is silent: nothing errors, the camera simply never
+# appears. gps_reporter.py already reads inside open_gps() for the same
+# reason; this now matches it.
 
-# Seconds between frames. This is a monitoring view, not a recording: one
-# frame a second is plenty to see that something is happening, and the
-# link out is shared with everything else the gate sends.
-INTERVAL = float(os.environ.get("SAFETYFIRST_CCTV_INTERVAL", "1.0"))
+
+def camera_url() -> str:
+    """Where the camera lives on the local network, e.g.
+    http://safetyfirst-cam.local or http://192.168.1.50 — blank disables
+    the relay entirely."""
+    return os.environ.get("SAFETYFIRST_CCTV_URL", "").strip().rstrip("/")
+
+
+def interval() -> float:
+    """Seconds between frames. This is a monitoring view, not a
+    recording: one frame a second is plenty to see that something is
+    happening, and the link out is shared with everything else the gate
+    sends."""
+    try:
+        return float(os.environ.get("SAFETYFIRST_CCTV_INTERVAL", "1.0"))
+    except ValueError:
+        return 1.0
 
 # The camera is on the LAN and either answers quickly or is not there.
 CAMERA_TIMEOUT = 4.0
@@ -50,10 +68,13 @@ UPLOAD_TIMEOUT = 10.0
 class CCTVRelay:
     """Pulls JPEGs off the local camera and posts them to the backend."""
 
-    def __init__(self, api, camera_url: str, interval: float = 1.0):
+    def __init__(self, api, url: str, poll: float = 1.0):
         self._api = api
-        self._camera = camera_url.rstrip("/")
-        self._interval = max(0.2, interval)
+        self._camera = url.rstrip("/")
+        self._interval = max(0.2, poll)
+        # What the gate prints at startup, so the log says which camera
+        # rather than just that there is one.
+        self.name = self._camera
         self._running = True
         self._thread: threading.Thread | None = None
 
@@ -128,9 +149,10 @@ def open_relay(api) -> CCTVRelay | None:
     caller prints what it got, and "no camera configured" should read
     differently from "a camera that never sends anything".
     """
-    if not CAMERA_URL:
+    url = camera_url()
+    if not url:
         return None
 
-    relay = CCTVRelay(api, CAMERA_URL, INTERVAL)
+    relay = CCTVRelay(api, url, interval())
     relay.start()
     return relay
