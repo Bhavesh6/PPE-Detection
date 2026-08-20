@@ -71,8 +71,13 @@ unsigned long lastUidAt = 0;
 
 /* What the sensor nodes send. Kept small and fixed-size: ESP-NOW carries at
    most 250 bytes and has no fragmentation. */
+/* Widened from 16 to 24 so a node can qualify its readings with its own
+   name — "yard_temperature" is 16 characters and would have been
+   truncated. Both sides must be reflashed together: the length check
+   below drops anything that does not match exactly, so a node still
+   running the old struct goes silent rather than erroring. */
 typedef struct {
-  char  kind[16];      // "gas", "smoke", ...
+  char  kind[24];      // "gas", "yard_temperature", ...
   float value;         // raw reading
   char  unit[8];       // "ppm", "mV", "" if unitless
   char  severity[10];  // "" to let the Pi classify from the site thresholds

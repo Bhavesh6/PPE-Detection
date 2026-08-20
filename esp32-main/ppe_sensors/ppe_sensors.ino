@@ -213,7 +213,7 @@ int postJson(const char *path, const String &payload) {
    drops any packet whose length does not match exactly, so a field added
    on one side and not the other means silence rather than an error. */
 typedef struct {
-  char  kind[16];      // "gas", "smoke", ...
+  char  kind[24];      // "gas", "yard_temperature", ...
   float value;         // raw reading
   char  unit[8];       // "ppm", "mV", "" if unitless
   char  severity[10];  // "" to let the Pi classify from the site thresholds
@@ -275,20 +275,56 @@ static void espnowSend(const char *kind, float value, const char *unit, const ch
 #endif
 
 
+/* ---- Node identity ---------------------------------------------------
+
+   With more than one sensor node on a site, every reading must say which
+   node it came from, and the place that has to carry it is the kind
+   itself. The backend keeps one live row per kind (SensorReading, keyed
+   on kind alone), so two nodes both reporting "gas" overwrite each other
+   and the console shows whichever spoke last with no sign there are two.
+
+   Qualifying the kind - "yard_gas" rather than "gas" - fixes that
+   without a schema change, and gets something better than a fix for
+   free: thresholds are configured per kind, so each node can have its
+   own. A gas limit that makes sense beside the mixer is not the one you
+   want in an open yard.
+
+   Alerts were never lost either way; every report is evaluated as it
+   arrives. It is the live readout that was misleading.
+
+   Set NODE_ID in secrets.h. Left undefined, readings are unqualified and
+   behave exactly as before - correct for a single-node site.
+*/
+#ifdef NODE_ID
+#define NODE_SOURCE NODE_ID
+// Returns a pointer to a shared buffer, so use it before calling again.
+// Every caller here passes it straight into the line being built, which
+// is the only pattern this is meant to serve.
+static const char *qualified(const char *kind) {
+  static char buf[24];
+  snprintf(buf, sizeof(buf), "%s_%s", NODE_ID, kind);
+  return buf;
+}
+#else
+#define NODE_SOURCE "esp32-main"
+#define qualified(k) (k)
+#endif
+
+
 void reportAlert(const char *kind, const char *severity, const char *message) {
 #ifdef REPORT_VIA_ESPNOW
   // The master forwards this as an ALERT line because severity is set.
   // The message text is not carried: the packet is fixed-size and the
   // Pi supplies wording from the kind and severity it already knows.
   (void)message;
-  espnowSend(kind, 0.0f, "", severity);
+  espnowSend(qualified(kind), 0.0f, "", severity);
   return;
 #endif
   StaticJsonDocument<256> body;
-  body["kind"] = kind;
+  body["kind"] = qualified(kind);
   body["severity"] = severity;
   body["message"] = message;
-  body["source"] = "esp32-main";
+  body["source"] = NODE_SOURCE;
   String payload;
   serializeJson(body, payload);
   postJson("/api/gate/alerts", payload);
@@ -305,14 +341,14 @@ void reportReading(const char *kind, float value, const char *unit = nullptr) {
   // Severity left empty on purpose: the Pi holds the site's thresholds
   // from its roster sync, so the same ppm means the same thing whether
   // it arrived this way or over HTTP.
-  espnowSend(kind, value, unit ? unit : "", "");
+  espnowSend(qualified(kind), value, unit ? unit : "", "");
   return;
 #endif
   StaticJsonDocument<192> body;
-  body["kind"] = kind;
+  body["kind"] = qualified(kind);
   body["value"] = value;
   if (unit != nullptr) body["unit"] = unit;
-  body["source"] = "esp32-main";
+  body["source"] = NODE_SOURCE;
   String payload;
   serializeJson(body, payload);
   postJson("/api/gate/sensors", payload);
