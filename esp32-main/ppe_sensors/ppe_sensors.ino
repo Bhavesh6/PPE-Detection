@@ -179,7 +179,111 @@ int postJson(const char *path, const String &payload) {
   return code;
 }
 
+/* ---- Optional: report via the gate master instead of WiFi -----------
+
+   Define REPORT_VIA_ESPNOW in secrets.h to send readings and alerts to
+   the gate master over ESP-NOW, which forwards them to the Pi on its USB
+   line. This is the arrangement for a node with no network of its own -
+   down a shaft, inside a tunnel, or simply out of range of the site AP.
+   The Pi is the only box with a backhaul, and this puts the sensor
+   behind it like everything else.
+
+   THIS IS EITHER/OR, NOT A FALLBACK, and the reason is physical. The
+   master deliberately never joins an AP so it stays on a fixed channel.
+   A node that joins WiFi is moved to the router's channel by the radio,
+   and ESP-NOW between two channels silently does nothing - no error, no
+   packet, just a sensor that appears to work and reports to nobody. So a
+   node either joins WiFi and posts over HTTP, or stays off WiFi and
+   talks to the master. Trying to do both is how you get the quiet
+   failure.
+
+   Set MASTER_MAC to the address the master prints at boot:
+       # ESP-NOW ready, mac 24:6F:28:AA:BB:CC, channel 1
+   and ESPNOW_CHANNEL to the channel on that same line.
+*/
+#ifdef REPORT_VIA_ESPNOW
+#include <esp_now.h>
+#include <esp_wifi.h>
+
+#ifndef ESPNOW_CHANNEL
+#define ESPNOW_CHANNEL 1
+#endif
+
+/* Must stay byte-identical to the struct in gate_master.ino: the master
+   drops any packet whose length does not match exactly, so a field added
+   on one side and not the other means silence rather than an error. */
+typedef struct {
+  char  kind[16];      // "gas", "smoke", ...
+  float value;         // raw reading
+  char  unit[8];       // "ppm", "mV", "" if unitless
+  char  severity[10];  // "" to let the Pi classify from the site thresholds
+} SensorPacket;
+
+static uint8_t masterMac[6] = MASTER_MAC;
+static bool espnowReady = false;
+
+static void espnowBegin() {
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();               // never associate: see the note above
+
+  // Pin the channel explicitly rather than inheriting whatever the radio
+  // happens to be on. Both ends must agree, and "it worked on the bench"
+  // is usually two boards that happened to boot on channel 1.
+  esp_wifi_set_promiscuous(true);
+  esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  esp_wifi_set_promiscuous(false);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("# ESP-NOW init failed - this node cannot report");
+    return;
+  }
+
+  esp_now_peer_info_t peer = {};
+  memcpy(peer.peer_addr, masterMac, 6);
+  peer.channel = ESPNOW_CHANNEL;
+  peer.encrypt = false;
+  if (esp_now_add_peer(&peer) != ESP_OK) {
+    Serial.println("# ESP-NOW could not add the master as a peer");
+    return;
+  }
+
+  espnowReady = true;
+  Serial.printf("# ESP-NOW ready, master %02X:%02X:%02X:%02X:%02X:%02X, channel %d\n",
+                masterMac[0], masterMac[1], masterMac[2],
+                masterMac[3], masterMac[4], masterMac[5], ESPNOW_CHANNEL);
+}
+
+static void espnowSend(const char *kind, float value, const char *unit, const char *severity) {
+  if (!espnowReady) {
+    Serial.println("# ESP-NOW not ready - reading dropped");
+    return;
+  }
+
+  SensorPacket pkt = {};          // zeroed, so unused fields are empty strings
+  strncpy(pkt.kind, kind, sizeof(pkt.kind) - 1);
+  pkt.value = value;
+  if (unit)     strncpy(pkt.unit, unit, sizeof(pkt.unit) - 1);
+  if (severity) strncpy(pkt.severity, severity, sizeof(pkt.severity) - 1);
+
+  esp_err_t err = esp_now_send(masterMac, (uint8_t *)&pkt, sizeof(pkt));
+  // Worth printing: ESP-NOW has no acknowledgement the caller can see
+  // here, so this is the only evidence the packet left the board at all.
+  Serial.printf("ESP-NOW %s %s -> %s\n", kind,
+                (severity && *severity) ? severity : "reading",
+                err == ESP_OK ? "sent" : "FAILED");
+}
+#endif
+
+
 void reportAlert(const char *kind, const char *severity, const char *message) {
+#ifdef REPORT_VIA_ESPNOW
+  // The master forwards this as an ALERT line because severity is set.
+  // The message text is not carried: the packet is fixed-size and the
+  // Pi supplies wording from the kind and severity it already knows.
+  (void)message;
+  espnowSend(kind, 0.0f, "", severity);
+  return;
+#endif
   StaticJsonDocument<256> body;
   body["kind"] = kind;
   body["severity"] = severity;
@@ -197,6 +301,13 @@ void reportAlert(const char *kind, const char *severity, const char *message) {
 // latest reading and raises nothing. unit is optional and defaults to
 // whatever the configured threshold already says, if one exists.
 void reportReading(const char *kind, float value, const char *unit = nullptr) {
+#ifdef REPORT_VIA_ESPNOW
+  // Severity left empty on purpose: the Pi holds the site's thresholds
+  // from its roster sync, so the same ppm means the same thing whether
+  // it arrived this way or over HTTP.
+  espnowSend(kind, value, unit ? unit : "", "");
+  return;
+#endif
   StaticJsonDocument<192> body;
   body["kind"] = kind;
   body["value"] = value;
@@ -257,6 +368,14 @@ void setup() {
   // touches this client for a plain http:// one.
   secureClient.setInsecure();
 
+#ifdef REPORT_VIA_ESPNOW
+  // No WiFi join, no sign-in, no credentials on this board at all: it
+  // reports to the master, which reaches the Pi over USB. Joining an AP
+  // here would move the radio to the router's channel and quietly strand
+  // the master, so this path must not touch WiFi.begin().
+  Serial.println("Reporting mode: ESP-NOW via the gate master (no WiFi)");
+  espnowBegin();
+#else
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -269,6 +388,7 @@ void setup() {
   if (!signIn()) {
     Serial.println("Could not sign in — check API_BASE and that the backend is running and reachable.");
   }
+#endif
 
   Serial.println("\nType a command and press Enter:");
   Serial.println("  gas | smoke | warn        pre-decided severity (/api/gate/alerts)");
