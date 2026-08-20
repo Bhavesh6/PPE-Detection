@@ -55,17 +55,39 @@ CAMERA_TIMEOUT = 4.0
 UPLOAD_TIMEOUT = 10.0
 
 
-def interval() -> float:
-    """Seconds between frames, per camera.
+def interval(camera_id: str | None = None) -> float:
+    """Seconds between frames, optionally for one named camera.
 
     This is a monitoring view, not a recording: one frame a second is
     plenty to see that something is happening, and the link out is shared
     with everything else the gate sends.
+
+    Cameras are not equally fast, and a single global rate makes the
+    slowest one set the experience. The OV2640 encodes JPEG in hardware;
+    the GC2145 has no encoder and every frame is compressed on the CPU,
+    which can take longer than the interval it was asked for. Polling it
+    at the fast camera's rate just queues requests it cannot answer.
+
+    So SAFETYFIRST_CCTV_INTERVAL_<ID> overrides the shared
+    SAFETYFIRST_CCTV_INTERVAL for one camera:
+
+        SAFETYFIRST_CCTV_INTERVAL=1.0
+        SAFETYFIRST_CCTV_INTERVAL_YARD=3.0
     """
-    try:
-        return float(os.environ.get("SAFETYFIRST_CCTV_INTERVAL", "1.0"))
-    except ValueError:
-        return 1.0
+    keys = ["SAFETYFIRST_CCTV_INTERVAL"]
+    if camera_id:
+        slug = re.sub(r"[^A-Z0-9]", "_", camera_id.upper())
+        keys.insert(0, f"SAFETYFIRST_CCTV_INTERVAL_{slug}")
+
+    for key in keys:
+        raw = os.environ.get(key)
+        if raw is None or not raw.strip():
+            continue
+        try:
+            return float(raw)
+        except ValueError:
+            print(f"[cctv] {key}={raw!r} is not a number — ignoring")
+    return 1.0
 
 
 def _derive_id(url: str) -> str:
@@ -140,7 +162,9 @@ class CCTVRelay:
 
     @property
     def name(self) -> str:
-        return f"{self._id} ({self._camera})"
+        # The rate is worth printing: a camera polled at 3s when you
+        # expected 1s looks like a laggy feed rather than a setting.
+        return f"{self._id} ({self._camera} @ {self._interval:g}s)"
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, daemon=True)
@@ -233,7 +257,9 @@ def open_relay(api) -> RelayGroup | None:
     if not targets:
         return None
 
-    poll = interval()
-    group = RelayGroup([CCTVRelay(api, camera_id, url, poll) for camera_id, url in targets])
+    group = RelayGroup([
+        CCTVRelay(api, camera_id, url, interval(camera_id))
+        for camera_id, url in targets
+    ])
     group.start()
     return group

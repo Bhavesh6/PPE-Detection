@@ -34,9 +34,11 @@ token in a header. Each camera still serves /stream directly to anyone
 on its own LAN, which is the right tool for watching it from the site.
 """
 
+import hmac
 import re
 import threading
 import time
+from functools import wraps
 
 import requests
 from flask import Blueprint, Response, current_app, jsonify, request
@@ -55,7 +57,8 @@ READ_TIMEOUT = 4.0
 # console wants the newest picture, and a queue of stale ones would grow
 # without bound the moment a viewer polls slower than the relay sends.
 _frame_lock = threading.Lock()
-_frames: dict[str, tuple[bytes, float]] = {}
+# id -> (jpeg, received_at, how_it_arrived)
+_frames: dict[str, tuple[bytes, float, str]] = {}
 
 # A relayed frame is only worth showing for so long. Past this the feed
 # has stopped and the console should say so rather than present a
@@ -81,6 +84,39 @@ def _camera_base() -> str:
     return (current_app.config.get("CCTV_URL") or "").strip().rstrip("/")
 
 
+def device_or_camera_token(fn):
+    """Allow a frame from the gate's session, or from a camera directly.
+
+    The relay path is the good one: the Pi holds a real device session and
+    the cameras hold no credentials at all. But a camera whose only route
+    out is through the Pi disappears entirely when the Pi is off, and "the
+    yard is invisible because the gate is rebooting" is a poor property
+    for a monitoring feed.
+
+    So a camera may also post on its own, proving itself with a shared
+    secret rather than a login. Deliberately not a JWT: sign-in plus token
+    refresh on an ESP32 is latency and crashes, and the credential would
+    then be worth far more if extracted. This token can do exactly one
+    thing — replace a picture — and nothing else in the API accepts it.
+
+    Blank (the default) means the header is refused outright, so the
+    fallback stays off until someone opts in. Same convention as
+    SAFETYFIRST_LOCAL_ALERT_TOKEN on the Pi, and for the same reason: a
+    device endpoint that runs open is a way in.
+    """
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        expected = (current_app.config.get("CCTV_UPLOAD_TOKEN") or "").strip()
+        supplied = (request.headers.get("X-Device-Token") or "").strip()
+        # Both must be non-empty: an unset token must never mean "anyone
+        # sending an empty header is welcome".
+        if expected and supplied and hmac.compare_digest(supplied, expected):
+            return fn(*args, **kwargs)
+        return device_required(fn)(*args, **kwargs)
+
+    return wrapper
+
+
 def _clean_id(raw: str | None) -> str | None:
     if not raw:
         return None
@@ -88,10 +124,9 @@ def _clean_id(raw: str | None) -> str | None:
     return candidate if CAMERA_ID_RE.match(candidate) else None
 
 
-def _snapshot_of(camera_id: str) -> tuple[bytes | None, float]:
+def _snapshot_of(camera_id: str) -> tuple[bytes | None, float, str]:
     with _frame_lock:
-        frame, at = _frames.get(camera_id, (None, 0.0))
-    return frame, at
+        return _frames.get(camera_id, (None, 0.0, "none"))
 
 
 def _known_ids() -> list[str]:
@@ -100,14 +135,14 @@ def _known_ids() -> list[str]:
 
 
 @cctv_bp.route("/frame", methods=["POST"])
-@device_required
+@device_or_camera_token
 def receive_frame():
-    """Accept one JPEG from the Pi's relay, for one camera.
+    """Accept one JPEG for one camera, from the Pi's relay or the camera.
 
-    device_required, not admin_required: this is a device stating a fact,
-    the same standing as a sensor reading. A guest session cannot do it,
-    because guest sign-in needs no credentials and this would otherwise
-    let anyone who can reach the API paint the console's camera view.
+    A device, not an admin: this is hardware stating a fact, the same
+    standing as a sensor reading. A guest session cannot do it, because
+    guest sign-in needs no credentials and this would otherwise let
+    anyone who can reach the API paint the console's camera view.
     """
     camera_id = _clean_id(request.args.get("id")) or _clean_id(request.headers.get("X-Camera-Id"))
     if camera_id is None:
@@ -121,6 +156,12 @@ def receive_frame():
     if len(data) > MAX_FRAME_BYTES:
         return jsonify({"success": False, "message": "Frame too large"}), 413
 
+    # Worth recording which way it came: a camera that has quietly
+    # switched to posting for itself means the gate relay has stopped,
+    # and that is a fault the console should be able to show rather than
+    # hide behind a picture that still looks fine.
+    source = "direct" if request.headers.get("X-Device-Token") else "relay"
+
     with _frame_lock:
         # Refuse a new id once full rather than evicting one. Evicting
         # would make two misconfigured cameras take turns knocking each
@@ -130,9 +171,9 @@ def receive_frame():
                 "success": False,
                 "message": f"Too many cameras (limit {MAX_CAMERAS})",
             }), 429
-        _frames[camera_id] = (data, time.time())
+        _frames[camera_id] = (data, time.time(), source)
 
-    return jsonify({"success": True, "id": camera_id, "bytes": len(data)})
+    return jsonify({"success": True, "id": camera_id, "bytes": len(data), "via": source})
 
 
 @cctv_bp.route("/cameras", methods=["GET"])
@@ -151,13 +192,19 @@ def cameras():
         })
 
     for camera_id in _known_ids():
-        _, at = _snapshot_of(camera_id)
+        _, at, via = _snapshot_of(camera_id)
         age = now - at
+        live = age < FRAME_STALE_AFTER
+        if live and via == "direct":
+            message = "Posting directly — the gate relay is not carrying this one."
+        elif live:
+            message = "Receiving frames via the gate."
+        else:
+            message = f"Last frame {int(age)}s ago — this feed has stopped."
         out.append({
-            "id": camera_id, "mode": "relay", "source": "via the gate device",
-            "online": age < FRAME_STALE_AFTER, "age": round(age, 1),
-            "message": "Receiving frames." if age < FRAME_STALE_AFTER
-                       else f"Last frame {int(age)}s ago — the relay has stopped.",
+            "id": camera_id, "mode": via,
+            "source": "the camera itself" if via == "direct" else "via the gate device",
+            "online": live, "age": round(age, 1), "message": message,
         })
 
     return jsonify({"cameras": out, "count": len(out)})
@@ -246,7 +293,7 @@ def snapshot():
                 "message": f"Several cameras are connected; specify ?id= ({', '.join(ids)}).",
             }), 400
 
-    frame, at = _snapshot_of(requested)
+    frame, at, _ = _snapshot_of(requested)
     if frame is None:
         return jsonify({"success": False, "message": f"No frames from '{requested}'."}), 404
 

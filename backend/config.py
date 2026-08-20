@@ -134,6 +134,19 @@ class Config:
     # the opposite direction.
     CCTV_URL = os.environ.get("CCTV_URL", "")
 
+    # Shared secret a camera sends as X-Device-Token to post its own
+    # frames, for when the gate device that normally relays them is off.
+    # Blank (the default) refuses the header outright, so the fallback
+    # stays off until someone opts in — same convention as the Pi's
+    # SAFETYFIRST_LOCAL_ALERT_TOKEN, and for the same reason: a device
+    # endpoint that runs open is a way in.
+    #
+    # This token can do exactly one thing, replace a camera's picture. It
+    # is deliberately not a login: a real session on a board that sits on
+    # an open LAN would be worth far more if anyone pulled it off the
+    # flash.
+    CCTV_UPLOAD_TOKEN = os.environ.get("CCTV_UPLOAD_TOKEN", "")
+
     # Spoken gate announcements. Blank key means "not configured" — the
     # frontend falls back to the browser's own (robotic) speechSynthesis
     # rather than the gate breaking when nobody's set this up yet.

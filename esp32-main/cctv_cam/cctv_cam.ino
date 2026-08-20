@@ -71,6 +71,8 @@
 
 #include <WiFi.h>
 #include <ESPmDNS.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include "esp_camera.h"
 #include "esp_http_server.h"
 #include "img_converters.h"      // frame2jpg(), for sensors with no encoder
@@ -361,6 +363,87 @@ static bool start_camera() {
 }
 
 
+/* ---- Optional: post frames to the backend without the Pi -------------
+
+   Normally the Pi relays this camera, which is the better path: it holds
+   a real device session and this board holds no credentials at all. But
+   a camera whose only route out is through the Pi vanishes entirely
+   while the Pi is off or rebooting, and "the yard is invisible because
+   the gate restarted" is poor behaviour for a monitoring feed.
+
+   With BACKEND_URL and UPLOAD_TOKEN set in secrets.h, the camera also
+   posts for itself on a slow timer. When the Pi is up its faster relay
+   simply overwrites these, so the two paths need no coordination — the
+   console always shows whichever frame arrived last. When the Pi is
+   down, this keeps the tile alive.
+
+   The token is not a login. It can do exactly one thing, replace this
+   camera's picture, which is about as much as should ever live in the
+   flash of a board sitting on an open LAN.
+*/
+#if defined(BACKEND_URL) && defined(UPLOAD_TOKEN)
+
+#ifndef UPLOAD_INTERVAL_MS
+// Deliberately slower than the Pi's relay. This is a fallback, not a
+// second feed: it should cost little while the Pi is doing the work.
+#define UPLOAD_INTERVAL_MS 5000
+#endif
+
+static unsigned long last_upload = 0;
+
+static void upload_frame() {
+  camera_fb_t *fb = esp_camera_fb_get();
+  if (!fb) return;
+
+  uint8_t *jpg = NULL; size_t jpg_len = 0; bool needs_free = false;
+  if (!as_jpeg(fb, &jpg, &jpg_len, &needs_free)) {
+    esp_camera_fb_return(fb);
+    return;
+  }
+
+  String url = String(BACKEND_URL) + "/api/cctv/frame?id=" + CAM_ID;
+  const bool secure = url.startsWith("https://");
+
+  // Kept in the narrowest scope that works: a TLS session holds tens of
+  // KB, and this board is already spending its RAM on frame buffers.
+  WiFiClientSecure tls;
+  WiFiClient plain;
+  if (secure) {
+    // No certificate store on this board, and no clock to check
+    // validity against. This protects the token in transit but does not
+    // prove which server received it - acceptable because that token
+    // can only replace a picture, and worth knowing rather than
+    // assuming otherwise.
+    tls.setInsecure();
+  }
+
+  HTTPClient http;
+  bool ok = secure ? http.begin(tls, url) : http.begin(plain, url);
+  if (ok) {
+    http.addHeader("Content-Type", "image/jpeg");
+    http.addHeader("X-Device-Token", UPLOAD_TOKEN);
+    int code = http.POST(jpg, jpg_len);
+
+    // Only state changes are logged. A camera posting every 5s would
+    // otherwise fill the console with identical success lines and bury
+    // anything that mattered.
+    static int last_code = 0;
+    if (code != last_code) {
+      if (code == 200)      Serial.println("[upload] backend accepting frames");
+      else if (code > 0)    Serial.printf("[upload] backend returned %d\n", code);
+      else                  Serial.printf("[upload] failed: %s\n",
+                                          http.errorToString(code).c_str());
+      last_code = code;
+    }
+    http.end();
+  }
+
+  if (needs_free) free(jpg);
+  esp_camera_fb_return(fb);
+}
+#endif
+
+
 void setup() {
   Serial.begin(115200);
   delay(200);
@@ -426,5 +509,14 @@ void loop() {
     Serial.print("[wifi] back: ");
     Serial.println(WiFi.localIP());
   }
+
+#if defined(BACKEND_URL) && defined(UPLOAD_TOKEN)
+  // Fallback path: keep the console's tile alive even with the Pi off.
+  if (millis() - last_upload >= UPLOAD_INTERVAL_MS) {
+    last_upload = millis();
+    upload_frame();
+  }
+#endif
+
   delay(1000);
 }
