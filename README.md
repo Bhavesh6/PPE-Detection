@@ -314,13 +314,54 @@ Email/password auth works with none of this configured.
 
 ## Deployment
 
-- **Backend:** any container host via the included `Dockerfile` (Render,
-  Fly.io, Hugging Face Spaces...). `render.yaml` is set up for Render. Set
-  `GOOGLE_CLIENT_ID`, `CORS_ORIGINS`, and `DATABASE_URL` as environment
-  variables on the host — don't hardcode them.
-- **Frontend:** static hosting (Vercel, Netlify...). `vercel.json` points
-  Vercel at `frontend/`. Update `frontend/js/config.js` with the deployed
-  backend URL first.
+The `Dockerfile` builds **one container serving both the API and the
+console**, so there is a single public URL and the console needs no API
+address configured — it uses its own origin. Works on Hugging Face
+Spaces (the YAML frontmatter at the top of this file is already set up
+for it), Render, Fly.io, or anything that runs a container.
+
+**Two variables are required.** The app *refuses to start* on a known
+host if they're missing, rather than serving traffic with signing keys
+that are published in this repository:
+
+```
+SECRET_KEY          python -c "import secrets; print(secrets.token_urlsafe(48))"
+JWT_SECRET_KEY      (a second, different one)
+```
+
+**Set `DATABASE_URL` too, in practice.** Spaces and Render have
+ephemeral filesystems: the default SQLite file and every evidence photo
+are wiped on each restart or redeploy, taking the compliance record with
+them. Point it at managed Postgres and the decisions survive. Evidence
+images still need a mounted volume (`EVIDENCE_DIR`) — without one, the
+records outlive the photos they reference.
+
+Optional: `GOOGLE_CLIENT_ID`, `GEMINI_API_KEY` / `GROQ_API_KEY` (help
+chatbot), `ELEVENLABS_API_KEY` (spoken announcements), `CCTV_UPLOAD_TOKEN`
+(lets a camera post frames when the gate device is off). Each is blank by
+default and its feature degrades quietly rather than breaking.
+
+`CORS_ORIGINS` is **not** needed for the single-container deployment —
+same origin, so no cross-origin request happens. It only matters if you
+host the console separately.
+
+**Do not raise the gunicorn worker count.** The image pins `-w 1` and
+uses threads instead. The process holds the latest frame from each CCTV
+camera and each user's live detection state in memory; a second worker
+gets its own copy, so frames posted to one become invisible to a viewer
+served by the other. It fails intermittently and per-request. Moving that
+state to Redis or the database is the prerequisite for scaling out.
+
+**Split hosting still works** if you want the console on a CDN: deploy
+`frontend/` anywhere static and either set `PRODUCTION_API` in
+`frontend/js/config.js` or load it once with `?api=https://your-backend`
+(remembered afterwards). Then `CORS_ORIGINS` must list that origin.
+
+**What hosting does not solve:** the Pi and the ESP32 nodes reach the
+backend *outward*, so they need its public URL in their config — but
+nothing reaches *inward* to them. A cloud-hosted backend still cannot
+fetch from a camera on the site's LAN, which is why the Pi relays camera
+frames rather than the server pulling them.
 
 ---
 
