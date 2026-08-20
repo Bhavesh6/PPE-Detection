@@ -1,38 +1,40 @@
-"""Relay the site CCTV camera's picture to the console.
+"""Relay the site CCTV cameras' pictures to the console.
 
-The camera (esp32-main/cctv_cam) serves an open HTTP port and holds no
-credentials. The browser never talks to it directly; this module sits in
-between, and that buys three things:
+The cameras (esp32-main/cctv_cam) serve open HTTP ports and hold no
+credentials. The browser never talks to them directly; this module sits
+in between, and that buys three things:
 
-  - Authentication. The camera cannot check who is asking. The console
+  - Authentication. A camera cannot check who is asking. The console
     already can, so the check lives here, behind @admin_required.
   - Reach. The console is served over HTTPS, and a browser will not load
     an http:// image into an https:// page. Proxying puts the picture on
     the same origin as everything else.
-  - Containment. Only one machine needs a route to the camera.
+  - Containment. Only one machine needs a route to the cameras.
 
-Two ways a frame gets here, because the camera is not always somewhere
-the server can reach:
+Two ways a frame gets here, because a camera is not always somewhere the
+server can reach:
 
-  pull   CCTV_URL is set - the server fetches from the camera itself.
-         Only possible when both sit on one network.
+  relay  the Pi POSTs frames to /frame?id=<camera>, and the most recent
+         one per camera is served from memory. This is the deployment
+         that matters: a node down a shaft or inside a tunnel has no
+         route to anything except the gateway beside it, and the Pi is
+         that gateway. Same shape as the rest of the site, where the gate
+         master reaches the Pi over USB and the ESP-NOW nodes reach the
+         master.
 
-  relay  CCTV_URL is blank - the Pi POSTs frames to /frame, and the most
-         recent one is served from memory. This is the deployment that
-         actually matters: a node down a cave or a tunnel has no route to
-         anything except the gateway beside it, and the Pi is that
-         gateway. It is the same shape as the rest of the system, where
-         the gate master reaches the Pi over USB and the ESP-NOW nodes
-         reach the master.
+  pull   CCTV_URL is set - the server fetches that one camera itself.
+         Only possible when both sit on one network, and only ever one
+         camera, so it is exposed under the reserved id "local".
 
-Why single frames rather than the camera's MJPEG stream: an <img> tag
+Why single frames rather than the cameras' MJPEG streams: an <img> tag
 cannot send an Authorization header, so serving a stream to a long-lived
 <img src> would mean putting the caller's JWT in the query string, where
 it lands in logs and history. Polling costs frame rate and keeps the
-token in a header. The camera still serves /stream directly to anyone on
-its own LAN, which is the right tool for watching it from the site.
+token in a header. Each camera still serves /stream directly to anyone
+on its own LAN, which is the right tool for watching it from the site.
 """
 
+import re
 import threading
 import time
 
@@ -49,61 +51,122 @@ cctv_bp = Blueprint("cctv", __name__, url_prefix="/api/cctv")
 CONNECT_TIMEOUT = 2.0
 READ_TIMEOUT = 4.0
 
-# One frame, replaced in place. Never a buffer or a list: the console
-# wants the newest picture, and a queue of stale ones would grow without
-# bound the moment a viewer is slower than the relay.
+# One frame per camera, replaced in place. Never a buffer or a list: the
+# console wants the newest picture, and a queue of stale ones would grow
+# without bound the moment a viewer polls slower than the relay sends.
 _frame_lock = threading.Lock()
-_frame: bytes | None = None
-_frame_at: float = 0.0
+_frames: dict[str, tuple[bytes, float]] = {}
 
 # A relayed frame is only worth showing for so long. Past this the feed
-# has stopped and the console should say so rather than present a minutes
-# old picture as current.
+# has stopped and the console should say so rather than present a
+# minutes-old picture as current.
 FRAME_STALE_AFTER = 30.0
 
 # The relay is authenticated, but an authenticated device with a bug can
-# still send something enormous. VGA JPEG is ~30-60KB; this is generous
-# and still bounded.
+# still send something enormous. VGA JPEG is ~30-60KB; generous, bounded.
 MAX_FRAME_BYTES = 2 * 1024 * 1024
+
+# Bounds on the id space itself. Without these, a device looping over
+# generated names would grow the store without limit - each entry pinning
+# up to MAX_FRAME_BYTES - and the console would fill with junk tiles.
+MAX_CAMERAS = 8
+CAMERA_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+# Reserved for the pull-mode camera, so it cannot collide with a relayed
+# one of the same name.
+PULL_ID = "local"
 
 
 def _camera_base() -> str:
     return (current_app.config.get("CCTV_URL") or "").strip().rstrip("/")
 
 
-def _stored_frame() -> tuple[bytes | None, float]:
+def _clean_id(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    candidate = raw.strip().lower()
+    return candidate if CAMERA_ID_RE.match(candidate) else None
+
+
+def _snapshot_of(camera_id: str) -> tuple[bytes | None, float]:
     with _frame_lock:
-        return _frame, _frame_at
+        frame, at = _frames.get(camera_id, (None, 0.0))
+    return frame, at
+
+
+def _known_ids() -> list[str]:
+    with _frame_lock:
+        return sorted(_frames)
 
 
 @cctv_bp.route("/frame", methods=["POST"])
 @device_required
 def receive_frame():
-    """Accept one JPEG from the Pi's relay.
+    """Accept one JPEG from the Pi's relay, for one camera.
 
     device_required, not admin_required: this is a device stating a fact,
     the same standing as a sensor reading. A guest session cannot do it,
     because guest sign-in needs no credentials and this would otherwise
     let anyone who can reach the API paint the console's camera view.
     """
+    camera_id = _clean_id(request.args.get("id")) or _clean_id(request.headers.get("X-Camera-Id"))
+    if camera_id is None:
+        return jsonify({"success": False, "message": "Missing or invalid camera id"}), 400
+    if camera_id == PULL_ID:
+        return jsonify({"success": False, "message": f"'{PULL_ID}' is reserved"}), 400
+
     data = request.get_data(cache=False)
     if not data:
         return jsonify({"success": False, "message": "Empty frame"}), 400
     if len(data) > MAX_FRAME_BYTES:
         return jsonify({"success": False, "message": "Frame too large"}), 413
 
-    global _frame, _frame_at
     with _frame_lock:
-        _frame = data
-        _frame_at = time.time()
+        # Refuse a new id once full rather than evicting one. Evicting
+        # would make two misconfigured cameras take turns knocking each
+        # other out, which looks like flakiness rather than a limit.
+        if camera_id not in _frames and len(_frames) >= MAX_CAMERAS:
+            return jsonify({
+                "success": False,
+                "message": f"Too many cameras (limit {MAX_CAMERAS})",
+            }), 429
+        _frames[camera_id] = (data, time.time())
 
-    return jsonify({"success": True, "bytes": len(data)})
+    return jsonify({"success": True, "id": camera_id, "bytes": len(data)})
+
+
+@cctv_bp.route("/cameras", methods=["GET"])
+@admin_required
+def cameras():
+    """Every camera the console knows about, and whether each is live."""
+    now = time.time()
+    out = []
+
+    base = _camera_base()
+    if base:
+        out.append({
+            "id": PULL_ID, "mode": "pull", "source": base,
+            "online": True, "age": None,
+            "message": "Fetched directly by the server.",
+        })
+
+    for camera_id in _known_ids():
+        _, at = _snapshot_of(camera_id)
+        age = now - at
+        out.append({
+            "id": camera_id, "mode": "relay", "source": "via the gate device",
+            "online": age < FRAME_STALE_AFTER, "age": round(age, 1),
+            "message": "Receiving frames." if age < FRAME_STALE_AFTER
+                       else f"Last frame {int(age)}s ago — the relay has stopped.",
+        })
+
+    return jsonify({"cameras": out, "count": len(out)})
 
 
 @cctv_bp.route("/status", methods=["GET"])
 @admin_required
 def status():
-    """Whether a camera is configured, and whether a picture is arriving.
+    """Whether any camera is configured, and whether pictures are arriving.
 
     "nobody configured a camera", "it is configured but unreachable" and
     "the relay has gone quiet" need different fixes, so they are reported
@@ -124,8 +187,8 @@ def status():
             "reachable": reachable, "message": message,
         })
 
-    frame, at = _stored_frame()
-    if frame is None:
+    ids = _known_ids()
+    if not ids:
         return jsonify({
             "configured": True, "mode": "relay", "url": "via the gate device",
             "reachable": False,
@@ -133,23 +196,28 @@ def status():
                        "and is SAFETYFIRST_CCTV_URL set on the Pi?",
         })
 
-    age = time.time() - at
-    fresh = age < FRAME_STALE_AFTER
+    now = time.time()
+    live = [i for i in ids if (now - _snapshot_of(i)[1]) < FRAME_STALE_AFTER]
     return jsonify({
         "configured": True, "mode": "relay", "url": "via the gate device",
-        "reachable": fresh,
-        "message": "Receiving frames from the gate." if fresh
-                   else f"Last frame was {int(age)}s ago — the relay has stopped.",
+        "reachable": bool(live),
+        "message": (f"Receiving frames from {len(live)} of {len(ids)} camera(s)."
+                    if live else "All relayed cameras have gone quiet."),
     })
 
 
 @cctv_bp.route("/snapshot", methods=["GET"])
 @admin_required
 def snapshot():
-    """One current frame, as image/jpeg."""
+    """One current frame, as image/jpeg.
+
+    ?id= selects a camera. Omitting it returns the only one when there is
+    exactly one, so a single-camera install needs no id anywhere.
+    """
+    requested = _clean_id(request.args.get("id"))
     base = _camera_base()
 
-    if base:
+    if base and (requested in (None, PULL_ID)):
         try:
             res = requests.get(f"{base}/snapshot", timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
         except requests.RequestException as exc:
@@ -159,7 +227,6 @@ def snapshot():
                 "success": False,
                 "message": f"Camera unreachable ({type(exc).__name__}).",
             }), 503
-
         if res.status_code != 200 or not res.content:
             return jsonify({
                 "success": False,
@@ -167,17 +234,29 @@ def snapshot():
             }), 502
         return _jpeg(res.content)
 
-    frame, at = _stored_frame()
+    ids = _known_ids()
+    if requested is None:
+        if len(ids) == 1:
+            requested = ids[0]
+        elif not ids:
+            return jsonify({"success": False, "message": "No frame relayed yet."}), 503
+        else:
+            return jsonify({
+                "success": False,
+                "message": f"Several cameras are connected; specify ?id= ({', '.join(ids)}).",
+            }), 400
+
+    frame, at = _snapshot_of(requested)
     if frame is None:
-        return jsonify({"success": False, "message": "No frame relayed yet."}), 503
+        return jsonify({"success": False, "message": f"No frames from '{requested}'."}), 404
 
     # Serve a stale frame as an error rather than a picture. A frozen
     # image looks like a very still room, which is the one way a camera
-    # can mislead somebody watching it.
+    # can actively mislead somebody watching it.
     if (time.time() - at) > FRAME_STALE_AFTER:
         return jsonify({
             "success": False,
-            "message": f"Last frame is {int(time.time() - at)}s old.",
+            "message": f"Last frame from '{requested}' is {int(time.time() - at)}s old.",
         }), 503
 
     return _jpeg(frame)

@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Site Camera — SafetyFirst Admin</title>
-    <meta name="description" content="Live view from the site CCTV camera.">
+    <title>Site Cameras — SafetyFirst Admin</title>
+    <meta name="description" content="Live view from the site CCTV cameras.">
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,6 +12,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/app.css?v=20260807a">
     <style>
+        .cam-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
         .cam-frame {
             position: relative;
             border-radius: var(--radius);
@@ -20,23 +21,15 @@
             background: #0b0b0d;
             border: 1px solid var(--border);
         }
-        .cam-frame img {
-            width: 100%; height: 100%;
-            object-fit: contain;
-            display: block;
-        }
+        .cam-frame img { width: 100%; height: 100%; object-fit: contain; display: block; }
         .cam-empty {
             position: absolute; inset: 0;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            gap: 10px; color: var(--faint); text-align: center; padding: 0 24px;
+            gap: 10px; color: var(--faint); text-align: center; padding: 0 20px; font-size: .84rem;
         }
         .cam-frame.is-stale img { opacity: .35; filter: grayscale(1); }
-
-        .fact { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; font-size: .84rem; }
-        .fact + .fact { border-top: 1px solid var(--border); }
-        .fact dt { color: var(--muted); }
-        .fact dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
-
+        .cam-meta { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; font-size: .78rem; color: var(--muted); }
+        .cam-id { font-weight: 600; color: var(--ink, inherit); letter-spacing: .01em; }
         .badge.is-live i.fa-video { animation: pulse-dot 1.8s ease-in-out infinite; }
         @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
         @media (prefers-reduced-motion: reduce) { .badge.is-live i.fa-video { animation: none; } }
@@ -47,65 +40,43 @@
         <main class="main">
             <div class="content">
 
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-                    <section class="card lg:col-span-2">
-                        <div class="card-head">
-                            <span class="card-title"><i class="fas fa-video"></i>Live View</span>
-                            <span class="badge badge-muted" id="statusBadge"><i class="fas fa-circle-question"></i>Checking…</span>
+                <section class="card mb-5">
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-video"></i>Live View</span>
+                        <span class="badge badge-muted" id="overallBadge"><i class="fas fa-circle-question"></i>Checking…</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="cam-grid" id="camGrid">
+                            <p class="text-muted" id="noCams" style="font-size:.85rem">Looking for cameras…</p>
                         </div>
-                        <div class="card-body">
-                            <div class="cam-frame" id="camFrame">
-                                <img id="camImage" alt="Live view from the site camera" hidden>
-                                <div class="cam-empty" id="camEmpty">
-                                    <i class="fas fa-video-slash" style="font-size:1.4rem"></i>
-                                    <span id="camEmptyText">Connecting to the camera…</span>
-                                </div>
-                            </div>
-                            <div class="flex items-center justify-between gap-3 flex-wrap" style="margin-top:14px">
-                                <div class="flex items-center gap-2">
-                                    <button id="toggleBtn" class="btn btn-primary btn-sm">
-                                        <i class="fas fa-pause"></i><span>Pause</span>
-                                    </button>
-                                    <button id="fullBtn" class="btn btn-ghost btn-sm">
-                                        <i class="fas fa-expand"></i>Fullscreen
-                                    </button>
-                                </div>
-                                <label class="flex items-center gap-2" style="font-size:.82rem;color:var(--muted)">
-                                    Refresh
-                                    <select id="rateSelect" class="input input-sm" style="width:auto">
-                                        <option value="200">5 / sec</option>
-                                        <option value="350" selected>3 / sec</option>
-                                        <option value="1000">1 / sec</option>
-                                        <option value="5000">Every 5s</option>
-                                    </select>
-                                </label>
-                            </div>
-                        </div>
-                    </section>
 
-                    <section class="card">
-                        <div class="card-head">
-                            <span class="card-title"><i class="fas fa-circle-info"></i>Camera</span>
+                        <div class="flex items-center justify-between gap-3 flex-wrap" style="margin-top:18px">
+                            <div class="flex items-center gap-2">
+                                <button id="toggleBtn" class="btn btn-primary btn-sm">
+                                    <i class="fas fa-pause"></i><span>Pause</span>
+                                </button>
+                                <button id="rescanBtn" class="btn btn-ghost btn-sm">
+                                    <i class="fas fa-rotate"></i>Rescan
+                                </button>
+                            </div>
+                            <label class="flex items-center gap-2" style="font-size:.82rem;color:var(--muted)">
+                                Refresh
+                                <select id="rateSelect" class="input input-sm" style="width:auto">
+                                    <option value="200">5 / sec</option>
+                                    <option value="350" selected>3 / sec</option>
+                                    <option value="1000">1 / sec</option>
+                                    <option value="5000">Every 5s</option>
+                                </select>
+                            </label>
                         </div>
-                        <div class="card-body">
-                            <dl style="margin:0">
-                                <div class="fact"><dt>Status</dt><dd id="factStatus">—</dd></div>
-                                <div class="fact"><dt>Address</dt><dd id="factUrl" style="word-break:break-all">—</dd></div>
-                                <div class="fact"><dt>Last frame</dt><dd id="factLast">—</dd></div>
-                                <div class="fact"><dt>Frames shown</dt><dd id="factCount">0</dd></div>
-                            </dl>
-                            <p class="text-muted" style="font-size:.8rem;margin-top:14px">
-                                Frames are relayed through the backend, so the camera itself
-                                never has to be reachable from your browser — only from the
-                                machine running the API.
-                            </p>
-                            <p class="text-muted" style="font-size:.8rem;margin-top:10px">
-                                This is a monitoring view. It does not run PPE detection and
-                                raises no records — the gate camera does that.
-                            </p>
-                        </div>
-                    </section>
-                </div>
+
+                        <p class="text-muted" style="font-size:.8rem;margin-top:14px">
+                            Frames are relayed through the backend, so the cameras never have to be
+                            reachable from your browser — only from the gate device beside them.
+                            This is a monitoring view: it runs no PPE detection and raises no records.
+                        </p>
+                    </div>
+                </section>
 
             </div>
         </main>
@@ -118,146 +89,186 @@
     <script>
         Auth.requireAdmin();
         Shell.render('cctv', {
-            title: 'Site Camera',
-            subtitle: 'Live view from the ESP32 camera watching the site',
+            title: 'Site Cameras',
+            subtitle: 'Live view from the cameras watching the site',
         });
 
         const el = (id) => document.getElementById(id);
 
         // A frame older than this means the feed has stopped even though
-        // the page is still "running" — worth showing, because a frozen
+        // the page is still running — worth showing, because a frozen
         // picture otherwise looks like a very still yard.
         const STALE_MS = 8000;
+        // How often we re-ask which cameras exist, so one appearing later
+        // shows up without a reload.
+        const RESCAN_MS = 20000;
 
         let running = true;
-        let timer = null;
-        let objectUrl = null;      // revoked on replace; leaking one per frame
-                                   // at 3/sec exhausts memory in minutes
-        let lastFrameAt = 0;
-        let frameCount = 0;
-        let consecutiveErrors = 0;
+        const cams = new Map();   // id -> Camera
 
-        function setBadge(text, cls, icon) {
-            const b = el('statusBadge');
-            b.className = 'badge ' + cls;
-            b.innerHTML = `<i class="fas ${icon}"></i>${text}`;
+        function rate() { return parseInt(el('rateSelect').value, 10) || 350; }
+
+        function setOverall() {
+            const all = [...cams.values()];
+            const live = all.filter(c => c.live).length;
+            const b = el('overallBadge');
+            if (!all.length) {
+                b.className = 'badge badge-muted';
+                b.innerHTML = '<i class="fas fa-video-slash"></i>No cameras';
+            } else if (!running) {
+                b.className = 'badge badge-muted';
+                b.innerHTML = '<i class="fas fa-pause"></i>Paused';
+            } else if (live === all.length) {
+                b.className = 'badge badge-ok is-live';
+                b.innerHTML = `<i class="fas fa-video"></i>${live} live`;
+            } else {
+                b.className = live ? 'badge badge-warn' : 'badge badge-danger';
+                b.innerHTML = `<i class="fas fa-video"></i>${live} of ${all.length} live`;
+            }
         }
 
-        function showEmpty(message) {
-            el('camEmpty').hidden = false;
-            el('camEmptyText').textContent = message;
-            el('camImage').hidden = true;
+        class Camera {
+            constructor(info) {
+                this.id = info.id;
+                this.mode = info.mode;
+                this.live = false;
+                this.lastAt = 0;
+                this.frames = 0;
+                this.errors = 0;
+                this.objectUrl = null;   // revoked on replace; leaking one
+                                         // per frame exhausts memory fast
+                this.timer = null;
+                this.build();
+            }
+
+            build() {
+                const wrap = document.createElement('div');
+                wrap.innerHTML = `
+                    <div class="cam-frame" id="frame-${this.id}">
+                        <img id="img-${this.id}" alt="Live view from ${this.id}" hidden>
+                        <div class="cam-empty" id="empty-${this.id}">
+                            <i class="fas fa-video-slash" style="font-size:1.3rem"></i>
+                            <span>Connecting…</span>
+                        </div>
+                    </div>
+                    <div class="cam-meta">
+                        <span class="cam-id"><i class="fas fa-circle" style="font-size:.5rem;vertical-align:middle"></i> ${this.id}</span>
+                        <span id="meta-${this.id}">—</span>
+                    </div>`;
+                el('camGrid').appendChild(wrap);
+                this.wrap = wrap;
+            }
+
+            destroy() {
+                clearTimeout(this.timer);
+                if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+                this.wrap.remove();
+            }
+
+            // Sequential, not setInterval: a camera answering slower than
+            // the interval would otherwise stack overlapping requests
+            // until the browser's connection pool is full and every one
+            // of them is slow.
+            async tick() {
+                if (!running) return;
+                try {
+                    const res = await Auth.fetch(`/api/cctv/snapshot?id=${encodeURIComponent(this.id)}`);
+                    if (!res.ok) throw new Error(String(res.status));
+                    const blob = await res.blob();
+                    if (!blob.size) throw new Error('empty');
+
+                    const next = URL.createObjectURL(blob);
+                    const img = el(`img-${this.id}`);
+                    img.src = next;
+                    img.hidden = false;
+                    el(`empty-${this.id}`).hidden = true;
+                    if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+                    this.objectUrl = next;
+
+                    this.lastAt = Date.now();
+                    this.frames += 1;
+                    this.errors = 0;
+                    this.live = true;
+                } catch (e) {
+                    this.errors += 1;
+                    // One dropped frame is normal on wifi. Only call it
+                    // offline once it's clearly not a blip, so tiles don't
+                    // flicker red every time a packet goes missing.
+                    if (this.errors >= 3) {
+                        this.live = false;
+                        if (!this.frames) {
+                            el(`empty-${this.id}`).hidden = false;
+                            el(`empty-${this.id}`).querySelector('span').textContent = 'Cannot reach this camera.';
+                        }
+                    }
+                }
+                setOverall();
+                this.timer = setTimeout(() => this.tick(), rate());
+            }
+
+            refreshMeta() {
+                const stale = this.lastAt && (Date.now() - this.lastAt) > STALE_MS;
+                el(`frame-${this.id}`).classList.toggle('is-stale', !!stale);
+                const meta = el(`meta-${this.id}`);
+                if (!this.lastAt) { meta.textContent = this.live ? '—' : 'offline'; return; }
+                const secs = Math.round((Date.now() - this.lastAt) / 1000);
+                meta.textContent = `${this.frames} frames · ${secs < 2 ? 'just now' : secs + 's ago'}`;
+            }
         }
 
-        async function loadStatus() {
+        async function discover() {
+            let list = [];
             try {
-                const res = await Auth.fetch('/api/cctv/status');
+                const res = await Auth.fetch('/api/cctv/cameras');
                 const d = await res.json();
-                el('factUrl').textContent = d.url || 'not set';
-                el('factStatus').textContent = d.configured
-                    ? (d.reachable ? 'Responding' : 'Unreachable')
-                    : 'Not configured';
-                if (!d.configured) {
-                    running = false;
-                    setBadge('Not configured', 'badge-muted', 'fa-plug-circle-xmark');
-                    showEmpty(d.message || 'No camera configured.');
-                }
-                return d;
-            } catch (e) {
-                el('factStatus').textContent = 'Unknown';
-                return null;
-            }
-        }
+                list = d.cameras || [];
+            } catch (e) { return; }
 
-        // Sequential, not setInterval: a camera that takes longer to answer
-        // than the interval would otherwise accumulate overlapping requests
-        // until the browser's connection pool is full and every one of them
-        // is slow. Each frame is requested only once the previous settles.
-        async function tick() {
-            if (!running) return;
+            const seen = new Set(list.map(c => c.id));
 
-            try {
-                const res = await Auth.fetch('/api/cctv/snapshot');
-                if (!res.ok) throw new Error(String(res.status));
-
-                const blob = await res.blob();
-                if (!blob.size) throw new Error('empty frame');
-
-                const next = URL.createObjectURL(blob);
-                const img = el('camImage');
-                img.src = next;
-                img.hidden = false;
-                el('camEmpty').hidden = true;
-                if (objectUrl) URL.revokeObjectURL(objectUrl);
-                objectUrl = next;
-
-                lastFrameAt = Date.now();
-                frameCount += 1;
-                consecutiveErrors = 0;
-                el('factCount').textContent = frameCount;
-                setBadge('Live', 'badge-ok is-live', 'fa-video');
-            } catch (e) {
-                consecutiveErrors += 1;
-                // One dropped frame is normal on wifi. Only say "offline"
-                // once it's clearly not a blip, so the badge doesn't flicker
-                // red every time a packet goes missing.
-                if (consecutiveErrors >= 3) {
-                    setBadge('Offline', 'badge-danger', 'fa-video-slash');
-                    el('factStatus').textContent = 'Unreachable';
-                    if (frameCount === 0) showEmpty('Cannot reach the camera.');
-                }
+            // Drop tiles for cameras that have gone away entirely, so a
+            // renamed or removed camera doesn't leave a dead tile behind.
+            for (const [id, cam] of cams) {
+                if (!seen.has(id)) { cam.destroy(); cams.delete(id); }
             }
 
-            const delay = parseInt(el('rateSelect').value, 10) || 350;
-            timer = setTimeout(tick, delay);
+            for (const info of list) {
+                if (cams.has(info.id)) continue;
+                const cam = new Camera(info);
+                cams.set(info.id, cam);
+                if (running) cam.tick();
+            }
+
+            el('noCams').hidden = cams.size > 0;
+            if (!cams.size) el('noCams').textContent =
+                'No cameras yet. Is the gate running, and is SAFETYFIRST_CCTV_URL set on the Pi?';
+            setOverall();
         }
 
-        function updateStale() {
-            const stale = lastFrameAt && (Date.now() - lastFrameAt) > STALE_MS;
-            el('camFrame').classList.toggle('is-stale', !!stale);
-            if (!lastFrameAt) { el('factLast').textContent = '—'; return; }
-            const secs = Math.round((Date.now() - lastFrameAt) / 1000);
-            el('factLast').textContent = secs < 2 ? 'just now' : `${secs}s ago`;
-        }
-        setInterval(updateStale, 1000);
+        setInterval(() => cams.forEach(c => c.refreshMeta()), 1000);
+        setInterval(discover, RESCAN_MS);
 
-        function setRunning(on) {
-            running = on;
-            const btn = el('toggleBtn');
-            btn.innerHTML = on
+        el('toggleBtn').addEventListener('click', () => {
+            running = !running;
+            el('toggleBtn').innerHTML = running
                 ? '<i class="fas fa-pause"></i><span>Pause</span>'
                 : '<i class="fas fa-play"></i><span>Resume</span>';
-            if (on) {
-                tick();
-            } else {
-                clearTimeout(timer);
-                setBadge('Paused', 'badge-muted', 'fa-pause');
-            }
-        }
-
-        el('toggleBtn').addEventListener('click', () => setRunning(!running));
-
-        el('fullBtn').addEventListener('click', () => {
-            const frame = el('camFrame');
-            if (document.fullscreenElement) document.exitFullscreen();
-            else frame.requestFullscreen?.();
+            if (running) cams.forEach(c => c.tick());
+            else cams.forEach(c => clearTimeout(c.timer));
+            setOverall();
         });
+
+        el('rescanBtn').addEventListener('click', discover);
 
         // Stop pulling frames when nobody is looking. Left running, a
-        // background tab keeps the backend and the camera busy indefinitely
-        // for a picture no one can see.
+        // background tab keeps the backend, the gate and every camera
+        // busy indefinitely for a picture no one can see.
         document.addEventListener('visibilitychange', () => {
-            if (document.hidden) {
-                clearTimeout(timer);
-            } else if (running) {
-                tick();
-            }
+            if (document.hidden) cams.forEach(c => clearTimeout(c.timer));
+            else if (running) cams.forEach(c => c.tick());
         });
 
-        (async function start() {
-            const status = await loadStatus();
-            if (status && status.configured) tick();
-        })();
+        discover();
     </script>
 </body>
 </html>
