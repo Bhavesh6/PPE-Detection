@@ -98,6 +98,12 @@ LOCAL_ALERT_TOKEN = os.environ.get("SAFETYFIRST_LOCAL_ALERT_TOKEN", "")
 ALERT_REPLAY_INTERVAL = float(os.environ.get("SAFETYFIRST_ALERT_REPLAY_INTERVAL", "10"))
 QUEUE_FLUSH_INTERVAL = float(os.environ.get("SAFETYFIRST_QUEUE_FLUSH_INTERVAL", "15"))
 
+# The exact message lookup_badge returns when the backend could not be
+# reached at all, as opposed to reaching it and being told no. The
+# difference decides whether the cached roster may answer instead, so
+# it is a named constant rather than a string compared in two places.
+UNREACHABLE = "Cannot reach the API"
+
 REQUEST_TIMEOUT = 20
 
 VIDEO_SPLIT = 0.52
@@ -251,7 +257,7 @@ class ApiClient:
                 return data["worker"], data.get("already_present_today", False), ""
             return None, False, data.get("message", "Badge not recognised")
         except requests.RequestException:
-            return None, False, "Cannot reach the API"
+            return None, False, UNREACHABLE
 
     def present_today(self) -> int:
         try:
@@ -691,7 +697,7 @@ def gps_loop(state: State, api: ApiClient, gps) -> None:
         time.sleep(GPS_INTERVAL)
 
 
-def badge_loop(state: State, api: ApiClient, reader, local_alerts) -> None:
+def badge_loop(state: State, api: ApiClient, reader, local_alerts, store=None) -> None:
     """Turn badge scans into gate sessions."""
     while True:
         with state.lock:
@@ -726,6 +732,23 @@ def badge_loop(state: State, api: ApiClient, reader, local_alerts) -> None:
         # A scan while a decision is on screen clears it and starts the next
         # person — the queue shouldn't wait out a timer.
         worker, already, error = api.lookup_badge(tag)
+
+        # Fall back to the cached roster when the backend is unreachable.
+        # local_store has been filling this mirror since it was written and
+        # nothing had ever read from it — so a gate with no network could
+        # read a badge perfectly and still not know whose it was.
+        #
+        # Only on an unreachable backend, never on a rejection. A backend
+        # that answered "badge not recognised" has consulted the real
+        # roster, and second-guessing that from a stale copy is how a
+        # revoked badge keeps working after someone revoked it.
+        if worker is None and error == UNREACHABLE and store is not None:
+            cached, cached_present = store.worker_by_tag(tag)
+            if cached is not None and store.is_usable():
+                worker, already = cached, cached_present
+                error = ""
+                print(f"[badge] {tag} resolved from the local cache ({store.summary()})")
+
         with state.lock:
             if worker is None:
                 state.banner = error or "Badge not recognised"
@@ -1328,7 +1351,7 @@ def main() -> int:
         print("Local alert receiver: off (set SAFETYFIRST_LOCAL_ALERT_TOKEN to enable)")
 
     threading.Thread(target=capture_loop, args=(state, api, detector), daemon=True).start()
-    threading.Thread(target=badge_loop, args=(state, api, reader, local_alerts), daemon=True).start()
+    threading.Thread(target=badge_loop, args=(state, api, reader, local_alerts, store), daemon=True).start()
     threading.Thread(target=alert_replay_loop, args=(state, api, local_alerts), daemon=True).start()
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
     threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
