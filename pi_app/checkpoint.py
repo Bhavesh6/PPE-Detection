@@ -55,6 +55,7 @@ from badge_reader import open_reader
 from alert_receiver import start_receiver
 from cctv_relay import open_relay
 from gps_reporter import open_gps
+from onnx_detector import open_detector
 from local_alerts import LocalAlerts
 from local_store import LocalStore
 from offline_queue import OfflineQueue
@@ -413,7 +414,32 @@ def _open_camera(index: int):
     return cap
 
 
-def capture_loop(state: State, api: ApiClient) -> None:
+def rule_locally(detections: list, required: list, held: bool) -> tuple[str, list]:
+    """The gate's verdict, decided here rather than by the backend.
+
+    Deliberately the same rule as backend/detection.py's evaluate_access,
+    including the order of its checks: a hazard outranks PPE compliance,
+    because someone in full gear is still not safe to admit into a gas
+    leak, and an empty doorway is "no person" rather than a refusal so an
+    unattended gate doesn't log a stream of false violations.
+
+    Kept identical so a worker gets the same answer whichever path ruled
+    on them. Two rules that drift apart would produce a gate that decides
+    differently depending on whether the network happened to be up.
+    """
+    present = {d["type"] for d in detections if d.get("detected")}
+
+    if "Person" not in present:
+        return "no_person", []
+    if held:
+        return "alert_hold", []
+
+    missing = [item for item in required
+               if f"NO-{item}" in present or item not in present]
+    return ("denied" if missing else "granted"), missing
+
+
+def capture_loop(state: State, api: ApiClient, detector=None) -> None:
     """Camera at full rate for a live-looking feed; inference throttled.
 
     The camera is (re)opened from inside the loop rather than once at start,
@@ -487,6 +513,24 @@ def capture_loop(state: State, api: ApiClient) -> None:
         now = time.time()
         if checking and now - last_sent >= SEND_INTERVAL:
             last_sent = now
+
+            if detector is not None:
+                # On-device inference: no network in the decision path at
+                # all. state.connected is left alone here on purpose — it
+                # means "can we reach the backend", which is still true or
+                # false regardless of where the model ran, and the loops
+                # that actually talk to the backend are the ones that know.
+                with state.lock:
+                    required = list(state.required)
+                    held = state.active_alert is not None
+                detections = detector.detect(frame)
+                verdict, missing = rule_locally(detections, required, held)
+                with state.lock:
+                    state.detections = detections
+                    state.verdict = verdict
+                    state.missing = missing
+                continue
+
             result = api.send_frame(frame)
             with state.lock:
                 if result is None:
@@ -1245,6 +1289,12 @@ def main() -> int:
     print(f"Badge reader: {reader.name}")
     reader.start()
 
+    # Where the PPE decision gets made. On-device keeps the gate ruling
+    # with the network completely down, which the backend path cannot —
+    # and unlike the AI HAT it needs nothing that isn't already installed.
+    detector = open_detector()
+    print(f"Inference: {detector.name if detector else 'backend (send frames to the API)'}")
+
     gps = open_gps()
     print(f"GPS: {gps.name}")
     gps.start()
@@ -1277,7 +1327,7 @@ def main() -> int:
     else:
         print("Local alert receiver: off (set SAFETYFIRST_LOCAL_ALERT_TOKEN to enable)")
 
-    threading.Thread(target=capture_loop, args=(state, api), daemon=True).start()
+    threading.Thread(target=capture_loop, args=(state, api, detector), daemon=True).start()
     threading.Thread(target=badge_loop, args=(state, api, reader, local_alerts), daemon=True).start()
     threading.Thread(target=alert_replay_loop, args=(state, api, local_alerts), daemon=True).start()
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
