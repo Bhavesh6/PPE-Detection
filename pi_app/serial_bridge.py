@@ -39,6 +39,11 @@ RECONNECT_SECONDS = 3.0
 # turned away can fix their gear and re-present the same badge.
 REPEAT_LOCKOUT_SECONDS = 3.0
 
+# How often this Pi tells the master its temperature. Comfortably inside
+# the master's 30s failsafe, so a single missed update never spins the
+# fan up on its own — only a genuinely silent Pi does.
+TEMP_REPORT_SECONDS = float(os.environ.get("SAFETYFIRST_TEMP_REPORT_INTERVAL", "5"))
+
 
 def find_port() -> str | None:
     """First likely master board, or None.
@@ -67,6 +72,13 @@ class SerialBridgeReader(BadgeReader):
         self._alerts = alerts
         self._policy = policy_provider or (lambda: {})
         self._conn = None
+
+        # Last fan status the master reported. Read by doctor.py and the
+        # gate's status line; None-ish values mean it has never spoken,
+        # which is different from a fan reporting zero.
+        self.fan_duty: int | None = None
+        self.fan_rpm: int | None = None
+        self.fan_seen_at: float = 0.0
 
     # -- connection ------------------------------------------------------
     def _open(self) -> bool:
@@ -109,6 +121,23 @@ class SerialBridgeReader(BadgeReader):
                 self.tags.put(tag)
             return
 
+        if verb == "FAN" and len(parts) >= 3:
+            # Status, not an alert — handled before the _alerts guard
+            # below so the fan still reports on a gate started without
+            # the local alert receiver.
+            try:
+                self.fan_duty = int(parts[1])
+                self.fan_rpm = int(parts[2])
+            except ValueError:
+                return
+            self.fan_seen_at = time.monotonic()
+            # A fan reporting 0 RPM while being driven is a seized or
+            # unplugged fan, and the Pi behind it is about to get hot.
+            # Worth a line; the duty alone would look perfectly healthy.
+            if self.fan_duty > 0 and self.fan_rpm == 0:
+                print(f"[serial] fan at {self.fan_duty}% but reporting 0 RPM — check it is spinning")
+            return
+
         if self._alerts is None:
             return
 
@@ -138,14 +167,60 @@ class SerialBridgeReader(BadgeReader):
                                 source="esp32-master", value=value)
             print(f"[serial] {kind} {value}{unit} crossed {severity}")
 
+    # -- cooling ----------------------------------------------------------
+    def _cpu_temperature(self) -> float | None:
+        """This Pi's CPU temperature in °C, or None if it can't be read.
+
+        Read from sysfs rather than `vcgencmd`, which needs /dev/vcio and
+        is not present on every image — including this one.
+        """
+        try:
+            with open("/sys/class/thermal/thermal_zone0/temp") as handle:
+                return int(handle.read().strip()) / 1000.0
+        except (OSError, ValueError):
+            return None
+
+    def _send_temperature(self) -> None:
+        """Tell the master how hot we are, so it can set the fan.
+
+        The AI HAT has no temperature sensor and the Pi's fan header is
+        occupied, so the master drives the fan — but only this side knows
+        the temperature. Load goes with it as a leading indicator: a Pi
+        that has just started inference is already making the heat its
+        sensor will report twenty seconds from now.
+
+        Failure here is deliberately quiet. The master treats silence as
+        a fault and speeds the fan up on its own, so a Pi that cannot
+        report is cooled harder rather than not at all.
+        """
+        temp = self._cpu_temperature()
+        if temp is None or self._conn is None:
+            return
+        try:
+            load = os.getloadavg()[0]
+        except OSError:
+            load = 0.0
+        try:
+            self._conn.write(f"TEMP {temp:.1f} {load:.2f}\n".encode("ascii"))
+        except Exception:  # noqa: BLE001 - a write failure is the reader's problem
+            pass
+
     # -- loop ------------------------------------------------------------
     def _loop(self) -> None:
         last: dict = {}
+        next_temp = 0.0
         while self._running:
             if self._conn is None:
                 if not self._open():
                     time.sleep(RECONNECT_SECONDS)
                     continue
+
+            # readline() below has a 1s timeout, so this loop is already
+            # a usable clock — no separate thread needed for the update.
+            now = time.monotonic()
+            if now >= next_temp:
+                next_temp = now + TEMP_REPORT_SECONDS
+                self._send_temperature()
 
             try:
                 raw = self._conn.readline()

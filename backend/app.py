@@ -1,7 +1,7 @@
 import os
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 
 load_dotenv()
@@ -78,9 +78,43 @@ def create_app():
         db.create_all()
         _add_missing_columns()
 
+    # Serve the console from the API when they are deployed together.
+    #
+    # In development they are two servers (backend on :5000, frontend on
+    # :8000) because a static server that never caches makes CSS edits
+    # visible immediately. A hosted deployment is one container with one
+    # public URL, so the API serves the pages too — and then the console
+    # needs no API address at all, because it is the same origin.
+    #
+    # Absent (a backend-only image), every path below still falls through
+    # to the JSON identity response, so nothing breaks by omitting it.
+    FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
+    has_frontend = os.path.isdir(FRONTEND_DIR)
+
     @app.route("/")
     def index():
+        if has_frontend:
+            return send_from_directory(FRONTEND_DIR, "index.html")
         return jsonify({"status": "ok", "service": "PPE Detection API"})
+
+    if has_frontend:
+        @app.route("/<path:filename>")
+        def frontend_file(filename):
+            """Static console files, by name only.
+
+            Registered after every blueprint, so /api/* is already claimed
+            and cannot be shadowed by a file of the same name. Unknown
+            paths return the JSON identity rather than index.html: this is
+            not a single-page app, and silently answering 200 with a page
+            for a mistyped API path is how a client ends up parsing HTML
+            as JSON and reporting something incomprehensible.
+            """
+            candidate = os.path.join(FRONTEND_DIR, filename)
+            if os.path.isfile(candidate):
+                # send_from_directory rejects traversal itself; this is
+                # only deciding whether we have the file at all.
+                return send_from_directory(FRONTEND_DIR, filename)
+            return jsonify({"status": "ok", "service": "PPE Detection API"}), 404
 
     @app.route("/api/health")
     def health():

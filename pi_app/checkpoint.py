@@ -53,7 +53,7 @@ from PIL import Image, ImageTk
 import ui
 from badge_reader import open_reader
 from alert_receiver import start_receiver
-from cctv_relay import CAMERA_URL as CCTV_CAMERA_URL, open_relay
+from cctv_relay import open_relay
 from gps_reporter import open_gps
 from local_alerts import LocalAlerts
 from local_store import LocalStore
@@ -1253,7 +1253,7 @@ def main() -> int:
     # to the backend, so the Pi carries its frames out. Started after the
     # API client is signed in, and silent when no camera is configured.
     cctv = open_relay(api)
-    print(f"Site camera: {'relaying from ' + CCTV_CAMERA_URL if cctv else 'none configured'}")
+    print(f"Site camera: {'relaying from ' + cctv.name if cctv else 'none configured'}")
 
     queue = OfflineQueue()
     backlog = queue.count()

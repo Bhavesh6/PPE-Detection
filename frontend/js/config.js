@@ -32,16 +32,33 @@ const PRODUCTION_API = '';
 
   const isLocal = ['localhost', '127.0.0.1', ''].includes(window.location.hostname);
 
-  window.API_BASE_URL =
-    fromQuery ||
-    stored ||
-    window.API_BASE_URL ||
-    (isLocal ? 'http://localhost:5000' : PRODUCTION_API);
+  // Empty string means "same origin" — relative URLs, i.e. the server
+  // that served this page is also the API. That is the shape of a single
+  // hosted deployment (Hugging Face Space, Render, one container), where
+  // the backend serves the console itself and there is no second host to
+  // name. It is the last resort rather than the first, so a split
+  // deployment can still point somewhere else.
+  const SAME_ORIGIN = '';
 
-  if (!window.API_BASE_URL) {
-    console.error(
-      '[SafetyFirst] No API URL configured. Set PRODUCTION_API in js/config.js, ' +
-      'or load the page with ?api=https://your-backend'
+  let resolved;
+  if (fromQuery) resolved = fromQuery;
+  else if (stored) resolved = stored;
+  else if (window.API_BASE_URL) resolved = window.API_BASE_URL;
+  else if (isLocal) resolved = 'http://localhost:5000';
+  else if (PRODUCTION_API) resolved = PRODUCTION_API;
+  else resolved = SAME_ORIGIN;
+
+  window.API_BASE_URL = resolved;
+
+  if (resolved === SAME_ORIGIN && !isLocal) {
+    // Not an error — but if this page is being served by a plain static
+    // server rather than the backend, every API call will 404 against
+    // that static server, which looks like the API being broken rather
+    // than unconfigured. Say so once, here, where it is diagnosable.
+    console.info(
+      '[SafetyFirst] Using same-origin API (' + window.location.origin + '). ' +
+      'If this page is served separately from the backend, load it once with ' +
+      '?api=https://your-backend — it is remembered afterwards.'
     );
   }
 
