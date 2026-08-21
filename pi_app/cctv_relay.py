@@ -50,6 +50,12 @@ import requests
 # Must satisfy the backend's own id rule, or /frame rejects the post.
 _ID_OK = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
+# urllib3 puts the connection object's address inside its error text
+# ("<HTTPConnection object at 0xffff316ac6e0>"), and that address differs
+# on every attempt. Comparing raw messages therefore made each repeat of
+# one unchanging fault look like a brand new failure.
+_ADDR = re.compile(r"0x[0-9a-fA-F]+")
+
 # The camera is on the LAN and either answers quickly or is not there.
 CAMERA_TIMEOUT = 4.0
 UPLOAD_TIMEOUT = 10.0
@@ -310,9 +316,16 @@ class CCTVRelay:
             except Exception as exc:  # noqa: BLE001 - never kill the gate over a picture
                 message = f"{type(exc).__name__}: {exc}"
                 self.last_error = message
-                if message != last_reported:
+                # Compare on the message with addresses masked out, not the
+                # message itself. Without this an unreachable camera wrote a
+                # line every second and buried everything the gate actually
+                # said — a badge decision was lost in 45 lines of identical
+                # DNS failures, which is the exact harm this guard exists to
+                # prevent.
+                key = _ADDR.sub("0x*", message)
+                if key != last_reported:
                     print(f"[cctv:{self._id}] paused — {message}")
-                    last_reported = message
+                    last_reported = key
 
             # Measure from the start of the cycle so a slow frame doesn't
             # add its latency to the interval and drift the rate down.
