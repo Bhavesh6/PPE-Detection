@@ -18,6 +18,8 @@
 // Reporting route — see board_gate.h for the full explanation. If this
 // node is the one out of AP range, this is the file to uncomment in.
 //
-// #define REPORT_VIA_ESPNOW
-// #define MASTER_MAC {0x24, 0x6F, 0x28, 0xAA, 0xBB, 0xCC}
-// #define ESPNOW_CHANNEL 1
+// Live values, read off the master's own boot line on 2026-08-22:
+//   # ESP-NOW ready, mac 88:57:21:79:C3:C4, channel 1
+#define REPORT_VIA_ESPNOW
+#define MASTER_MAC {0x88, 0x57, 0x21, 0x79, 0xC3, 0xC4}
+#define ESPNOW_CHANNEL 1

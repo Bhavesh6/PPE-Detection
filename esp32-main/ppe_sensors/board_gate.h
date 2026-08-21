@@ -29,6 +29,8 @@
 // MASTER_MAC and ESPNOW_CHANNEL come from the line the master prints at
 // boot: "# ESP-NOW ready, mac 24:6F:28:AA:BB:CC, channel 1"
 //
-// #define REPORT_VIA_ESPNOW
-// #define MASTER_MAC {0x24, 0x6F, 0x28, 0xAA, 0xBB, 0xCC}
-// #define ESPNOW_CHANNEL 1
+// Live values, read off the master's own boot line on 2026-08-22:
+//   # ESP-NOW ready, mac 88:57:21:79:C3:C4, channel 1
+#define REPORT_VIA_ESPNOW
+#define MASTER_MAC {0x88, 0x57, 0x21, 0x79, 0xC3, 0xC4}
+#define ESPNOW_CHANNEL 1
