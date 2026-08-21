@@ -182,8 +182,11 @@ class SerialBridgeReader(BadgeReader):
     def _cpu_temperature(self) -> float | None:
         """This Pi's CPU temperature in °C, or None if it can't be read.
 
-        Read from sysfs rather than `vcgencmd`, which needs /dev/vcio and
-        is not present on every image — including this one.
+        Read from sysfs rather than `vcgencmd`. vcgencmd is installed on
+        this Pi but cannot be used by the gate: it talks to /dev/vcio,
+        which is root:video 0660, and this process is not in that group —
+        it exits 255 with "Can't open device file". sysfs needs no
+        privileges and no group membership at all.
         """
         try:
             with open("/sys/class/thermal/thermal_zone0/temp") as handle:
