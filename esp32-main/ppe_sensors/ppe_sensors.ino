@@ -81,7 +81,12 @@ String authToken;
 // because C++ doesn't hoist globals the way loop()/setup() might suggest:
 // a function defined earlier in the file can't see a variable declared
 // later, only a forward-declared or already-seen one.
-bool autoMode = false;
+// On by default. This was false, which meant a node reported nothing
+// until somebody typed "auto" at a serial console - and went silent
+// again on the next power cycle. That is fine on a bench and useless
+// down a shaft, where the whole point is that nobody is standing there.
+// The toggle stays for testing; only the starting state changes.
+bool autoMode = true;
 unsigned long lastAutoSend = 0;
 // DHT11's datasheet minimum is roughly 1s between reads; 4s is
 // comfortably above that and matches the simulator's cadence, so a
