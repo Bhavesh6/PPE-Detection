@@ -723,8 +723,10 @@
             </div>
             <div class="promise">
                 <div class="promise-item">RFID / NFC tags</div>
-                <div class="promise-note">An MFRC522 reader over SPI, identifying the person
-                    rather than the equipment. The camera was already better at the equipment.</div>
+                <div class="promise-note">An MFRC522 reader, identifying the person rather
+                    than the equipment &mdash; the camera was already better at the equipment. It sits
+                    on an ESP32 beside the gate that carries scans to the Pi over USB, so the reader
+                    does not need the Pi's own pins or its attention.</div>
             </div>
             <div class="promise">
                 <div class="promise-item">Automated gate control at checkpoints</div>
@@ -734,8 +736,10 @@
             <div class="promise">
                 <div class="promise-item">IoT sensors and an offline mode</div>
                 <div class="promise-note">Hazard alerts that hold the gate, raised by a threshold
-                    an administrator sets, plus a local queue so a dropped link cannot lose a
-                    decision.</div>
+                    an administrator sets. The nodes that raise them join no network: they speak
+                    ESP-NOW to a master at the gate, which reaches the one machine on site with a way
+                    out. And the gate rules on its own &mdash; it keeps the roster, the policy and the
+                    model locally, so a severed link costs a queue to drain, not a decision.</div>
             </div>
             <div class="promise">
                 <div class="promise-item">Analytics on worker risk</div>
@@ -801,12 +805,12 @@
         </div>
 
         <div class="colophon">
-            <div><div class="stat-n">39</div><div class="stat-l">API endpoints</div></div>
+            <div><div class="stat-n">48</div><div class="stat-l">API endpoints</div></div>
             <div><div class="stat-n">8</div><div class="stat-l">Database tables</div></div>
             <div><div class="stat-n">16</div><div class="stat-l">Pages</div></div>
             <div><div class="stat-n">3</div><div class="stat-l">Surfaces: gate, console, device</div></div>
-            <div><div class="stat-n">~12k</div><div class="stat-l">Lines written</div></div>
-            <div><div class="stat-n">9</div><div class="stat-l">Days, 2&ndash;11 August</div></div>
+            <div><div class="stat-n">~19k</div><div class="stat-l">Lines written</div></div>
+            <div><div class="stat-n">21</div><div class="stat-l">Days, 2&ndash;22 August</div></div>
         </div>
 
         <div class="narrow" style="margin-top:52px">
@@ -843,8 +847,8 @@
         <div class="narrow">
             <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">From a screen to a turnstile</h2>
             <p class="lede" style="margin-top:20px">
-                The decision already works. What follows is wiring it to something
-                physical.
+                The decision worked first, in a browser. It now runs on the boards
+                at the gate &mdash; and keeps running when the network does not.
             </p>
         </div>
 
@@ -862,23 +866,25 @@
                     <li>Analytics, scorecards and named reports</li>
                 </ul>
             </div>
-            <div class="phase">
-                <div class="phase-tag">Next</div>
+            <div class="phase now">
+                <div class="phase-tag">Working today</div>
                 <h3>The hardware</h3>
                 <ul>
-                    <li>RFID and the Pi app, on real hardware</li>
-                    <li>Relay driving a real gate</li>
-                    <li>On-device inference via AI HAT</li>
+                    <li>Badge read by an RC522, carried to the Pi over USB</li>
+                    <li>PPE decided on the Pi itself &mdash; no server in the loop</li>
+                    <li>Sensor nodes that never join a network at all</li>
+                    <li>The gate keeps deciding with the link fully down</li>
+                    <li>Cooling that sets itself from the Pi's own temperature</li>
                     <li>Live site location over GPS</li>
                 </ul>
             </div>
             <div class="phase">
-                <div class="phase-tag">Then</div>
+                <div class="phase-tag">Next</div>
                 <h3>The site</h3>
                 <ul>
-                    <li>Local queue when the link drops, synced after</li>
+                    <li>A relay driving a real turnstile</li>
                     <li>Several gates, one console</li>
-                    <li>Offline operation underground</li>
+                    <li>Inference accelerated on the AI HAT</li>
                     <li>Shift and contractor reporting</li>
                 </ul>
             </div>
