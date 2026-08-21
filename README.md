@@ -83,13 +83,25 @@ section to get it running.
   latest value per sensor. [`esp32-sim/`](esp32-sim/) can exercise this
   without any real sensor.
 
-**ESP32-CAM + ESP32-main split** — one board dedicated to video streaming
-(not yet wired), one to sensors and alert reporting. The sensor half is
-built: [`esp32-main/ppe_sensors/`](esp32-main/ppe_sensors/) reads a real
-MQ-9 gas sensor and DHT11 temperature/humidity sensor and posts to
-`/api/gate/alerts` / `/api/gate/sensors`, the same endpoints the
-[`esp32-sim/`](esp32-sim/) throwaway sketch used while this hardware
-didn't exist yet — that sketch is kept as a hardware-free fallback.
+**A board per job, not one board doing everything** — five ESP32s, each
+with a single responsibility, all reaching the Pi or something that does.
+Two sensor nodes ([`ppe_sensors/`](esp32-main/ppe_sensors/)) read real
+MQ-9 and DHT11 hardware and post to `/api/gate/alerts` and
+`/api/gate/sensors`; two cameras ([`cctv_cam/`](esp32-main/cctv_cam/))
+serve MJPEG on the LAN and are relayed to the console by the Pi; the gate
+master ([`gate_master/`](esp32-main/gate_master/)) carries badges, hazard
+packets and the cooling fan down one USB line.
+
+Each sensor node is named with a `NODE_ID` that prefixes its readings
+(`yard_gas` rather than `gas`), because the backend keeps one live row per
+kind — two unnamed nodes would overwrite each other and the console would
+show whichever spoke last. Naming them also buys per-node thresholds,
+which is what you want anyway: a gas limit that suits the mixer is not the
+one for an open yard.
+
+[`esp32-sim/`](esp32-sim/) is kept as a hardware-free fallback — it signs
+in identically and reports typed values, so the alert pipeline can be
+demonstrated if a node's wiring fails at the venue.
 
 **Designed, not yet built:**
 
@@ -367,21 +379,45 @@ frames rather than the server pulling them.
 
 ## Hardware status
 
-Owned: Raspberry Pi 5 (8GB), AI HAT (Hailo, 12 TOPS — not yet used for
-inference, see [above](#cloud-vs-local-inference-deferred)), Waveshare 10.1"
-touch display, MFRC522 RFID reader, Quectel EC200U 4G module, GPS antenna
-(not yet wired to a receiver module), Waveshare UPS HAT (E) — I²C fuel
-gauge, 4×21700 cells, ~4hr backup, 5V/6A out.
+**Raspberry Pi 5 (8GB)** — the site gateway, and the only box with a route
+off site. Waveshare 10.1" touch display, Waveshare UPS HAT (E) (I²C fuel
+gauge at `0x2d`, 4×21700 cells, ~4hr backup, 5V/6A out), AI HAT (Hailo, 12
+TOPS — still not used for inference, see
+[above](#cloud-vs-local-inference-deferred)).
 
-Owned and wired: an ESP32-C3 SuperMini running
-[`esp32-main/ppe_sensors/`](esp32-main/ppe_sensors/), with a real MQ-9 gas
-sensor and DHT11 temperature/humidity sensor attached — deliberately kept
-off the Pi's own GPIO so sensor timing doesn't compete with camera/badge
-work on the same board. Planned, not owned yet: a dedicated ESP32-CAM for
-video streaming, as a second board rather than adding a camera to the C3.
+**Five ESP32 boards**, all working, every one of them reaching the Pi or
+something that does:
 
-`pi_app/doctor.py` is the tool to run the moment the RFID reader or GPS
-module get wired in — neither has touched real hardware yet.
+| Board | Firmware | Does |
+|---|---|---|
+| Gate master (ESP32 38-pin) | [`gate_master/`](esp32-main/gate_master/) | RC522 badges, ESP-NOW receiver, cooling fan on GPIO25/26 — all over one USB line to the Pi |
+| Sensor node ×2 (ESP32-C3 SuperMini) | [`ppe_sensors/`](esp32-main/ppe_sensors/) | MQ-9 gas + DHT11 temp/humidity, each named by `NODE_ID` |
+| Camera ×2 (ESP32-CAM) | [`cctv_cam/`](esp32-main/cctv_cam/) | MJPEG + snapshots; one OV2640, one GC2145 |
+
+The sensors sit on their own boards deliberately, off the Pi's GPIO, so
+sensor timing never competes with camera and badge work on the same chip.
+
+The two cameras have **different sensors** and it matters: the OV2640
+encodes JPEG in hardware, the GC2145 (sold as RHYX-M21-45) has no encoder
+at all. One firmware covers both — it tries JPEG, catches the refusal, and
+re-initialises in RGB565 with software encoding at a lower resolution.
+
+**The fan is on the master, not the Pi**, because the AI HAT has no
+temperature sensor and the Pi's own header is occupied. The Pi sends
+`TEMP` down the same wire badges come back on; the master owns the curve,
+so a crashed Pi makes the fan speed *up* rather than coast.
+
+**GPS works.** A Vanix TracX-1b (Quectel EC200U) over USB gives a 3D fix
+that reaches the console — see
+[Site Location](#) in the admin console, and `pi_app/gps_reporter.py`.
+
+`pi_app/doctor.py` walks the whole chain — platform, SPI, reader
+libraries, camera, backend, credentials, policy, GPS — and says which link
+is broken instead of leaving you to guess from a blank screen.
+
+**Not compile-checked:** none of the four sketches, because there is no
+`arduino-cli` on either machine. The fan has not yet been driven from this
+firmware, and ESP-NOW has a receiver that has never been sent a packet.
 
 ---
 
