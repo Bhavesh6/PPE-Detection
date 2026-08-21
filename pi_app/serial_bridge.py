@@ -63,7 +63,8 @@ class SerialBridgeReader(BadgeReader):
 
     name = "ESP32 master (USB serial)"
 
-    def __init__(self, port: str | None = None, alerts=None, policy_provider=None):
+    def __init__(self, port: str | None = None, alerts=None, policy_provider=None,
+                 readings=None):
         super().__init__()
         import serial  # late: only needed when a board is actually attached
 
@@ -71,6 +72,7 @@ class SerialBridgeReader(BadgeReader):
         self._port = port or os.environ.get("SAFETYFIRST_SERIAL_PORT") or ""
         self._alerts = alerts
         self._policy = policy_provider or (lambda: {})
+        self._readings = readings
         self._conn = None
 
         # Last fan status the master reported. Read by doctor.py and the
@@ -159,6 +161,15 @@ class SerialBridgeReader(BadgeReader):
             except ValueError:
                 return
             unit = parts[3] if len(parts) > 3 else ""
+
+            # Buffer every reading, crossing or not. Online the backend logs
+            # them all; offline they used to vanish, leaving holes in the
+            # history exactly where the network was worst — so a trend that
+            # was climbing towards a threshold looked like it started the
+            # moment the connection came back.
+            if self._readings is not None:
+                self._readings.record(kind, value, unit, source="esp32-master")
+
             thresholds = (self._policy() or {}).get("sensor_thresholds") or {}
             severity, _cfg = evaluate(kind, value, thresholds)
             if severity is None:

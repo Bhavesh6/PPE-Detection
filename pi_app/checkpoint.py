@@ -57,6 +57,7 @@ from cctv_relay import open_relay
 from gps_reporter import open_gps
 from onnx_detector import open_detector
 from local_alerts import LocalAlerts
+from local_readings import LocalReadings
 from local_store import LocalStore
 from offline_queue import OfflineQueue
 from ui import CheckRow, Meter, ScreenToggle, Type, surface
@@ -97,6 +98,9 @@ LOCAL_ALERT_TOKEN = os.environ.get("SAFETYFIRST_LOCAL_ALERT_TOKEN", "")
 # in a way a roster refresh is not.
 ALERT_REPLAY_INTERVAL = float(os.environ.get("SAFETYFIRST_ALERT_REPLAY_INTERVAL", "10"))
 QUEUE_FLUSH_INTERVAL = float(os.environ.get("SAFETYFIRST_QUEUE_FLUSH_INTERVAL", "15"))
+# Slower than the alert replay above: a backlog of readings is history,
+# and history can wait for the hazards to go first.
+READING_REPLAY_INTERVAL = float(os.environ.get("SAFETYFIRST_READING_REPLAY_INTERVAL", "30"))
 
 # The exact message lookup_badge returns when the backend could not be
 # reached at all, as opposed to reaching it and being told no. The
@@ -268,6 +272,27 @@ class ApiClient:
             return res.json().get("present_count", 0) if res.ok else 0
         except requests.RequestException:
             return 0
+
+    def report_reading(self, kind: str, value: float, unit: str, source: str,
+                       taken_at: float | None = None) -> bool:
+        """Replay a buffered sensor reading. True only if the cloud took it.
+
+        taken_at is sent so a value recorded during an outage is filed at
+        the moment it was measured, not the moment the network returned —
+        otherwise a gas trend that climbed while offline appears to have
+        happened all at once on reconnection.
+        """
+        body = {"kind": kind, "value": value, "unit": unit, "source": source}
+        if taken_at is not None:
+            body["taken_at"] = taken_at
+        try:
+            res = self.session.post(
+                f"{self.base}/api/gate/sensors", json=body,
+                headers=self._headers(), timeout=10,
+            )
+            return bool(res.ok and (res.json() or {}).get("success"))
+        except (requests.RequestException, ValueError):
+            return False
 
     def report_alert(self, kind: str, severity: str, message: str, source: str) -> bool:
         """Replay a locally-raised alert. True only if the cloud stored it."""
@@ -592,6 +617,25 @@ def queue_flush_loop(state: State, api: ApiClient, queue: OfflineQueue) -> None:
         time.sleep(QUEUE_FLUSH_INTERVAL)
 
 
+def reading_replay_loop(state: State, api: ApiClient, readings) -> None:
+    """Push buffered sensor readings to the cloud once it is reachable.
+
+    Lower priority than alert_replay_loop and deliberately so: an unseen
+    hazard is time-critical, a temperature history is not. This also stops
+    at the first failure in a cycle — if the oldest reading cannot get
+    through the network is still down, and the rest will not fare better.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+        for row_id, kind, value, unit, source, taken_at in readings.pending():
+            if not api.report_reading(kind, value, unit, source, taken_at):
+                break
+            readings.mark_synced(row_id)
+        time.sleep(READING_REPLAY_INTERVAL)
+
+
 def alert_replay_loop(state: State, api: ApiClient, local_alerts) -> None:
     """Push locally-raised alerts to the cloud once it is reachable.
 
@@ -650,10 +694,11 @@ def signin_retry_loop(state: State, api: ApiClient) -> None:
 def roster_sync_loop(state: State, api: ApiClient, store) -> None:
     """Keep the local mirror fresh while the cloud is reachable.
 
-    Nothing reads this cache yet — it is filled now so that when failover
-    lands it has something to fail over *to*. A cache first populated at the
-    moment the network dies is useless, which is the whole reason this runs
-    on a timer during normal operation rather than on demand.
+    The gate now reads this cache: badge lookup falls back to it when the
+    backend is unreachable, and the checkpoint policy is taken from it at
+    startup. A cache first populated at the moment the network dies is
+    useless, which is why this runs on a timer during normal operation
+    rather than on demand.
 
     Failures are silent by design: a sync that can't reach the cloud is the
     ordinary case this feature exists for, not an error worth putting on a
@@ -668,8 +713,14 @@ def roster_sync_loop(state: State, api: ApiClient, store) -> None:
         if payload is not None:
             try:
                 count = store.replace_all(payload)
+                policy_required = (payload.get("policy") or {}).get("required_ppe")
                 with state.lock:
                     state.cache_ready = True
+                    # So a policy change reaches an offline-capable
+                    # gate on the next sync rather than the next
+                    # frame the backend happens to rule on.
+                    if policy_required:
+                        state.required = list(policy_required)
                 print(f"[sync] cached {count} workers")
             except (sqlite3.Error, KeyError, TypeError) as exc:
                 # A malformed payload must not kill the thread — the old
@@ -1308,7 +1359,22 @@ def main() -> int:
     store = LocalStore()
     print(f"Local cache: {store.summary()}")
 
-    reader = open_reader(alerts=local_alerts, policy_provider=store.policy)
+    readings = LocalReadings()
+    print(f"Sensor buffer: {readings.summary()}")
+
+    # Adopt the cached policy before the first badge, not after the
+    # first successful sync. A gate that boots with no network was
+    # otherwise ruling against the hardcoded default rather than the
+    # site's actual policy — so an admin who added "Mask" to the
+    # requirements would have had it quietly ignored, and the gate
+    # would grant entry to someone it should have turned away.
+    cached_required = (store.policy() or {}).get("required_ppe")
+    if cached_required:
+        state.required = list(cached_required)
+        print(f"Checkpoint policy (cached): {', '.join(state.required)}")
+
+    reader = open_reader(alerts=local_alerts, policy_provider=store.policy,
+                         readings=readings)
     print(f"Badge reader: {reader.name}")
     reader.start()
 
@@ -1353,6 +1419,7 @@ def main() -> int:
     threading.Thread(target=capture_loop, args=(state, api, detector), daemon=True).start()
     threading.Thread(target=badge_loop, args=(state, api, reader, local_alerts, store), daemon=True).start()
     threading.Thread(target=alert_replay_loop, args=(state, api, local_alerts), daemon=True).start()
+    threading.Thread(target=reading_replay_loop, args=(state, api, readings), daemon=True).start()
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
     threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
     threading.Thread(target=roster_sync_loop, args=(state, api, store), daemon=True).start()

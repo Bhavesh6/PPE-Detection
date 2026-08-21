@@ -143,10 +143,88 @@ def camera_targets() -> list[tuple[str, str]]:
     return targets
 
 
+def store_dir() -> str:
+    """Where to keep frames the backend never received. Blank = don't."""
+    return os.environ.get("SAFETYFIRST_CCTV_STORE", "").strip()
+
+
+def store_budget_mb() -> float:
+    try:
+        return float(os.environ.get("SAFETYFIRST_CCTV_STORE_MB", "200"))
+    except ValueError:
+        return 200.0
+
+
+def store_interval() -> float:
+    """Seconds between stored frames while offline.
+
+    Deliberately slower than the relay. Keeping every frame of a
+    multi-hour outage is tens of thousands of images that nobody will
+    look through, and a full SD card takes the whole gate down to
+    preserve footage of an empty yard.
+    """
+    try:
+        return float(os.environ.get("SAFETYFIRST_CCTV_STORE_INTERVAL", "10"))
+    except ValueError:
+        return 10.0
+
+
+class FrameStore:
+    """Frames kept on disk because the backend could not be reached.
+
+    Not a replay queue, and that is the important distinction. The backend
+    holds one current frame per camera — it has no concept of a frame from
+    an hour ago, so posting a backlog would simply overwrite the live view
+    with history and then be discarded. What an outage actually needs is a
+    local record of what the camera saw, which is what this is.
+
+    Bounded by total size, oldest discarded first. A gate that fills its
+    own disk stops being a gate.
+    """
+
+    def __init__(self, directory: str, budget_mb: float):
+        self._dir = directory
+        self._budget = int(budget_mb * 1024 * 1024)
+        os.makedirs(directory, exist_ok=True)
+
+    def save(self, camera_id: str, jpeg: bytes) -> None:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = os.path.join(self._dir, f"{camera_id}_{stamp}.jpg")
+        try:
+            with open(path, "wb") as handle:
+                handle.write(jpeg)
+            self._prune()
+        except OSError as exc:
+            # A failed write must not stop the relay retrying the backend:
+            # getting the live feed back matters more than the archive.
+            print(f"[cctv] could not store frame ({exc})")
+
+    def _prune(self) -> None:
+        try:
+            files = []
+            total = 0
+            with os.scandir(self._dir) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.endswith(".jpg"):
+                        size = entry.stat().st_size
+                        files.append((entry.stat().st_mtime, entry.path, size))
+                        total += size
+            if total <= self._budget:
+                return
+            files.sort()                       # oldest first
+            for _mtime, path, size in files:
+                if total <= self._budget:
+                    break
+                os.remove(path)
+                total -= size
+        except OSError:
+            pass
+
+
 class CCTVRelay:
     """Pulls JPEGs off one local camera and posts them to the backend."""
 
-    def __init__(self, api, camera_id: str, url: str, poll: float = 1.0):
+    def __init__(self, api, camera_id: str, url: str, poll: float = 1.0, store=None):
         self._api = api
         self._id = camera_id
         self._camera = url.rstrip("/")
@@ -158,7 +236,11 @@ class CCTVRelay:
         # broken. "The camera is unreachable" and "the backend refused the
         # frame" send you to opposite ends of the site.
         self.frames_sent = 0
+        self.frames_stored = 0
         self.last_error: str | None = None
+        self._store = store
+        self._store_every = store_interval()
+        self._last_stored = 0.0
 
     @property
     def name(self) -> str:
@@ -205,8 +287,22 @@ class CCTVRelay:
         while self._running:
             started = time.monotonic()
             try:
-                self._send(self._grab())
-                self.frames_sent += 1
+                jpeg = self._grab()
+                try:
+                    self._send(jpeg)
+                    self.frames_sent += 1
+                except Exception:
+                    # The camera answered but the backend did not. Keep the
+                    # picture on disk — at the observed rate, not the relay's,
+                    # so an outage does not fill the card — then re-raise so
+                    # the failure is still reported exactly as before.
+                    if self._store is not None:
+                        now = time.monotonic()
+                        if now - self._last_stored >= self._store_every:
+                            self._last_stored = now
+                            self._store.save(self._id, jpeg)
+                            self.frames_stored += 1
+                    raise
                 if last_reported is not None:
                     print(f"[cctv:{self._id}] feed restored")
                     last_reported = None
@@ -237,6 +333,10 @@ class RelayGroup:
     def frames_sent(self) -> int:
         return sum(r.frames_sent for r in self._relays)
 
+    @property
+    def frames_stored(self) -> int:
+        return sum(r.frames_stored for r in self._relays)
+
     def start(self) -> None:
         for relay in self._relays:
             relay.start()
@@ -257,8 +357,16 @@ def open_relay(api) -> RelayGroup | None:
     if not targets:
         return None
 
+    # One store across all cameras, so the disk budget is a single
+    # number rather than one per camera that quietly multiplies.
+    directory = store_dir()
+    store = FrameStore(directory, store_budget_mb()) if directory else None
+    if store is not None:
+        print(f"[cctv] storing offline frames in {directory} "
+              f"(max {store_budget_mb():g}MB, one every {store_interval():g}s)")
+
     group = RelayGroup([
-        CCTVRelay(api, camera_id, url, interval(camera_id))
+        CCTVRelay(api, camera_id, url, interval(camera_id), store)
         for camera_id, url in targets
     ])
     group.start()
