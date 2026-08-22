@@ -91,6 +91,14 @@ class SerialBridgeReader(BadgeReader):
             # A read timeout rather than blocking, so stop() can end this
             # thread instead of it sitting in readline() forever.
             self._conn = self._serial.Serial(port, BAUD, timeout=1)
+            # Throw away whatever accumulated while nothing was reading.
+            # Measured on the bench: opening the port delivered 95 copies
+            # of one reading in a single second - the same value, filed 95
+            # times with the timestamp of the moment we opened, which is a
+            # spike in the history that never happened. Steady state is a
+            # clean line every couple of seconds; only this backlog is
+            # wrong, and it is stale by definition.
+            self._conn.reset_input_buffer()
             self.name = f"ESP32 master ({port})"
             return True
         except (OSError, self._serial.SerialException):
