@@ -271,7 +271,11 @@ def open_gps() -> GPSReader:
     is. Plug the module in and it reports; leave it off and nothing
     changes.
     """
-    preference = os.environ.get("SAFETYFIRST_GPS", "auto").lower()
+    # `or "auto"` and not a get() default: a .env carrying a bare
+    # "SAFETYFIRST_GPS=" sets the variable to an empty string, which a
+    # default never sees. Without this that line matches no branch below
+    # and location silently does nothing.
+    preference = (os.environ.get("SAFETYFIRST_GPS") or "auto").strip().lower()
     configured = os.environ.get("SAFETYFIRST_GPS_PORT")
 
     if preference == "off":

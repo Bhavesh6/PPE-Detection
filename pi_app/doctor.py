@@ -221,7 +221,7 @@ def check_gps(scan):
         report(BAD, "GPS", str(exc))
         return
 
-    preference = os.environ.get("SAFETYFIRST_GPS", "auto").lower()
+    preference = (os.environ.get("SAFETYFIRST_GPS") or "auto").strip().lower()
     if preference == "off":
         report(WARN, "GPS",
                "SAFETYFIRST_GPS is off - location stays whatever the console\n"
