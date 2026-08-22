@@ -270,6 +270,69 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 }
 
 
+/* Change resolution and JPEG quality without reflashing.
+
+   Espressif's own CameraWebServer exposes this, and for good reason: the
+   right frame size is a property of the link, not of the code. Measured
+   here, VGA cost about 28KB a frame and the sensor managed 9.6 of them a
+   second; QVGA is nearer a quarter of that and roughly doubles the rate.
+   Which you want depends on whether you are watching over the LAN or
+   through a tunnel on a phone hotspot, and that can change between one
+   demo and the next.
+
+   Deliberately not persisted. A camera that quietly keeps a setting
+   somebody tried once is worse than one that returns to a known state
+   when power-cycled - board_*.h stays the single source of truth.
+
+     GET /control?var=framesize&val=6   (6=QVGA 320x240, 8=VGA 640x480)
+     GET /control?var=quality&val=15    (10..63, lower = better = bigger)
+*/
+static esp_err_t control_handler(httpd_req_t *req) {
+  char query[64];
+  char var[16];
+  char val[16];
+
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+      httpd_query_key_value(query, "var", var, sizeof(var)) != ESP_OK ||
+      httpd_query_key_value(query, "val", val, sizeof(val)) != ESP_OK) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                        "use /control?var=framesize|quality&val=<n>");
+    return ESP_FAIL;
+  }
+
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no sensor");
+    return ESP_FAIL;
+  }
+
+  const int n = atoi(val);
+  int rc = -1;
+  if (!strcmp(var, "framesize")) {
+    // Above SVGA the sensor drops frames badly and the buffers were sized
+    // at boot, so refuse rather than wedge the stream.
+    if (n < 0 || n > FRAMESIZE_SVGA) {
+      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "framesize out of range (0..FRAMESIZE_SVGA)");
+      return ESP_FAIL;
+    }
+    rc = s->set_framesize(s, (framesize_t)n);
+  } else if (!strcmp(var, "quality")) {
+    if (n < 10 || n > 63) {
+      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "quality out of range (10..63)");
+      return ESP_FAIL;
+    }
+    rc = s->set_quality(s, n);
+  } else {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown var");
+    return ESP_FAIL;
+  }
+
+  Serial.printf("[control] %s=%d -> %s\n", var, n, rc == 0 ? "ok" : "refused");
+  httpd_resp_set_type(req, "text/plain");
+  return httpd_resp_sendstr(req, rc == 0 ? "ok\n" : "sensor refused\n");
+}
+
+
 static void start_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
@@ -281,11 +344,13 @@ static void start_server() {
   httpd_uri_t index_uri  = {"/",         HTTP_GET, index_handler,    NULL};
   httpd_uri_t stream_uri = {"/stream",   HTTP_GET, stream_handler,   NULL};
   httpd_uri_t snap_uri   = {"/snapshot", HTTP_GET, snapshot_handler, NULL};
+  httpd_uri_t ctrl_uri   = {"/control",  HTTP_GET, control_handler,  NULL};
 
   if (httpd_start(&server, &config) == ESP_OK) {
     httpd_register_uri_handler(server, &index_uri);
     httpd_register_uri_handler(server, &stream_uri);
     httpd_register_uri_handler(server, &snap_uri);
+    httpd_register_uri_handler(server, &ctrl_uri);
     Serial.println("[http] server up on :80");
   } else {
     Serial.println("[http] server FAILED to start");
