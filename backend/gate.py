@@ -283,6 +283,11 @@ def report_sensor_reading():
     result, error = alerts.report_reading(
         data.get("kind"), data.get("value"),
         unit=data.get("unit"), source=data.get("source"),
+        # When the device measured it, if it says. The gate sends this
+        # while replaying readings buffered during an outage; without it
+        # a whole outage lands on the history at the second the link
+        # came back.
+        taken_at=alerts.parse_taken_at(data.get("taken_at")),
     )
     if error:
         return jsonify({"success": False, "message": error}), 400

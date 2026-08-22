@@ -13,7 +13,7 @@ itself is left behind.
 
 import math
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import site_settings
 from extensions import db
@@ -131,23 +131,83 @@ def _prune_reading_log(kind):
     )
 
 
-def _save_reading(kind, value, unit, source=None):
+def _naive_utc(value):
+    """Strip tzinfo so column values and parsed times compare.
+
+    The columns default to an aware datetime but SQLite hands back a naive
+    one, and comparing the two raises rather than returning a wrong answer.
+    """
+    if value is None or value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def parse_taken_at(raw):
+    """A device's own timestamp for a reading, or None to use arrival time.
+
+    Sent by the gate when replaying values buffered during an outage, so a
+    gas trend that climbed while the link was down is filed across the
+    hours it actually happened rather than all at once on reconnection.
+
+    Lenient on purpose: a reading with an unusable timestamp is still a
+    reading, and refusing it outright would lose the measurement to save
+    its clock. Anything absurd falls back to arrival time instead.
+    """
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(seconds):
+        return None
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        when = datetime.fromtimestamp(seconds, timezone.utc).replace(tzinfo=None)
+    except (OSError, OverflowError, ValueError):
+        return None
+    # A device whose clock is ahead would file readings in the future,
+    # where no "last 24 hours" view will ever show them again.
+    if when > now + timedelta(minutes=5):
+        return None
+    if when < now - timedelta(days=30):
+        return None
+    return when
+
+
+def _save_reading(kind, value, unit, source=None, taken_at=None):
     row = db.session.get(SensorReading, kind)
+
+    # A replayed backlog must not overwrite the live readout. This snapshot
+    # answers "what is this sensor reading now", and a gate reconnecting
+    # after an outage pushes its oldest buffered value first — so without
+    # this the console would show a reading from hours ago as current, and
+    # keep showing it until a genuinely live one arrived.
+    previous = _naive_utc(row.updated_at) if row is not None else None
+    stale = taken_at is not None and previous is not None and taken_at < previous
+
     if row is None:
         row = SensorReading(kind=kind, value=value, unit=unit)
+        if taken_at is not None:
+            row.updated_at = taken_at
         db.session.add(row)
-    else:
+    elif not stale:
         row.value = value
         row.unit = unit
+
     # Appended alongside the overwrite above, not instead of it — the
     # snapshot answers "what's it reading right now", this answers
-    # "what has it read" (see SensorReadingLog's docstring).
-    db.session.add(SensorReadingLog(kind=kind, value=value, unit=unit, source=source))
+    # "what has it read" (see SensorReadingLog's docstring). The history
+    # takes every reading, stale or not: that is the whole point of it.
+    entry = SensorReadingLog(kind=kind, value=value, unit=unit, source=source)
+    if taken_at is not None:
+        entry.timestamp = taken_at
+    db.session.add(entry)
     _prune_reading_log(kind)
     db.session.commit()
 
 
-def report_reading(kind, value, unit=None, source=None):
+def report_reading(kind, value, unit=None, source=None, taken_at=None):
     """A device reporting a raw sensor value (e.g. gas ppm).
 
     Always stores the latest value for the console's live readout, and
@@ -177,7 +237,7 @@ def report_reading(kind, value, unit=None, source=None):
     # stores an oversized string happily, but Postgres (what DATABASE_URL
     # points at in production) raises DataError and 500s the request.
     unit = str(unit).strip()[:20] if unit else (cfg or {}).get("unit")
-    _save_reading(kind, value, unit, source)
+    _save_reading(kind, value, unit, source, taken_at=taken_at)
 
     alert = None
     if severity:
