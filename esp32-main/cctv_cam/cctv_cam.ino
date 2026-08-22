@@ -82,6 +82,15 @@
 // no include path setup.
 #include "secrets.h"
 
+// Defaults when a board_*.h does not say otherwise. VGA/12 keeps the
+// previous behaviour for any camera that has not been tuned.
+#ifndef CAM_FRAMESIZE
+#define CAM_FRAMESIZE FRAMESIZE_VGA
+#endif
+#ifndef CAM_QUALITY
+#define CAM_QUALITY 12
+#endif
+
 // Each board needs its own id. It becomes the mDNS name AND the key the
 // console files frames under, so two cameras sharing one id would
 // overwrite each other and the feed would flicker between two places.
@@ -320,8 +329,17 @@ static bool start_camera() {
   // Frame size is bounded by memory, not by taste. With PSRAM there is
   // room to double-buffer at VGA; without it, asking for VGA fails to
   // allocate and the camera never initialises at all.
-  config.frame_size   = psram ? FRAMESIZE_VGA : FRAMESIZE_QVGA;
-  config.jpeg_quality = 12;               // lower = better = bigger
+  //
+  // Both are overridable per board (board_*.h), because the right answer
+  // differs by what the camera is for. Measured on this link: VGA at
+  // quality 12 is ~17KB a frame, and the Pi's uplink - a phone hotspot
+  // through a tunnel - carried about two of those a second. QVGA at 15 is
+  // nearer 5KB, so the same uplink carries roughly three times as many.
+  // That trade is worth taking here and nowhere else: PPE is decided from
+  // the gate's own webcam, so nothing about a verdict depends on this
+  // sensor's resolution. These frames are for watching, not for judging.
+  config.frame_size   = psram ? CAM_FRAMESIZE : FRAMESIZE_QVGA;
+  config.jpeg_quality = CAM_QUALITY;      // lower = better = bigger
   config.fb_count     = psram ? 2 : 1;
 
   esp_err_t err = esp_camera_init(&config);

@@ -19,3 +19,9 @@
 // upside-down frame.
 #define CAM_VFLIP   1
 #define CAM_HMIRROR 1
+
+// Tuned for a watchable feed rather than a detailed one. See the note in
+// start_camera(): this sensor never decides anything, so resolution buys
+// nothing here and costs frames on a slow uplink.
+#define CAM_FRAMESIZE FRAMESIZE_QVGA
+#define CAM_QUALITY   15

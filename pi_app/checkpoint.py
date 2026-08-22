@@ -203,11 +203,18 @@ class ApiClient:
     def _forget_dead_session(self, res, *args, **kwargs):
         """Drop a token the backend has started refusing.
 
-        Seen for real: the backend was restarted, and from that moment
-        every frame the relay posted came back 401. The gate had signed
-        in successfully at boot, so nothing was watching for this, and it
-        went on posting rejected frames until it was restarted by hand.
-        A redeploy should not blind every gate on site.
+        Seen for real: 254 consecutive frames came back 401 while the
+        gate reported itself healthy and signed in, and it only recovered
+        when someone restarted it by hand.
+
+        What triggered it is not established. The obvious suspect - the
+        backend restarting - has since been ruled out: two further
+        restarts produced no 401 at all, because JWT_SECRET_KEY is a
+        fixed literal and tokens outlive the process. So the cause is
+        still open, and that is rather the point of handling it here
+        instead of at whatever produced it: whatever makes the backend
+        stop accepting a session, the gate should notice and get a new
+        one rather than post rejected frames until a human intervenes.
         """
         if res.status_code == 401 and self.token:
             self.token = None
