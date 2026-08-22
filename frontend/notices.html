@@ -15,6 +15,25 @@
         .nt-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
         @media (max-width: 1100px) { .nt-layout { grid-template-columns: 1fr; } }
 
+        /* The form is the thing you come back to after reading a row, so it
+           follows rather than scrolling away above a long list. */
+        @media (min-width: 1101px) {
+            .nt-form { position: sticky; top: 20px; }
+        }
+
+        .nt-foot {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border);
+            font-size: .8rem; color: var(--muted);
+        }
+        .nt-tabs { display: flex; gap: 4px; }
+        .nt-tab {
+            font: inherit; font-size: .76rem; font-weight: 600;
+            padding: 4px 10px; border-radius: 999px; cursor: pointer;
+            border: 1px solid var(--border); background: transparent; color: var(--muted);
+        }
+        .nt-tab.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
         .nt-row { padding: 13px 16px; display: grid; gap: 4px; }
         .nt-row + .nt-row { border-top: 1px solid var(--border); }
 
@@ -70,16 +89,23 @@
                         <div class="card-head">
                             <span class="card-title"><i class="fas fa-paper-plane"></i>Notices</span>
                             <div class="flex items-center gap-2">
-                                <span class="text-xs" style="color:var(--faint)" id="ntCount"></span>
+                                <div class="nt-tabs">
+                                    <button class="nt-tab is-on" data-show="outstanding" type="button">Needs a reply</button>
+                                    <button class="nt-tab" data-show="all" type="button">All</button>
+                                </div>
                                 <a class="btn btn-outline btn-sm" id="csvBtn" href="#">
                                     <i class="fas fa-file-csv"></i> CSV
                                 </a>
                             </div>
                         </div>
                         <div id="ntList"></div>
+                        <div class="nt-foot" id="ntFoot" hidden>
+                            <span id="ntCount"></span>
+                            <button class="btn btn-outline btn-sm" id="moreBtn" type="button" hidden>Show more</button>
+                        </div>
                     </section>
 
-                    <section class="card">
+                    <section class="card nt-form">
                         <div class="card-head">
                             <span class="card-title"><i class="fas fa-plus"></i>Issue a notice</span>
                         </div>
@@ -192,22 +218,29 @@
             loadNotices();
         }
 
-        async function loadNotices() {
-            const res = await Auth.fetch('/api/admin/notices');
+        let show = 'outstanding';
+        let page = 1;
+
+        async function loadNotices(append) {
+            const res = await Auth.fetch(
+                `/api/admin/notices?show=${show}&page=${page}&per_page=20`);
             const d = await res.json();
             const list = el('ntList');
-            list.innerHTML = '';
+            if (!append) list.innerHTML = '';
+
+            el('ntFoot').hidden = false;
+            el('ntCount').textContent = d.outstanding
+                ? `${d.outstanding} awaiting a reply · ${d.total} in total`
+                : `all answered · ${d.total} in total`;
+            el('moreBtn').hidden = !d.has_more;
 
             if (!d.notices || !d.notices.length) {
-                list.innerHTML = '<div class="cell-empty" style="padding:28px">'
-                    + 'No notices yet. Issue one from a refusal on the right.</div>';
-                el('ntCount').textContent = '';
+                list.innerHTML = `<div class="cell-empty" style="padding:28px">${
+                    show === 'outstanding'
+                        ? 'Nothing waiting on a reply. Every notice has been answered.'
+                        : 'No notices yet. Issue one from a refusal on the right.'}</div>`;
                 return;
             }
-
-            el('ntCount').textContent = d.outstanding
-                ? `${d.outstanding} awaiting a reply`
-                : 'all answered';
 
             d.notices.forEach(n => {
                 const [cls, label] = BADGE[n.status] || ['badge-muted', n.status];
@@ -336,6 +369,7 @@
                 el('rname').value = ''; el('rorg').value = '';
                 el('remail').value = ''; el('rmsg').value = '';
                 document.querySelectorAll('#pick input:checked').forEach(i => i.checked = false);
+                page = 1;
                 loadNotices();
             } catch (e) {
                 msg.textContent = 'No connection to the server.';
@@ -359,9 +393,23 @@
             URL.revokeObjectURL(a.href);
         });
 
+        document.querySelectorAll('.nt-tab').forEach(t => {
+            t.addEventListener('click', () => {
+                document.querySelectorAll('.nt-tab').forEach(x => x.classList.remove('is-on'));
+                t.classList.add('is-on');
+                show = t.dataset.show;
+                page = 1;
+                loadNotices();
+            });
+        });
+
+        el('moreBtn').addEventListener('click', () => { page += 1; loadNotices(true); });
+
         loadNotices();
         loadWorkers();
-        setInterval(loadNotices, 30000);
+        // Refresh only the first page: polling deeper pages would yank rows
+        // out from under somebody who had scrolled to read them.
+        setInterval(() => { if (page === 1) loadNotices(); }, 30000);
     </script>
 </body>
 </html>

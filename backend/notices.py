@@ -428,18 +428,52 @@ def revoke(notice, actor=None):
 @notices_bp.route("/api/admin/notices", methods=["GET"])
 @admin_required
 def list_notices():
-    """Outstanding first: the ones that need chasing are the point."""
-    rows = SafetyNotice.query.order_by(SafetyNotice.issued_at.desc()).all()
+    """Outstanding first, a page at a time.
+
+    Status is computed, so it cannot be sorted or paged on in SQL - that is
+    the price of never letting the database claim a state that has since
+    stopped being true. What *is* expressible is the part that matters:
+    unanswered and not withdrawn, which is exactly "still needs chasing"
+    and lands on indexed columns.
+
+    So the default view filters to that in SQL and pages it, and the finer
+    ordering happens within the page. Without this the console fetched
+    every notice ever issued on every poll - at fifty-nine it was a nine
+    thousand pixel column beside a form, and it only grows.
+    """
+    show = request.args.get("show", "outstanding")
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = max(1, min(100, int(request.args.get("per_page", 20))))
+    except ValueError:
+        return jsonify({"success": False,
+                        "message": "page and per_page must be numbers"}), 400
+
+    base = SafetyNotice.query
+    outstanding_filter = db.and_(SafetyNotice.acknowledged_at.is_(None),
+                                 SafetyNotice.revoked_at.is_(None))
+    # Counted separately from the page, so the badge says how many are
+    # waiting rather than how many happen to be on screen.
+    outstanding = base.filter(outstanding_filter).count()
+    total = base.count()
+
+    query = base.filter(outstanding_filter) if show == "outstanding" else base
+    rows = (query.order_by(SafetyNotice.issued_at.desc())
+                 .offset((page - 1) * per_page).limit(per_page).all())
+
     order = {"disputed": 0, "overdue": 1, "issued": 2, "opened": 3,
              "acknowledged": 4, "withdrawn": 5}
     rows.sort(key=lambda n: order.get(n.status, 9))
+
+    shown = query.count()
     return jsonify({
         "success": True,
         "notices": [n.to_dict() for n in rows],
-        # A dispute is answered but unresolved, so it still counts as
-        # something waiting on a person.
-        "outstanding": sum(1 for n in rows
-                           if n.status not in ("acknowledged", "withdrawn")),
+        "outstanding": outstanding,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "has_more": page * per_page < shown,
     })
 
 
