@@ -45,14 +45,24 @@
            decorative — an officer's next move is to paste it somewhere. */
         .nt-link {
             display: flex; align-items: center; gap: 6px; margin-top: 6px;
+            flex-wrap: wrap; min-width: 0;
             font-size: .76rem; color: var(--muted);
         }
+        .nt-link > i { flex: 0 0 auto; }
+        /* A real flex-basis, not 0%, so the row runs out of room before the
+           buttons do: the actions wrap to their own line instead of being
+           squeezed past the card edge. Touch pointers widen every .btn by
+           ~20px each (app.css), which is where this first went wrong. */
         .nt-link code {
-            flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+            flex: 1 1 14rem; min-width: 0; overflow: hidden; text-overflow: ellipsis;
             white-space: nowrap; background: var(--surface-alt);
             border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px;
             font-size: .72rem;
         }
+        /* The three actions travel as one block: either they all share the
+           link's line or they all drop below it, never one orphan. */
+        .nt-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 0 1 auto; }
+        .nt-acts .btn { flex: 0 0 auto; white-space: nowrap; }
 
         .pick { max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
         .pick label {
@@ -270,13 +280,15 @@
                     <div class="nt-link">
                         <i class="fas fa-link" style="font-size:.7rem"></i>
                         <code data-ref="${n.reference}">${link}…</code>
-                        <a class="btn btn-outline btn-sm" href="/api/admin/notices/${n.reference}.json"
-                           title="Machine-readable copy">JSON</a>
-                        <button class="btn btn-outline btn-sm" data-send="${n.reference}"
-                                title="${n.recipient.email ? 'Email it to ' + n.recipient.email : 'Record that you sent it yourself'}">
-                            ${n.recipient.email ? 'Send' : 'Mark sent'}</button>
-                        <button class="btn btn-outline btn-sm" data-revoke="${n.reference}"
-                                title="Stop this link working">Withdraw</button>
+                        <span class="nt-acts">
+                            <a class="btn btn-outline btn-sm" href="/api/admin/notices/${n.reference}.json"
+                               title="Machine-readable copy">JSON</a>
+                            <button class="btn btn-outline btn-sm" data-send="${n.reference}"
+                                    title="${n.recipient.email ? 'Email it to ' + n.recipient.email : 'Record that you sent it yourself'}">
+                                ${n.recipient.email ? 'Send' : 'Mark sent'}</button>
+                            <button class="btn btn-outline btn-sm" data-revoke="${n.reference}"
+                                    title="Stop this link working">Withdraw</button>
+                        </span>
                     </div>` : ''}`;
                 const sd = row.querySelector('[data-send]');
                 if (sd) sd.addEventListener('click',
