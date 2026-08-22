@@ -57,6 +57,18 @@ _ID_OK = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 _ADDR = re.compile(r"0x[0-9a-fA-F]+")
 
 # The camera is on the LAN and either answers quickly or is not there.
+# Spelled by code point: an escaped literal has a habit of being
+# rewritten by whatever edits this file.
+CRLF = bytes((13, 10))
+CRLF2 = CRLF * 2
+
+# A frame this much larger than anything the camera sends means the
+# boundary was lost; resync rather than buffer without bound.
+MAX_STREAM_BUFFER = 512 * 1024
+
+# How long to poll before trying the stream again.
+STREAM_RETRY_AFTER = 30.0
+
 CAMERA_TIMEOUT = 4.0
 UPLOAD_TIMEOUT = 10.0
 
@@ -248,6 +260,15 @@ class CCTVRelay:
         self._store_every = store_interval()
         self._last_stored = 0.0
 
+        # Filled by the reader thread, drained by the sender. Only ever
+        # the newest frame: a queue would mean posting the past.
+        self._latest: bytes | None = None
+        self._latest_at = 0.0
+        self._sent_at = 0.0
+        self._latest_lock = threading.Lock()
+        self._stream_failures = 0
+        self._reader: threading.Thread | None = None
+
     @property
     def name(self) -> str:
         # The rate is worth printing: a camera polled at 3s when you
@@ -255,6 +276,12 @@ class CCTVRelay:
         return f"{self._id} ({self._camera} @ {self._interval:g}s)"
 
     def start(self) -> None:
+        # Two threads on purpose. Posting a frame over the gate's uplink
+        # takes long enough that doing it inline would leave the camera's
+        # stream unread meanwhile, and we would resume on frames that had
+        # gone stale while we waited.
+        self._reader = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader.start()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
@@ -262,10 +289,108 @@ class CCTVRelay:
         self._running = False
 
     def _grab(self) -> bytes:
+        """One frame, asked for individually. The fallback, not the norm."""
         res = requests.get(f"{self._camera}/snapshot", timeout=CAMERA_TIMEOUT)
         if res.status_code != 200 or not res.content:
             raise RuntimeError(f"camera returned {res.status_code}")
         return res.content
+
+    def _read_stream(self) -> None:
+        """Hold the camera's MJPEG stream open and keep the newest frame.
+
+        The camera publishes a continuous stream; asking it for one
+        picture at a time made it accept a connection, encode, answer and
+        close, twice a second, forever. The board is meant to do nothing
+        but stream - it has a hardware JPEG encoder precisely so nothing
+        has to be computed - and a request per frame is the one part of
+        that job we were making it do over and over.
+
+        So read the stream once and keep only the latest frame. What gets
+        posted is then whatever the camera saw a moment ago, rather than
+        whatever it could be persuaded to produce on demand.
+        """
+        res = requests.get(f"{self._camera}/stream", stream=True,
+                           timeout=(CAMERA_TIMEOUT, CAMERA_TIMEOUT))
+        if res.status_code != 200:
+            raise RuntimeError(f"camera returned {res.status_code}")
+
+        buf = b""
+        try:
+            for chunk in res.iter_content(chunk_size=4096):
+                if not self._running:
+                    break
+                if not chunk:
+                    continue
+                buf += chunk
+
+                # Drain every complete part in the buffer. One read can
+                # carry several frames, or half of one.
+                while True:
+                    head_end = buf.find(CRLF2)
+                    if head_end < 0:
+                        break
+                    head = buf[:head_end]
+                    marker = b"Content-Length:"
+                    at = head.find(marker)
+                    if at < 0:
+                        buf = buf[head_end + 4:]
+                        continue
+                    try:
+                        length = int(head[at + len(marker):].split(CRLF, 1)[0])
+                    except ValueError:
+                        buf = buf[head_end + 4:]
+                        continue
+                    start = head_end + 4
+                    if len(buf) < start + length:
+                        break                      # incomplete, wait for more
+                    with self._latest_lock:
+                        self._latest = buf[start:start + length]
+                        self._latest_at = time.monotonic()
+                    buf = buf[start + length:]
+
+                # A frame far larger than anything this camera sends means
+                # the boundary was lost. Start again rather than grow
+                # without bound on a stream we can no longer parse.
+                if len(buf) > MAX_STREAM_BUFFER:
+                    raise RuntimeError("lost the stream boundary")
+        finally:
+            res.close()
+
+    def _reader_loop(self) -> None:
+        """Keep a frame available, by whichever route the camera allows.
+
+        Falls back to /snapshot when the stream cannot be held open - an
+        older camera build has no /stream, and a flaky link can drop one
+        repeatedly. A slower feed beats a blank tile.
+        """
+        last_reported = None
+        while self._running:
+            try:
+                self._read_stream()
+                self._stream_failures = 0
+            except Exception as exc:  # noqa: BLE001 - never kill the gate over a picture
+                self._stream_failures += 1
+                message = f"{type(exc).__name__}: {exc}"
+                key = _ADDR.sub("0x*", message)
+                if key != last_reported:
+                    print(f"[cctv:{self._id}] stream unavailable — {message}")
+                    last_reported = key
+
+                # Two failures is enough to stop assuming the stream is
+                # coming back this minute; poll until it does.
+                if self._stream_failures >= 2:
+                    deadline = time.monotonic() + STREAM_RETRY_AFTER
+                    while self._running and time.monotonic() < deadline:
+                        try:
+                            jpeg = self._grab()
+                            with self._latest_lock:
+                                self._latest = jpeg
+                                self._latest_at = time.monotonic()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        time.sleep(self._interval)
+                else:
+                    time.sleep(1.0)
 
     def _send(self, jpeg: bytes) -> None:
         token = getattr(self._api, "token", None)
@@ -293,10 +418,20 @@ class CCTVRelay:
         while self._running:
             started = time.monotonic()
             try:
-                jpeg = self._grab()
+                with self._latest_lock:
+                    jpeg = self._latest
+                    taken_at = self._latest_at
+                if jpeg is None:
+                    raise RuntimeError("no frame from the camera yet")
+                if taken_at <= self._sent_at:
+                    # Nothing new since the last post. Sending it again
+                    # would spend the uplink to say nothing changed.
+                    time.sleep(max(0.0, self._interval - (time.monotonic() - started)))
+                    continue
                 try:
                     self._send(jpeg)
                     self.frames_sent += 1
+                    self._sent_at = taken_at
                 except Exception:
                     # The camera answered but the backend did not. Keep the
                     # picture on disk — at the observed rate, not the relay's,
