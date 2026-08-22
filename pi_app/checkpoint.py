@@ -193,6 +193,25 @@ class ApiClient:
         self.base = base_url
         self.session = requests.Session()
         self.token = None
+        # Every call the gate makes goes through this session, so this is
+        # the one place that can notice the backend no longer accepting
+        # us. Dropping the token here is what lets signin_retry_loop get
+        # a new one; without it the gate presents a dead credential
+        # forever and quietly does nothing.
+        self.session.hooks["response"].append(self._forget_dead_session)
+
+    def _forget_dead_session(self, res, *args, **kwargs):
+        """Drop a token the backend has started refusing.
+
+        Seen for real: the backend was restarted, and from that moment
+        every frame the relay posted came back 401. The gate had signed
+        in successfully at boot, so nothing was watching for this, and it
+        went on posting rejected frames until it was restarted by hand.
+        A redeploy should not blind every gate on site.
+        """
+        if res.status_code == 401 and self.token:
+            self.token = None
+        return res
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
@@ -660,17 +679,27 @@ def alert_replay_loop(state: State, api: ApiClient, local_alerts) -> None:
 
 
 def signin_retry_loop(state: State, api: ApiClient) -> None:
-    """Keep trying to sign in after booting without a backend.
+    """Keep the gate's session alive, not merely get it started.
 
-    Only runs when the gate started offline. Without it, a Pi that rebooted
-    during an outage would stay unauthenticated until someone noticed and
-    restarted it by hand — which is the same failure as refusing to boot,
-    just deferred.
+    This used to run only when the gate booted offline, and to return the
+    moment it succeeded. That covered a Pi rebooting during an outage but
+    missed the commoner case: a session the backend later stops accepting,
+    because it was redeployed or the token simply expired. Nothing renewed
+    it, so the gate carried on presenting a dead credential — badges,
+    frames and readings all refused — until a human restarted it.
+
+    Now it runs for the life of the gate and signs in again whenever the
+    token goes (see ApiClient._forget_dead_session).
     """
     while True:
         with state.lock:
             if not state.running:
                 break
+
+        if api.token:
+            # Still holding a session the backend accepts.
+            time.sleep(SIGNIN_RETRY_INTERVAL)
+            continue
 
         ok, detail, reachable = api.sign_in()
         if ok:
@@ -681,7 +710,8 @@ def signin_retry_loop(state: State, api: ApiClient) -> None:
                 if state.message == OFFLINE_MESSAGE:
                     state.message = ""
             print(f"Signed in as {detail}")
-            return
+            time.sleep(SIGNIN_RETRY_INTERVAL)
+            continue
 
         if reachable:
             # Reachable but refusing us: waiting cannot fix a bad credential,
@@ -1423,8 +1453,9 @@ def main() -> int:
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
     threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
     threading.Thread(target=roster_sync_loop, args=(state, api, store), daemon=True).start()
-    if not state.signed_in:
-        threading.Thread(target=signin_retry_loop, args=(state, api), daemon=True).start()
+    # Always, not just when the gate booted offline: this loop now also
+    # renews a session the backend has stopped accepting.
+    threading.Thread(target=signin_retry_loop, args=(state, api), daemon=True).start()
 
     root = tk.Tk()
     CheckpointApp(root, state, api, queue)
