@@ -19,13 +19,13 @@ that lists or enumerates anything.
 """
 
 import csv
-import hmac
 import io
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, Response, current_app, jsonify, request, send_file
+from flask_jwt_extended import get_jwt_identity, jwt_required
 from sqlalchemy.exc import IntegrityError
 
 import audit
@@ -200,29 +200,47 @@ def by_token(token, mark_delivered=False):
     return notice
 
 
-def acknowledge(notice, name, corrective_action=None):
+def acknowledge(notice, name, corrective_action=None, outcome="accepted"):
     """Record the recipient's answer. Returns (notice, error).
 
-    Deliberately once. A second acknowledgement would overwrite who
-    answered and when, which is the part of this a dispute turns on.
+    Two answers are possible, and both close the loop. Accepting says what
+    was done about it. Disputing says the refusal itself was wrong - a
+    false positive, the wrong policy, the wrong person - which a detector
+    that can be mistaken has to allow for. Recording only agreement would
+    have made assent the sole reply the system could represent.
+
+    Deliberately once. A second answer would overwrite who answered and
+    when, which is the part a disagreement turns on.
     """
     if notice.acknowledged_at is not None:
-        return None, "This notice has already been acknowledged"
+        return None, "This notice has already been answered"
+    if notice.revoked_at is not None:
+        return None, "This notice was withdrawn"
 
     who = (name or "").strip()
     if not who:
         return None, "Please give your name"
 
+    if outcome not in ("accepted", "disputed"):
+        return None, "Answer must be accepted or disputed"
+
+    note = (corrective_action or "").strip()
+    if outcome == "disputed" and not note:
+        # An unexplained dispute cannot be acted on by anyone.
+        return None, "Please say why you disagree"
+
     notice.acknowledged_at = _now()
     notice.acknowledged_by = who[:120]
-    notice.corrective_action = (corrective_action or "").strip() or None
+    notice.corrective_action = note or None
+    notice.outcome = outcome
     db.session.commit()
 
     audit.record(
-        "notice.acknowledge",
-        f"{notice.reference} acknowledged by {notice.acknowledged_by}",
+        f"notice.{notice.outcome}",
+        f"{notice.reference} {notice.outcome} by {notice.acknowledged_by}",
         detail={"reference": notice.reference,
-                "corrective_action": notice.corrective_action},
+                "outcome": notice.outcome,
+                "note": notice.corrective_action},
         # Named rather than looked up: the recipient holds no account, and
         # there is no JWT on this request to read one from.
         actor_name=notice.acknowledged_by,
@@ -268,12 +286,16 @@ def revoke(notice, actor=None):
 def list_notices():
     """Outstanding first: the ones that need chasing are the point."""
     rows = SafetyNotice.query.order_by(SafetyNotice.issued_at.desc()).all()
-    order = {"overdue": 0, "issued": 1, "opened": 2, "acknowledged": 3}
+    order = {"disputed": 0, "overdue": 1, "issued": 2, "opened": 3,
+             "acknowledged": 4, "withdrawn": 5}
     rows.sort(key=lambda n: order.get(n.status, 9))
     return jsonify({
         "success": True,
         "notices": [n.to_dict() for n in rows],
-        "outstanding": sum(1 for n in rows if n.status != "acknowledged"),
+        # A dispute is answered but unresolved, so it still counts as
+        # something waiting on a person.
+        "outstanding": sum(1 for n in rows
+                           if n.status not in ("acknowledged", "withdrawn")),
     })
 
 
@@ -281,7 +303,6 @@ def list_notices():
 @admin_required
 @limiter.limit("30 per hour")
 def create_notice():
-    from flask_jwt_extended import get_jwt_identity
     actor = db.session.get(User, int(get_jwt_identity()))
     data = request.get_json(silent=True) or {}
 
@@ -308,7 +329,6 @@ def create_notice():
 @notices_bp.route("/api/admin/notices/<reference>/revoke", methods=["POST"])
 @admin_required
 def revoke_notice(reference):
-    from flask_jwt_extended import get_jwt_identity
     actor = db.session.get(User, int(get_jwt_identity()))
     notice = SafetyNotice.query.filter_by(reference=reference).first()
     if notice is None:
@@ -369,6 +389,34 @@ def export_csv():
 
 
 # ---------------------------------------------------------------------
+# The worker the notice is about
+# ---------------------------------------------------------------------
+
+@notices_bp.route("/api/notices/me", methods=["GET"])
+@jwt_required()
+def my_notices():
+    """Notices issued about the signed-in worker.
+
+    Their name, employee id and a photograph of their face go to somebody
+    outside this system, and until this existed they had no way to know it
+    had happened. Somebody who cannot see what was said about them cannot
+    correct it, and a safety record that the worker cannot inspect is one
+    they cannot defend themselves against.
+
+    The token is not in to_dict(), so this shows what was sent and to whom
+    without handing over the ability to answer on the recipient's behalf.
+    """
+    rows = (SafetyNotice.query
+            .filter_by(subject_user_id=int(get_jwt_identity()))
+            .order_by(SafetyNotice.issued_at.desc())
+            .all())
+    return jsonify({
+        "success": True,
+        "notices": [n.to_dict() for n in rows],
+    })
+
+
+# ---------------------------------------------------------------------
 # Recipient side — no account, no session, one token
 # ---------------------------------------------------------------------
 
@@ -425,7 +473,8 @@ def acknowledge_notice(token):
 
     data = request.get_json(silent=True) or {}
     notice, error = acknowledge(notice, data.get("name"),
-                                data.get("corrective_action"))
+                                data.get("corrective_action"),
+                                outcome=data.get("outcome", "accepted"))
     if error:
         return jsonify({"success": False, "message": error}), 400
     return jsonify({"success": True, "notice": notice.to_dict()})

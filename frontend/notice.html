@@ -265,13 +265,21 @@
             <textarea id="action" maxlength="2000"
                       placeholder="e.g. Vests issued to the crew, toolbox talk held Monday."></textarea>
 
-            <button class="btn btn-primary" id="ackBtn" type="button">
-                Acknowledge this notice
-            </button>
-            <p class="hint" id="formError" hidden></p>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:20px">
+                <button class="btn btn-primary" id="ackBtn" type="button">
+                    Confirm and accept
+                </button>
+                <button class="btn btn-outline" id="disputeBtn" type="button">
+                    I disagree with this
+                </button>
+            </div>
+            <!-- Announced, because the form is replaced on success and the
+                 error appears without moving focus. -->
+            <p class="hint" id="formError" role="alert" aria-live="assertive" hidden></p>
             <p class="hint">
-                Acknowledging records your name and the time against this
-                notice. It can only be done once.
+                Either answer records your name and the time against this
+                notice, and can only be given once. If you disagree, say why
+                — a refusal can be wrong, and somebody needs to look at it.
             </p>
         </section>
 
@@ -352,10 +360,20 @@
 
         renderRefusals(n.refusals);
 
-        if (n.status === 'acknowledged') {
-            el('done').hidden = false;
-            el('doneBy').textContent =
-                `${n.acknowledged_by} confirmed this on ${fmt(n.acknowledged_at)}.`;
+        if (n.status === 'acknowledged' || n.status === 'disputed') {
+            const disputed = n.status === 'disputed';
+            const box = el('done');
+            box.hidden = false;
+            if (disputed) {
+                box.style.background = 'var(--hazard-soft)';
+                box.style.borderColor = 'var(--hazard)';
+                box.querySelector('h2').textContent = 'Disagreement recorded';
+                box.querySelector('h2').style.color = 'var(--hazard)';
+            }
+            el('doneBy').textContent = disputed
+                ? `${n.acknowledged_by} disagreed with this on ${fmt(n.acknowledged_at)}. `
+                  + `The site has been told and will look at it.`
+                : `${n.acknowledged_by} confirmed this on ${fmt(n.acknowledged_at)}.`;
             el('doneAction').textContent = n.corrective_action || '';
             el('doneAction').hidden = !n.corrective_action;
         } else {
@@ -379,11 +397,13 @@
         }
     }
 
-    el('ackBtn').addEventListener('click', async () => {
-        const btn = el('ackBtn');
+    async function respond(outcome) {
+        const btn = outcome === 'disputed' ? el('disputeBtn') : el('ackBtn');
+        const other = outcome === 'disputed' ? el('ackBtn') : el('disputeBtn');
+        const label = btn.textContent;
         const err = el('formError');
         err.hidden = true;
-        btn.disabled = true;
+        btn.disabled = other.disabled = true;
         btn.textContent = 'Sending…';
         try {
             const res = await fetch(`/api/notice/${encodeURIComponent(token)}/acknowledge`, {
@@ -392,14 +412,15 @@
                 body: JSON.stringify({
                     name: el('name').value,
                     corrective_action: el('action').value,
+                    outcome: outcome,
                 }),
             });
             const data = await res.json();
             if (!res.ok || !data.success) {
                 err.textContent = data.message || 'That did not go through. Please try again.';
                 err.hidden = false;
-                btn.disabled = false;
-                btn.textContent = 'Acknowledge this notice';
+                btn.disabled = other.disabled = false;
+                btn.textContent = label;
                 return;
             }
             el('respond').hidden = true;
@@ -407,10 +428,13 @@
         } catch (e) {
             err.textContent = 'No connection. Please try again.';
             err.hidden = false;
-            btn.disabled = false;
-            btn.textContent = 'Acknowledge this notice';
+            btn.disabled = other.disabled = false;
+            btn.textContent = label;
         }
-    });
+    }
+
+    el('ackBtn').addEventListener('click', () => respond('accepted'));
+    el('disputeBtn').addEventListener('click', () => respond('disputed'));
 
     load();
 </script>

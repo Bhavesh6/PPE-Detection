@@ -34,6 +34,7 @@ def _add_missing_columns():
         },
         "safety_notices": {
             "revoked_at": "DATETIME",
+            "outcome": "VARCHAR(16)",
         },
     }
 

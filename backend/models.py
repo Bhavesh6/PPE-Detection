@@ -372,6 +372,13 @@ class SafetyNotice(db.Model):
     acknowledged_by = db.Column(db.String(120), nullable=True)
     corrective_action = db.Column(db.Text, nullable=True)
 
+    # "accepted" or "disputed". A recipient who thinks the refusal was
+    # wrong - a false positive, the wrong policy, the wrong person - needs
+    # somewhere to say so. Without this the only reply the system accepted
+    # was agreement, which makes it a receipt rather than an exchange, and
+    # quietly records assent that was never given.
+    outcome = db.Column(db.String(16), nullable=True)
+
     # Withdrawn: the link stops opening. Kept as a timestamp rather than a
     # deletion so the record of having issued it survives being wrong.
     revoked_at = db.Column(db.DateTime, nullable=True)
@@ -385,7 +392,9 @@ class SafetyNotice(db.Model):
         if self.revoked_at:
             return "withdrawn"
         if self.acknowledged_at:
-            return "acknowledged"
+            # A dispute is answered but not settled: it needs a person,
+            # so it must not disappear into the same bucket as agreement.
+            return "disputed" if self.outcome == "disputed" else "acknowledged"
         if self.due_at and self.due_at < now:
             return "overdue"
         if self.delivered_at:
@@ -415,6 +424,7 @@ class SafetyNotice(db.Model):
             "acknowledged_at": _iso_utc(self.acknowledged_at),
             "acknowledged_by": self.acknowledged_by or "",
             "revoked_at": _iso_utc(self.revoked_at),
+            "outcome": self.outcome or "",
             "corrective_action": self.corrective_action or "",
         }
         if include_items:
