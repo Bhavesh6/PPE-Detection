@@ -13,6 +13,21 @@ from __future__ import annotations
 import glob
 import os
 import sys
+from pathlib import Path
+
+# Read the same .env checkpoint.py reads, before anything below looks at
+# os.environ. Without this the doctor diagnoses a configuration nobody
+# runs: it would miss SAFETYFIRST_GPS=off and pass a GPS the gate has
+# switched off, check localhost instead of the real SAFETYFIRST_API, and
+# warn about missing device credentials that are sitting in the file. A
+# pre-flight check that reads different settings than the app is worse
+# than none, because it is believed.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).with_name(".env"))
+except ImportError:
+    pass
 
 OK, BAD, WARN = "  OK  ", " FAIL ", " WARN "
 _failures = 0
