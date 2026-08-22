@@ -111,6 +111,10 @@
                                 <input id="rorg" type="text" maxlength="120" placeholder="Their company">
                             </div>
                             <div class="fld">
+                                <label for="remail">Their email <span style="font-weight:400;color:var(--muted)">— to send it for you</span></label>
+                                <input id="remail" type="email" maxlength="255" placeholder="Leave blank to send the link yourself">
+                            </div>
+                            <div class="fld">
                                 <label for="rmsg">Message <span style="font-weight:400;color:var(--muted)">— optional</span></label>
                                 <textarea id="rmsg" maxlength="2000" placeholder="What you want them to do about it."></textarea>
                             </div>
@@ -147,8 +151,35 @@
             overdue:      ['badge-danger', 'Overdue'],
             opened:       ['badge-info', 'Opened'],
             issued:       ['badge-muted', 'Awaiting'],
+            disputed:     ['badge-hazard', 'Disagreed'],
             withdrawn:    ['badge-muted', 'Withdrawn'],
         };
+
+        // Sent, tried and failed, and never attempted are three different
+        // situations for the officer chasing a reply, so say which.
+        function deliveryLine(n) {
+            const tries = n.deliveries || [];
+            if (!tries.length) {
+                return `<div class="nt-sub" style="color:var(--faint)">Not sent yet</div>`;
+            }
+            const last = tries[tries.length - 1];
+            if (last.succeeded) {
+                const how = last.channel === 'manual' ? 'sent by hand' : `emailed to ${last.target}`;
+                return `<div class="nt-sub" style="color:var(--ok)">Delivered — ${how}</div>`;
+            }
+            return `<div class="nt-sub" style="color:var(--danger)">`
+                 + `Delivery failed after ${tries.length} attempt${tries.length === 1 ? '' : 's'}`
+                 + ` — ${last.error}</div>`;
+        }
+
+        async function send(reference, byHand) {
+            const url = `/api/admin/notices/${encodeURIComponent(reference)}/send`
+                      + (byHand ? '?by=hand' : '');
+            const res = await Auth.fetch(url, { method: 'POST' });
+            const d = await res.json();
+            if (!d.success && d.message) alert(d.message);
+            loadNotices();
+        }
 
         async function revoke(reference) {
             if (!confirm(`Withdraw ${reference}? The link stops working, `
@@ -200,16 +231,23 @@
                             : `· due ${fmt(n.due_at)}`}
                     </div>
                     ${n.corrective_action
-                        ? `<div class="nt-sub" style="color:var(--ok)">“${n.corrective_action}”</div>` : ''}
+                        ? `<div class="nt-sub" style="color:${n.status === 'disputed' ? 'var(--hazard)' : 'var(--ok)'}">“${n.corrective_action}”</div>` : ''}
+                    ${deliveryLine(n)}
                     ${(n.status !== 'acknowledged' && n.status !== 'withdrawn') ? `
                     <div class="nt-link">
                         <i class="fas fa-link" style="font-size:.7rem"></i>
                         <code data-ref="${n.reference}">${link}…</code>
                         <a class="btn btn-outline btn-sm" href="/api/admin/notices/${n.reference}.json"
                            title="Machine-readable copy">JSON</a>
+                        <button class="btn btn-outline btn-sm" data-send="${n.reference}"
+                                title="${n.recipient.email ? 'Email it to ' + n.recipient.email : 'Record that you sent it yourself'}">
+                            ${n.recipient.email ? 'Send' : 'Mark sent'}</button>
                         <button class="btn btn-outline btn-sm" data-revoke="${n.reference}"
                                 title="Stop this link working">Withdraw</button>
                     </div>` : ''}`;
+                const sd = row.querySelector('[data-send]');
+                if (sd) sd.addEventListener('click',
+                    () => send(sd.dataset.send, !n.recipient.email));
                 const rv = row.querySelector('[data-revoke]');
                 if (rv) rv.addEventListener('click', () => revoke(rv.dataset.revoke));
                 list.appendChild(row);
@@ -278,6 +316,7 @@
                         refusals: chosen,
                         recipient_name: el('rname').value,
                         recipient_org: el('rorg').value,
+                        recipient_email: el('remail').value,
                         message: el('rmsg').value,
                     }),
                 });
@@ -294,7 +333,8 @@
                 msg.style.color = 'var(--ok)';
                 msg.hidden = false;
 
-                el('rname').value = ''; el('rorg').value = ''; el('rmsg').value = '';
+                el('rname').value = ''; el('rorg').value = '';
+                el('remail').value = ''; el('rmsg').value = '';
                 document.querySelectorAll('#pick input:checked').forEach(i => i.checked = false);
                 loadNotices();
             } catch (e) {

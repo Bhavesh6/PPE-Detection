@@ -20,6 +20,8 @@ that lists or enumerates anything.
 
 import csv
 import io
+import smtplib
+from email.message import EmailMessage
 import json
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -32,13 +34,16 @@ import audit
 import evidence
 from admin import admin_required
 from extensions import db, limiter
-from models import DetectionRecord, SafetyNotice, SafetyNoticeItem, User
+from models import (DetectionRecord, NoticeDelivery, SafetyNotice,
+                    SafetyNoticeItem, User)
 
 notices_bp = Blueprint("notices", __name__)
 
 # How long a recipient has before the notice reads as overdue. Long enough
 # that a weekend does not fail somebody, short enough to still mean today's
 # problem.
+NEWLINE = chr(10)
+
 DEFAULT_DUE_DAYS = 3
 
 # A link that outlives the thing it is about is a liability, not a feature.
@@ -183,7 +188,146 @@ def issue(detection_ids, recipient_name, recipient_org=None,
                 "recipient": notice.recipient_name},
         actor=actor,
     )
+
+    # Deliver if we can, but never fail the issue over it. The notice
+    # exists and its link works either way; a mail server that is down
+    # should cost an email, not the record.
+    if notice.recipient_email and current_app.config.get("SMTP_HOST"):
+        deliver(notice, actor=actor)
+
     return notice, None
+
+
+def link_for(notice):
+    """The absolute link to put in an email, or None if we cannot build one.
+
+    Returning None rather than guessing: a link to the wrong host is worse
+    than no email at all, because the recipient sees something that looks
+    right, fails, and stops trusting the next one.
+    """
+    base = current_app.config.get("PUBLIC_BASE_URL", "")
+    if not base:
+        return None
+    return f"{base}/notice.html?t={notice.token}"
+
+
+def _compose(notice, link):
+    """The email itself. Plain text on purpose.
+
+    A safety notice reaching a site manager on a phone in a portacabin
+    should not depend on an HTML mail client, remote images loading, or a
+    tracking pixel being allowed. Everything that matters is in the words,
+    and the link carries the rest.
+    """
+    subject = f"Safety notice {notice.reference} — {notice.subject.name if notice.subject else 'a worker'}"
+    count = len(notice.items)
+    lines = [
+        f"{notice.recipient_name},",
+        "",
+        f"{notice.subject.name if notice.subject else 'A worker'} was refused entry "
+        f"at the site checkpoint {'once' if count == 1 else f'{count} times'}.",
+    ]
+    if notice.message:
+        lines += ["", notice.message]
+    lines += [
+        "",
+        ("The notice below shows what was missing, with the photograph taken "
+         "at the gate and the rule that applied." if count == 1 else
+         "The notice below shows what was missing each time, with the "
+         "photograph taken at the gate and the rule that applied."),
+        "",
+        link,
+        "",
+    ]
+    if notice.due_at:
+        lines.append(f"A response is expected by {notice.due_at:%d %B %Y}.")
+    lines += [
+        "You can confirm what you have done about it, or say that you disagree.",
+        "",
+        f"Reference: {notice.reference}",
+        f"Issued by: {notice.issued_by_name}",
+    ]
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = current_app.config.get("SMTP_FROM") or current_app.config.get("SMTP_USER")
+    msg["To"] = notice.recipient_email
+    msg.set_content(NEWLINE.join(lines))
+    return msg
+
+
+def deliver(notice, actor=None):
+    """Send the notice. Returns (delivery, error).
+
+    Records the attempt whether or not it worked, because a failure is
+    exactly the thing the officer needs to see. An address that bounced
+    and a contractor who has not looked yet are indistinguishable without
+    this, and they call for opposite responses.
+    """
+    if not notice.recipient_email:
+        return None, "No email address on this notice"
+    if notice.revoked_at is not None:
+        return None, "This notice was withdrawn"
+
+    link = link_for(notice)
+    if not link:
+        return None, ("PUBLIC_BASE_URL is not set, so the link in the email "
+                      "would not resolve. Send it by hand instead.")
+
+    host = current_app.config.get("SMTP_HOST")
+    if not host:
+        return None, "No mail server configured. Send it by hand instead."
+
+    attempt = NoticeDelivery(notice_id=notice.id, channel="email",
+                             target=notice.recipient_email, attempted_at=_now())
+    try:
+        msg = _compose(notice, link)
+        port = current_app.config.get("SMTP_PORT", 587)
+        with smtplib.SMTP(host, port, timeout=20) as server:
+            if current_app.config.get("SMTP_STARTTLS", True):
+                server.starttls()
+            user = current_app.config.get("SMTP_USER")
+            if user:
+                server.login(user, current_app.config.get("SMTP_PASSWORD", ""))
+            server.send_message(msg)
+        attempt.succeeded = True
+    except Exception as exc:  # noqa: BLE001 - every failure is worth keeping
+        # The provider's own words: paraphrasing an SMTP rejection throws
+        # away the part that says how to fix it.
+        attempt.succeeded = False
+        attempt.error = f"{type(exc).__name__}: {exc}"[:500]
+
+    db.session.add(attempt)
+    db.session.commit()
+
+    audit.record(
+        "notice.deliver" if attempt.succeeded else "notice.deliver_failed",
+        (f"{notice.reference} emailed to {notice.recipient_email}"
+         if attempt.succeeded else
+         f"{notice.reference} could not be emailed to {notice.recipient_email}"),
+        detail={"reference": notice.reference, "error": attempt.error},
+        actor=actor,
+    )
+    return attempt, (None if attempt.succeeded else attempt.error)
+
+
+def record_manual_send(notice, actor=None):
+    """The officer took the link away to send it themselves.
+
+    Worth storing even though we did nothing: it is the difference between
+    a notice nobody has passed on and one that is genuinely waiting on the
+    recipient.
+    """
+    attempt = NoticeDelivery(notice_id=notice.id, channel="manual",
+                             target=notice.recipient_email or "by hand",
+                             attempted_at=_now(), succeeded=True)
+    db.session.add(attempt)
+    db.session.commit()
+    audit.record("notice.deliver",
+                 f"{notice.reference} sent by hand by {getattr(actor, 'name', 'an operator')}",
+                 detail={"reference": notice.reference, "channel": "manual"},
+                 actor=actor)
+    return attempt, None
 
 
 def by_token(token, mark_delivered=False):
@@ -324,6 +468,35 @@ def create_notice():
         # The whole point of the feature: something to send.
         "link": f"/notice.html?t={notice.token}",
     }), 201
+
+
+@notices_bp.route("/api/admin/notices/<reference>/send", methods=["POST"])
+@admin_required
+@limiter.limit("60 per hour")
+def send_notice(reference):
+    """Email it, or record that the officer is sending it themselves.
+
+    ?by=hand skips the mail server entirely. That is not a lesser path: a
+    site whose contractors are reached on WhatsApp is not misusing this,
+    and pretending otherwise would only mean the record says nothing was
+    ever sent.
+    """
+    actor = db.session.get(User, int(get_jwt_identity()))
+    notice = SafetyNotice.query.filter_by(reference=reference).first()
+    if notice is None:
+        return jsonify({"success": False, "message": "No such notice"}), 404
+
+    if request.args.get("by") == "hand":
+        record_manual_send(notice, actor=actor)
+        return jsonify({"success": True, "notice": notice.to_dict()})
+
+    _attempt, error = deliver(notice, actor=actor)
+    if error:
+        # 200 with the failure attached, not a 5xx: the attempt is a fact
+        # worth returning, and the console needs to show why it failed.
+        return jsonify({"success": False, "message": error,
+                        "notice": notice.to_dict()}), 200
+    return jsonify({"success": True, "notice": notice.to_dict()})
 
 
 @notices_bp.route("/api/admin/notices/<reference>/revoke", methods=["POST"])

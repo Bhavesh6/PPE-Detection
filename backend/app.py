@@ -36,6 +36,7 @@ def _add_missing_columns():
             "revoked_at": "DATETIME",
             "outcome": "VARCHAR(16)",
         },
+        # notice_deliveries is a new table, so create_all() handles it.
     }
 
     inspector = inspect(db.engine)

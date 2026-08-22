@@ -385,6 +385,9 @@ class SafetyNotice(db.Model):
 
     items = db.relationship("SafetyNoticeItem", backref="notice",
                             cascade="all, delete-orphan", lazy="selectin")
+    deliveries = db.relationship("NoticeDelivery", backref="notice",
+                                 cascade="all, delete-orphan", lazy="selectin",
+                                 order_by="NoticeDelivery.attempted_at")
 
     @property
     def status(self):
@@ -425,11 +428,55 @@ class SafetyNotice(db.Model):
             "acknowledged_by": self.acknowledged_by or "",
             "revoked_at": _iso_utc(self.revoked_at),
             "outcome": self.outcome or "",
+            "deliveries": [d.to_dict() for d in self.deliveries],
+            "delivered": any(d.succeeded for d in self.deliveries),
             "corrective_action": self.corrective_action or "",
         }
         if include_items:
             data["refusals"] = [item.to_dict() for item in self.items]
         return data
+
+
+class NoticeDelivery(db.Model):
+    """One attempt to put a notice in front of its recipient.
+
+    Issuing a notice and delivering it are different events, and only one
+    of them can fail. Before this the system knew a notice existed and
+    knew when somebody opened it, but nothing in between: an address that
+    bounced looked exactly like a contractor who had not got round to it,
+    and the officer chasing them had no way to tell which.
+
+    A row per attempt rather than a flag on the notice, because "we tried
+    twice and the server refused both times" is the thing worth knowing,
+    and a boolean cannot say it.
+    """
+
+    __tablename__ = "notice_deliveries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    notice_id = db.Column(db.Integer, db.ForeignKey("safety_notices.id"),
+                          nullable=False, index=True)
+
+    # "email" when the server sent it, "manual" when an officer took the
+    # link away to send themselves. Both are delivery; only one is ours.
+    channel = db.Column(db.String(16), nullable=False)
+    target = db.Column(db.String(255), nullable=True)
+
+    attempted_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                             nullable=False)
+    succeeded = db.Column(db.Boolean, default=False, nullable=False)
+    # The provider's own words. Paraphrasing an SMTP failure into
+    # "delivery failed" throws away the part that says how to fix it.
+    error = db.Column(db.String(500), nullable=True)
+
+    def to_dict(self):
+        return {
+            "channel": self.channel,
+            "target": self.target or "",
+            "attempted_at": _iso_utc(self.attempted_at),
+            "succeeded": self.succeeded,
+            "error": self.error or "",
+        }
 
 
 class SafetyNoticeItem(db.Model):

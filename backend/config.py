@@ -129,6 +129,24 @@ class Config:
     # shared a single bucket and locked each other out.
     TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "0"))
 
+    # Where this deployment answers from, used to build the absolute link
+    # in a notice email. A relative path is fine in a page the browser
+    # already loaded and useless in an inbox, so without this the server
+    # cannot compose an email worth sending and says so rather than
+    # sending a broken one.
+    PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+
+    # Outbound mail. All blank by default, in which case notices are still
+    # issued and the console hands the officer the link to send themselves
+    # - a site without a mail server should not lose the feature, only the
+    # automation.
+    SMTP_HOST = os.environ.get("SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USER = os.environ.get("SMTP_USER", "")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+    SMTP_FROM = os.environ.get("SMTP_FROM", "")
+    SMTP_STARTTLS = os.environ.get("SMTP_STARTTLS", "1") not in ("0", "false", "False")
+
     # Comma-separated list of allowed frontend origins for CORS.
     CORS_ORIGINS = [
         origin.strip()
