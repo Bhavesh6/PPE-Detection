@@ -83,9 +83,18 @@ def check_libraries():
             missing.append(package)
 
     if missing:
-        report(BAD, "Reader libraries",
-               f"Missing: {', '.join(missing)}\n"
-               f"Install: pip install {' '.join(missing)}")
+        # Not a failure any more. Badges reach this Pi from the sensor mesh
+        # through the master ESP32 over USB; the RC522 on the SPI header is
+        # the fallback for a gate with no master attached. Reporting FAIL
+        # here painted a fully working checkpoint red, which is worse than
+        # saying nothing — a red line nobody can act on teaches people to
+        # ignore the whole report. check_reader() below tests what is
+        # actually being used.
+        report(WARN, "Reader libraries",
+               f"Not installed: {', '.join(missing)}\n"
+               "Only needed for a direct RC522 on the SPI header. If the gate\n"
+               "master ESP32 is attached over USB, this is expected and fine.\n"
+               f"To add the fallback anyway: pip install {' '.join(missing)}")
         return False
     report(OK, "Reader libraries", "spidev, RPi.GPIO, mfrc522")
     return True
@@ -98,21 +107,39 @@ def check_camera():
         report(BAD, "Camera", "opencv is not installed (pip install opencv-python-headless)")
         return
 
-    index = int(os.environ.get("SAFETYFIRST_CAMERA", "0"))
-    cap = cv2.VideoCapture(index)
+    setting = os.environ.get("SAFETYFIRST_CAMERA") or "0"
+
+    # Resolve exactly the way the gate does. SAFETYFIRST_CAMERA accepts a
+    # name fragment ("HD camera") as well as an index, and int()-ing it here
+    # killed the doctor on a setting the gate handles perfectly well — the
+    # pre-flight check crashing on a working configuration.
     try:
-        if not cap.isOpened():
-            report(BAD, "Camera", f"Could not open camera index {index}.\n"
-                                  "Check the ribbon/USB connection, or set SAFETYFIRST_CAMERA.")
+        from checkpoint import _camera_candidates
+
+        candidates = _camera_candidates()
+    except Exception:  # noqa: BLE001 - checkpoint pulls in the whole GUI stack
+        parts = [p.strip() for p in setting.split(",") if p.strip()]
+        candidates = [int(p) for p in parts] if all(p.isdigit() for p in parts) else [0]
+
+    for index in candidates:
+        cap = cv2.VideoCapture(index)
+        try:
+            if not cap.isOpened():
+                continue
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            h, w = frame.shape[:2]
+            report(OK, "Camera", f"{setting!r} -> index {index}, {w}x{h}")
             return
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            report(BAD, "Camera", "Camera opened but returned no frame.")
-            return
-        h, w = frame.shape[:2]
-        report(OK, "Camera", f"index {index}, {w}x{h}")
-    finally:
-        cap.release()
+        finally:
+            cap.release()
+
+    report(BAD, "Camera",
+           f"No working camera for SAFETYFIRST_CAMERA={setting!r}.\n"
+           f"Tried index(es): {', '.join(str(c) for c in candidates)}\n"
+           "Check the connection, or set SAFETYFIRST_CAMERA to an index or a\n"
+           "name fragment from: v4l2-ctl --list-devices")
 
 
 def check_backend():
