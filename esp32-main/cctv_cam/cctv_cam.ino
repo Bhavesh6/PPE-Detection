@@ -462,6 +462,22 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);          // modem sleep stutters an MJPEG stream badly
+
+  // Turn the radio down before associating. Observed on this board: a
+  // clean POWERON boot, the camera initialising fine, then the ROM
+  // banner appearing partway through "[wifi] connecting......" - over
+  // and over. Nothing in this sketch restarts the chip and the connect
+  // loop below has no timeout, so that reset comes from outside: the 5V
+  // rail sagging under the transmit spike while the camera is also
+  // drawing. An ESP32-CAM on a USB-serial adapter's supply is right at
+  // the edge.
+  //
+  // 8.5dBm is roughly a quarter of full power. It costs range, which a
+  // camera a few metres from the access point can afford, and buys one
+  // that finishes booting. Fix the supply - a 1A source and a 470uF
+  // capacitor across 5V/GND - and this can go back to default.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("[wifi] connecting");
   while (WiFi.status() != WL_CONNECTED) {
