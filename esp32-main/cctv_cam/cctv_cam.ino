@@ -309,10 +309,11 @@ static esp_err_t control_handler(httpd_req_t *req) {
   const int n = atoi(val);
   int rc = -1;
   if (!strcmp(var, "framesize")) {
-    // Above SVGA the sensor drops frames badly and the buffers were sized
-    // at boot, so refuse rather than wedge the stream.
-    if (n < 0 || n > FRAMESIZE_SVGA) {
-      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "framesize out of range (0..FRAMESIZE_SVGA)");
+    // The buffers are UXGA-sized at boot, so anything up to that is safe
+    // to switch to on a running camera. Whether the link can carry it is
+    // a separate question, and one you can now answer by trying.
+    if (n < 0 || n > FRAMESIZE_UXGA) {
+      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "framesize out of range (0..FRAMESIZE_UXGA)");
       return ESP_FAIL;
     }
     rc = s->set_framesize(s, (framesize_t)n);
@@ -403,7 +404,14 @@ static bool start_camera() {
   // That trade is worth taking here and nowhere else: PPE is decided from
   // the gate's own webcam, so nothing about a verdict depends on this
   // sensor's resolution. These frames are for watching, not for judging.
-  config.frame_size   = psram ? CAM_FRAMESIZE : FRAMESIZE_QVGA;
+  // Allocate as though the largest frame might be asked for, then run at
+  // the configured size. Espressif's own CameraWebServer does exactly
+  // this - init at UXGA, then set_framesize() down "for higher initial
+  // frame rate" - and the reason is worth stating: buffers are sized once,
+  // at boot, so a camera that allocated for QVGA can never be raised
+  // afterwards. Allocating high costs PSRAM this board has spare and
+  // makes /control able to move in both directions on a live camera.
+  config.frame_size   = psram ? FRAMESIZE_UXGA : FRAMESIZE_QVGA;
   config.jpeg_quality = CAM_QUALITY;      // lower = better = bigger
   config.fb_count     = psram ? 2 : 1;
 
@@ -437,6 +445,14 @@ static bool start_camera() {
     Serial.printf("[cam] sensor: %s (PID 0x%04x)\n", sensor_label, s->id.PID);
     s->set_vflip(s, CAM_VFLIP);
     s->set_hmirror(s, CAM_HMIRROR);
+
+    // The buffers above are UXGA-sized; this is the size actually sent.
+    // Same move as the stock example, and the one that decides the frame
+    // rate - both delivery paths carry whatever is set here, so it
+    // applies to the Pi's relay and the camera's own uploads alike.
+    if (hw_jpeg) {
+      s->set_framesize(s, CAM_FRAMESIZE);
+    }
   }
 
   Serial.printf("[cam] %s JPEG, %s\n",
