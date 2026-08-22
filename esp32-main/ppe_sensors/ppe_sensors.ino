@@ -236,8 +236,10 @@ static bool espnowReady = false;
    from one that is being heard, instead of both printing "sent". */
 static volatile bool lastSendOk = true;
 
-static void onEspNowSent(const uint8_t *mac, esp_now_send_status_t status) {
-  (void)mac;
+static void onEspNowSent(const esp_now_send_info_t *info, esp_now_send_status_t status) {
+  // Signature per esp_now_send_cb_t in core 3.x: an info struct, not a
+  // bare MAC pointer. The older two-arg form does not compile here.
+  (void)info;
   bool ok = (status == ESP_NOW_SEND_SUCCESS);
   if (!ok && lastSendOk) {
     Serial.println("# ESP-NOW not reaching the master - nothing is acknowledging");
