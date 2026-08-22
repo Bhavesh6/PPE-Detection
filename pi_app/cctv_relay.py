@@ -246,7 +246,13 @@ class CCTVRelay:
         self._api = api
         self._id = camera_id
         self._camera = url.rstrip("/")
-        self._interval = max(0.2, poll)
+        # Floored, but low. The old 0.2 floor guarded a loop that fetched
+        # and posted in series, where asking for frames faster than one
+        # round trip only queued work. The reader is separate now, so this
+        # is purely how often the newest frame is forwarded, and the
+        # uplink decides the real ceiling - measured at about 3.8/sec,
+        # which is already slower than this allows.
+        self._interval = max(0.05, poll)
         self._running = True
         self._thread: threading.Thread | None = None
 
