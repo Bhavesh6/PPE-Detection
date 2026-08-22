@@ -25,7 +25,8 @@ import json
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from flask import Blueprint, Response, jsonify, request, send_file
+from flask import Blueprint, Response, current_app, jsonify, request, send_file
+from sqlalchemy.exc import IntegrityError
 
 import audit
 import evidence
@@ -41,8 +42,12 @@ notices_bp = Blueprint("notices", __name__)
 DEFAULT_DUE_DAYS = 3
 
 # A link that outlives the thing it is about is a liability, not a feature.
-# Evidence is purged at 30 days (see evidence.purge_expired), so a token
-# valid past that would open onto a notice whose proof had gone.
+#
+# Retention is counted from the refusal; a link's life is counted from the
+# notice. Those are different clocks, and treating them as one was wrong:
+# a 28-day-old refusal cited today would leave the link valid for 28 days
+# after its own evidence had been purged, so the recipient opens a notice
+# with nothing in it. The expiry below is therefore the earlier of the two.
 LINK_LIFETIME_DAYS = 30
 
 
@@ -72,8 +77,27 @@ def _next_reference():
     return f"{prefix}{nth:04d}"
 
 
+def _expires_at(notice):
+    """The earlier of: the link's own life, and its evidence's.
+
+    Returns None when nothing it cites carries an image, in which case
+    there is no proof to outlive and only the link's own limit applies.
+    """
+    own = notice.issued_at + timedelta(days=LINK_LIFETIME_DAYS)
+
+    retention = current_app.config.get("EVIDENCE_RETENTION_DAYS", 30)
+    if retention and retention > 0:
+        shots = [i.detection.timestamp for i in notice.items
+                 if i.detection is not None and i.detection.evidence_file]
+        if shots:
+            # Oldest cited refusal decides: once its image goes, the
+            # notice is no longer showing what it claims to show.
+            own = min(own, min(shots) + timedelta(days=retention))
+    return own
+
+
 def _expired(notice):
-    return (_now() - notice.issued_at).days > LINK_LIFETIME_DAYS
+    return _now() > _expires_at(notice)
 
 
 def issue(detection_ids, recipient_name, recipient_org=None,
@@ -130,13 +154,26 @@ def issue(detection_ids, recipient_name, recipient_org=None,
         issued_by_name=getattr(actor, "name", "Unknown")[:120],
         due_at=_now() + timedelta(days=days),
     )
-    db.session.add(notice)
-    db.session.flush()          # need notice.id for the citations
-
-    for record in records:
-        db.session.add(SafetyNoticeItem(notice_id=notice.id,
-                                        detection_id=record.id))
-    db.session.commit()
+    # References are sequential so they can be quoted, which means two
+    # officers issuing at the same moment can compute the same one. Seen
+    # under test: three of five concurrent issues died on the unique
+    # constraint and the officer got a 500 with no notice created. Retry
+    # rather than serialise - the collision is rare and the recovery is
+    # cheap.
+    for attempt in range(5):
+        try:
+            db.session.add(notice)
+            db.session.flush()      # need notice.id for the citations
+            for record in records:
+                db.session.add(SafetyNoticeItem(notice_id=notice.id,
+                                                detection_id=record.id))
+            db.session.commit()
+            break
+        except IntegrityError:
+            db.session.rollback()
+            if attempt == 4:
+                return None, "Could not allocate a reference; please try again"
+            notice.reference = _next_reference()
 
     audit.record(
         "notice.issue",
@@ -155,7 +192,7 @@ def by_token(token, mark_delivered=False):
     if not token:
         return None
     notice = SafetyNotice.query.filter_by(token=token).first()
-    if notice is None or _expired(notice):
+    if notice is None or notice.revoked_at is not None or _expired(notice):
         return None
     if mark_delivered and notice.delivered_at is None:
         notice.delivered_at = _now()
@@ -189,6 +226,35 @@ def acknowledge(notice, name, corrective_action=None):
         # Named rather than looked up: the recipient holds no account, and
         # there is no JWT on this request to read one from.
         actor_name=notice.acknowledged_by,
+    )
+    return notice, None
+
+
+def revoke(notice, actor=None):
+    """Withdraw a notice. Returns (notice, error).
+
+    A link sent to the wrong address cannot be unsent, so the only thing
+    that can be withdrawn is its power to open. Without this the sole
+    remedy for a misaddressed notice was to wait thirty days.
+
+    An acknowledged notice is left alone: it is the record of an exchange
+    that happened, and deleting the answer to a question is worse than
+    having asked it badly.
+    """
+    if notice.acknowledged_at is not None:
+        return None, "This notice has been answered; it cannot be withdrawn"
+    if notice.revoked_at is not None:
+        return None, "This notice was already withdrawn"
+
+    notice.revoked_at = _now()
+    db.session.commit()
+
+    audit.record(
+        "notice.revoke",
+        f"Withdrew {notice.reference}",
+        detail={"reference": notice.reference,
+                "recipient": notice.recipient_name},
+        actor=actor,
     )
     return notice, None
 
@@ -239,6 +305,20 @@ def create_notice():
     }), 201
 
 
+@notices_bp.route("/api/admin/notices/<reference>/revoke", methods=["POST"])
+@admin_required
+def revoke_notice(reference):
+    from flask_jwt_extended import get_jwt_identity
+    actor = db.session.get(User, int(get_jwt_identity()))
+    notice = SafetyNotice.query.filter_by(reference=reference).first()
+    if notice is None:
+        return jsonify({"success": False, "message": "No such notice"}), 404
+    notice, error = revoke(notice, actor=actor)
+    if error:
+        return jsonify({"success": False, "message": error}), 400
+    return jsonify({"success": True, "notice": notice.to_dict()})
+
+
 @notices_bp.route("/api/admin/notices/<reference>.json", methods=["GET"])
 @admin_required
 def export_json(reference):
@@ -250,7 +330,11 @@ def export_json(reference):
     notice = SafetyNotice.query.filter_by(reference=reference).first()
     if notice is None:
         return jsonify({"success": False, "message": "No such notice"}), 404
-    body = json.dumps(notice.to_dict(), indent=2)
+    payload = notice.to_dict()
+    # Consumers parse this. Naming the shape means a later change can be
+    # detected rather than silently misread as the old one.
+    payload = {"schema": "safetyfirst.notice/1", **payload}
+    body = json.dumps(payload, indent=2)
     return Response(body, mimetype="application/json", headers={
         "Content-Disposition": f'attachment; filename="{reference}.json"',
     })

@@ -116,6 +116,19 @@ class Config:
     # itself is kept; only the image expires.
     EVIDENCE_RETENTION_DAYS = int(os.environ.get("EVIDENCE_RETENTION_DAYS", "30"))
 
+    # Number of reverse proxies in front of this app whose X-Forwarded-For
+    # can be believed. Zero by default, and that default is the safe one:
+    # trusting the header when nothing sets it lets any caller name
+    # themselves whatever they like and walk straight through the rate
+    # limits meant to hold them.
+    #
+    # It matters most for the notice routes, which are the only ones with
+    # no login behind them - there, the limiter is the whole defence.
+    # Behind one proxy (a Cloudflare tunnel, a single nginx) this is 1;
+    # measured with it at 0, twenty-four callers on distinct addresses
+    # shared a single bucket and locked each other out.
+    TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "0"))
+
     # Comma-separated list of allowed frontend origins for CORS.
     CORS_ORIGINS = [
         origin.strip()

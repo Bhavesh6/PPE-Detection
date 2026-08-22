@@ -147,7 +147,19 @@
             overdue:      ['badge-danger', 'Overdue'],
             opened:       ['badge-info', 'Opened'],
             issued:       ['badge-muted', 'Awaiting'],
+            withdrawn:    ['badge-muted', 'Withdrawn'],
         };
+
+        async function revoke(reference) {
+            if (!confirm(`Withdraw ${reference}? The link stops working, `
+                       + `and the record that it was issued stays.`)) return;
+            const res = await Auth.fetch(
+                `/api/admin/notices/${encodeURIComponent(reference)}/revoke`,
+                { method: 'POST' });
+            const d = await res.json();
+            if (!res.ok || !d.success) { alert(d.message || 'Could not withdraw it.'); return; }
+            loadNotices();
+        }
 
         async function loadNotices() {
             const res = await Auth.fetch('/api/admin/notices');
@@ -189,13 +201,17 @@
                     </div>
                     ${n.corrective_action
                         ? `<div class="nt-sub" style="color:var(--ok)">“${n.corrective_action}”</div>` : ''}
-                    ${n.status !== 'acknowledged' ? `
+                    ${(n.status !== 'acknowledged' && n.status !== 'withdrawn') ? `
                     <div class="nt-link">
                         <i class="fas fa-link" style="font-size:.7rem"></i>
                         <code data-ref="${n.reference}">${link}…</code>
                         <a class="btn btn-outline btn-sm" href="/api/admin/notices/${n.reference}.json"
                            title="Machine-readable copy">JSON</a>
+                        <button class="btn btn-outline btn-sm" data-revoke="${n.reference}"
+                                title="Stop this link working">Withdraw</button>
                     </div>` : ''}`;
+                const rv = row.querySelector('[data-revoke]');
+                if (rv) rv.addEventListener('click', () => revoke(rv.dataset.revoke));
                 list.appendChild(row);
             });
         }

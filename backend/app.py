@@ -32,6 +32,9 @@ def _add_missing_columns():
             "policy_json": "TEXT",
             "evidence_file": "VARCHAR(120)",
         },
+        "safety_notices": {
+            "revoked_at": "DATETIME",
+        },
     }
 
     inspector = inspect(db.engine)
@@ -61,6 +64,16 @@ def create_app():
     jwt.init_app(app)
     limiter.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
+
+    # Only when a deployment says how many proxies sit in front of it.
+    # Without this the limiter sees the proxy's address for every caller,
+    # so one recipient refreshing their notice exhausts the allowance of
+    # everyone else's.
+    hops = app.config.get("TRUSTED_PROXY_HOPS", 0)
+    if hops > 0:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops,
+                                x_host=hops, x_prefix=hops)
 
     from admin import admin_bp
     from auth import auth_bp

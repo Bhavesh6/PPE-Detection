@@ -372,12 +372,18 @@ class SafetyNotice(db.Model):
     acknowledged_by = db.Column(db.String(120), nullable=True)
     corrective_action = db.Column(db.Text, nullable=True)
 
+    # Withdrawn: the link stops opening. Kept as a timestamp rather than a
+    # deletion so the record of having issued it survives being wrong.
+    revoked_at = db.Column(db.DateTime, nullable=True)
+
     items = db.relationship("SafetyNoticeItem", backref="notice",
                             cascade="all, delete-orphan", lazy="selectin")
 
     @property
     def status(self):
         now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.revoked_at:
+            return "withdrawn"
         if self.acknowledged_at:
             return "acknowledged"
         if self.due_at and self.due_at < now:
@@ -408,6 +414,7 @@ class SafetyNotice(db.Model):
             "delivered_at": _iso_utc(self.delivered_at),
             "acknowledged_at": _iso_utc(self.acknowledged_at),
             "acknowledged_by": self.acknowledged_by or "",
+            "revoked_at": _iso_utc(self.revoked_at),
             "corrective_action": self.corrective_action or "",
         }
         if include_items:
