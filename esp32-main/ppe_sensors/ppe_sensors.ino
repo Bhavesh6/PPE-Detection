@@ -63,6 +63,16 @@
 #include <ArduinoJson.h>
 #include <DHT.h>
 
+// Unconditional, even though only the ESP-NOW route uses them. The
+// Arduino builder generates forward declarations for this file's
+// functions and inserts them after this first run of includes - so a
+// callback whose signature mentions esp_now_send_info_t gets declared
+// above any include hidden behind an #ifdef further down, and fails with
+// "does not name a type" pointing at a line that looks perfectly fine.
+// Headers cost nothing when unused; the ordering trap costs an hour.
+#include <esp_now.h>
+#include <esp_wifi.h>
+
 // WIFI_SSID, WIFI_PASSWORD, API_BASE, DEVICE_EMAIL, DEVICE_PASSWORD live in
 // secrets.h, next to this file — gitignored. Copy secrets.h.example to
 // secrets.h and fill in real values; the Arduino IDE picks up a
@@ -207,8 +217,6 @@ int postJson(const char *path, const String &payload) {
    and ESPNOW_CHANNEL to the channel on that same line.
 */
 #ifdef REPORT_VIA_ESPNOW
-#include <esp_now.h>
-#include <esp_wifi.h>
 
 #ifndef ESPNOW_CHANNEL
 #define ESPNOW_CHANNEL 1
