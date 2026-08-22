@@ -82,6 +82,15 @@
 // no include path setup.
 #include "secrets.h"
 
+// Defaults when a board_*.h does not say otherwise. VGA/12 keeps the
+// previous behaviour for any camera that has not been tuned.
+#ifndef CAM_FRAMESIZE
+#define CAM_FRAMESIZE FRAMESIZE_VGA
+#endif
+#ifndef CAM_QUALITY
+#define CAM_QUALITY 12
+#endif
+
 // Each board needs its own id. It becomes the mDNS name AND the key the
 // console files frames under, so two cameras sharing one id would
 // overwrite each other and the feed would flicker between two places.
@@ -261,6 +270,78 @@ static esp_err_t stream_handler(httpd_req_t *req) {
 }
 
 
+/* Change resolution and JPEG quality without reflashing.
+
+   Espressif's own CameraWebServer exposes this, and for good reason: the
+   right frame size is a property of the link, not of the code. Measured
+   here, VGA cost about 28KB a frame and the sensor managed 9.6 of them a
+   second; QVGA is nearer a quarter of that and roughly doubles the rate.
+   Which you want depends on whether you are watching over the LAN or
+   through a tunnel on a phone hotspot, and that can change between one
+   demo and the next.
+
+   Deliberately not persisted. A camera that quietly keeps a setting
+   somebody tried once is worse than one that returns to a known state
+   when power-cycled - board_*.h stays the single source of truth.
+
+     GET /control?var=framesize&val=6   (6=QVGA 320x240, 8=VGA 640x480)
+     GET /control?var=quality&val=15    (10..63, lower = better = bigger)
+*/
+static esp_err_t control_handler(httpd_req_t *req) {
+  char query[64];
+  char var[16];
+  char val[16];
+
+  if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
+      httpd_query_key_value(query, "var", var, sizeof(var)) != ESP_OK ||
+      httpd_query_key_value(query, "val", val, sizeof(val)) != ESP_OK) {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                        "use /control?var=framesize|quality&val=<n>");
+    return ESP_FAIL;
+  }
+
+  sensor_t *s = esp_camera_sensor_get();
+  if (!s) {
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "no sensor");
+    return ESP_FAIL;
+  }
+
+  const int n = atoi(val);
+  int rc = -1;
+  if (!strcmp(var, "framesize")) {
+    // How far this can go depends on which path the camera came up on.
+    //
+    // Hardware JPEG allocated UXGA buffers at boot, so anything up to
+    // that is safe to switch to while running. A sensor with no encoder
+    // did not: it is on the RGB565 fallback, whose buffer was allocated
+    // at QVGA, and asking it for a larger frame means writing past what
+    // was reserved. It would also be pointless - a VGA RGB565 frame is
+    // 600KB to compress in software, per frame, on one core.
+    const framesize_t ceiling = hw_jpeg ? FRAMESIZE_UXGA : FRAMESIZE_QVGA;
+    if (n < 0 || n > ceiling) {
+      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                          hw_jpeg ? "framesize out of range (0..UXGA)"
+                                  : "this sensor has no JPEG encoder; QVGA is the ceiling");
+      return ESP_FAIL;
+    }
+    rc = s->set_framesize(s, (framesize_t)n);
+  } else if (!strcmp(var, "quality")) {
+    if (n < 10 || n > 63) {
+      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "quality out of range (10..63)");
+      return ESP_FAIL;
+    }
+    rc = s->set_quality(s, n);
+  } else {
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "unknown var");
+    return ESP_FAIL;
+  }
+
+  Serial.printf("[control] %s=%d -> %s\n", var, n, rc == 0 ? "ok" : "refused");
+  httpd_resp_set_type(req, "text/plain");
+  return httpd_resp_sendstr(req, rc == 0 ? "ok\n" : "sensor refused\n");
+}
+
+
 static void start_server() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.server_port = 80;
@@ -272,11 +353,13 @@ static void start_server() {
   httpd_uri_t index_uri  = {"/",         HTTP_GET, index_handler,    NULL};
   httpd_uri_t stream_uri = {"/stream",   HTTP_GET, stream_handler,   NULL};
   httpd_uri_t snap_uri   = {"/snapshot", HTTP_GET, snapshot_handler, NULL};
+  httpd_uri_t ctrl_uri   = {"/control",  HTTP_GET, control_handler,  NULL};
 
   if (httpd_start(&server, &config) == ESP_OK) {
     httpd_register_uri_handler(server, &index_uri);
     httpd_register_uri_handler(server, &stream_uri);
     httpd_register_uri_handler(server, &snap_uri);
+    httpd_register_uri_handler(server, &ctrl_uri);
     Serial.println("[http] server up on :80");
   } else {
     Serial.println("[http] server FAILED to start");
@@ -320,8 +403,24 @@ static bool start_camera() {
   // Frame size is bounded by memory, not by taste. With PSRAM there is
   // room to double-buffer at VGA; without it, asking for VGA fails to
   // allocate and the camera never initialises at all.
-  config.frame_size   = psram ? FRAMESIZE_VGA : FRAMESIZE_QVGA;
-  config.jpeg_quality = 12;               // lower = better = bigger
+  //
+  // Both are overridable per board (board_*.h), because the right answer
+  // differs by what the camera is for. Measured on this link: VGA at
+  // quality 12 is ~17KB a frame, and the Pi's uplink - a phone hotspot
+  // through a tunnel - carried about two of those a second. QVGA at 15 is
+  // nearer 5KB, so the same uplink carries roughly three times as many.
+  // That trade is worth taking here and nowhere else: PPE is decided from
+  // the gate's own webcam, so nothing about a verdict depends on this
+  // sensor's resolution. These frames are for watching, not for judging.
+  // Allocate as though the largest frame might be asked for, then run at
+  // the configured size. Espressif's own CameraWebServer does exactly
+  // this - init at UXGA, then set_framesize() down "for higher initial
+  // frame rate" - and the reason is worth stating: buffers are sized once,
+  // at boot, so a camera that allocated for QVGA can never be raised
+  // afterwards. Allocating high costs PSRAM this board has spare and
+  // makes /control able to move in both directions on a live camera.
+  config.frame_size   = psram ? FRAMESIZE_UXGA : FRAMESIZE_QVGA;
+  config.jpeg_quality = CAM_QUALITY;      // lower = better = bigger
   config.fb_count     = psram ? 2 : 1;
 
   esp_err_t err = esp_camera_init(&config);
@@ -354,6 +453,14 @@ static bool start_camera() {
     Serial.printf("[cam] sensor: %s (PID 0x%04x)\n", sensor_label, s->id.PID);
     s->set_vflip(s, CAM_VFLIP);
     s->set_hmirror(s, CAM_HMIRROR);
+
+    // The buffers above are UXGA-sized; this is the size actually sent.
+    // Same move as the stock example, and the one that decides the frame
+    // rate - both delivery paths carry whatever is set here, so it
+    // applies to the Pi's relay and the camera's own uploads alike.
+    if (hw_jpeg) {
+      s->set_framesize(s, CAM_FRAMESIZE);
+    }
   }
 
   Serial.printf("[cam] %s JPEG, %s\n",
@@ -462,6 +569,22 @@ void setup() {
 
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);          // modem sleep stutters an MJPEG stream badly
+
+  // Turn the radio down before associating. Observed on this board: a
+  // clean POWERON boot, the camera initialising fine, then the ROM
+  // banner appearing partway through "[wifi] connecting......" - over
+  // and over. Nothing in this sketch restarts the chip and the connect
+  // loop below has no timeout, so that reset comes from outside: the 5V
+  // rail sagging under the transmit spike while the camera is also
+  // drawing. An ESP32-CAM on a USB-serial adapter's supply is right at
+  // the edge.
+  //
+  // 8.5dBm is roughly a quarter of full power. It costs range, which a
+  // camera a few metres from the access point can afford, and buys one
+  // that finishes booting. Fix the supply - a 1A source and a 470uF
+  // capacitor across 5V/GND - and this can go back to default.
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
+
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("[wifi] connecting");
   while (WiFi.status() != WL_CONNECTED) {

@@ -63,7 +63,8 @@ class SerialBridgeReader(BadgeReader):
 
     name = "ESP32 master (USB serial)"
 
-    def __init__(self, port: str | None = None, alerts=None, policy_provider=None):
+    def __init__(self, port: str | None = None, alerts=None, policy_provider=None,
+                 readings=None):
         super().__init__()
         import serial  # late: only needed when a board is actually attached
 
@@ -71,6 +72,7 @@ class SerialBridgeReader(BadgeReader):
         self._port = port or os.environ.get("SAFETYFIRST_SERIAL_PORT") or ""
         self._alerts = alerts
         self._policy = policy_provider or (lambda: {})
+        self._readings = readings
         self._conn = None
 
         # Last fan status the master reported. Read by doctor.py and the
@@ -89,6 +91,14 @@ class SerialBridgeReader(BadgeReader):
             # A read timeout rather than blocking, so stop() can end this
             # thread instead of it sitting in readline() forever.
             self._conn = self._serial.Serial(port, BAUD, timeout=1)
+            # Throw away whatever accumulated while nothing was reading.
+            # Measured on the bench: opening the port delivered 95 copies
+            # of one reading in a single second - the same value, filed 95
+            # times with the timestamp of the moment we opened, which is a
+            # spike in the history that never happened. Steady state is a
+            # clean line every couple of seconds; only this backlog is
+            # wrong, and it is stale by definition.
+            self._conn.reset_input_buffer()
             self.name = f"ESP32 master ({port})"
             return True
         except (OSError, self._serial.SerialException):
@@ -159,6 +169,15 @@ class SerialBridgeReader(BadgeReader):
             except ValueError:
                 return
             unit = parts[3] if len(parts) > 3 else ""
+
+            # Buffer every reading, crossing or not. Online the backend logs
+            # them all; offline they used to vanish, leaving holes in the
+            # history exactly where the network was worst — so a trend that
+            # was climbing towards a threshold looked like it started the
+            # moment the connection came back.
+            if self._readings is not None:
+                self._readings.record(kind, value, unit, source="esp32-master")
+
             thresholds = (self._policy() or {}).get("sensor_thresholds") or {}
             severity, _cfg = evaluate(kind, value, thresholds)
             if severity is None:
@@ -171,8 +190,11 @@ class SerialBridgeReader(BadgeReader):
     def _cpu_temperature(self) -> float | None:
         """This Pi's CPU temperature in °C, or None if it can't be read.
 
-        Read from sysfs rather than `vcgencmd`, which needs /dev/vcio and
-        is not present on every image — including this one.
+        Read from sysfs rather than `vcgencmd`. vcgencmd is installed on
+        this Pi but cannot be used by the gate: it talks to /dev/vcio,
+        which is root:video 0660, and this process is not in that group —
+        it exits 255 with "Can't open device file". sysfs needs no
+        privileges and no group membership at all.
         """
         try:
             with open("/sys/class/thermal/thermal_zone0/temp") as handle:

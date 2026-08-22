@@ -55,6 +55,7 @@
 #include <MFRC522.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <esp_mac.h>   // esp_read_mac
 
 #define RC522_SS   5
 #define RC522_RST  22
@@ -310,8 +311,19 @@ void setup() {
 
   if (esp_now_init() == ESP_OK) {
     esp_now_register_recv_cb(onEspNowRecv);
-    Serial.printf("# ESP-NOW ready, mac %s, channel %d\n",
-                  WiFi.macAddress().c_str(), WiFi.channel());
+    // Read the address out of eFuse rather than asking WiFi.macAddress().
+    // That call answers 00:00:00:00:00:00 until the Wi-Fi driver has
+    // finished coming up, and on this board it has not got there by the
+    // time setup() prints - a clean boot on the bench reported all zeros.
+    //
+    // The address is the whole point of this line: it is what each sensor
+    // node needs for MASTER_MAC, and a node pinned to 00:00:00:00:00:00
+    // never reaches anybody. eFuse can be read immediately and does not
+    // care what the driver is doing.
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    Serial.printf("# ESP-NOW ready, mac %02X:%02X:%02X:%02X:%02X:%02X, channel %d\n",
+                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], WiFi.channel());
   } else {
     Serial.println("# ESP-NOW init failed - badges will still work");
   }

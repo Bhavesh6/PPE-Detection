@@ -62,8 +62,9 @@
                             <label class="flex items-center gap-2" style="font-size:.82rem;color:var(--muted)">
                                 Refresh
                                 <select id="rateSelect" class="input input-sm" style="width:auto">
+                                    <option value="live" selected>Live</option>
                                     <option value="200">5 / sec</option>
-                                    <option value="350" selected>3 / sec</option>
+                                    <option value="350">3 / sec</option>
                                     <option value="1000">1 / sec</option>
                                     <option value="5000">Every 5s</option>
                                 </select>
@@ -108,6 +109,33 @@
 
         function rate() { return parseInt(el('rateSelect').value, 10) || 350; }
 
+        // "Live" reads a pushed stream instead of asking for one picture at
+        // a time. Same authentication either way: fetch() carries the
+        // header, which an <img src> could not, so no token goes near a URL.
+        function isLive() { return el('rateSelect').value === 'live'; }
+
+        // CR LF CR LF, spelled by code point so no escaping stage can
+        // mangle it on the way into this file.
+        const CRLF2 = String.fromCharCode(13, 10, 13, 10);
+
+        function concatBytes(a, b) {
+            const out = new Uint8Array(a.length + b.length);
+            out.set(a, 0); out.set(b, a.length);
+            return out;
+        }
+
+        // Index of `needle` (a short ASCII string) in a byte array.
+        function findBytes(hay, needle, from) {
+            const n = needle.length;
+            outer: for (let i = from | 0; i <= hay.length - n; i++) {
+                for (let j = 0; j < n; j++) {
+                    if (hay[i + j] !== needle.charCodeAt(j)) continue outer;
+                }
+                return i;
+            }
+            return -1;
+        }
+
         function setOverall() {
             const all = [...cams.values()];
             const live = all.filter(c => c.live).length;
@@ -138,6 +166,8 @@
                 this.objectUrl = null;   // revoked on replace; leaking one
                                          // per frame exhausts memory fast
                 this.timer = null;
+                this.reader = null;
+                this.stopped = false;
                 this.build();
             }
 
@@ -160,9 +190,87 @@
             }
 
             destroy() {
-                clearTimeout(this.timer);
+                this.stop();
                 if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
                 this.wrap.remove();
+            }
+
+            paint(blob) {
+                const next = URL.createObjectURL(blob);
+                const img = el(`img-${this.id}`);
+                img.src = next;
+                img.hidden = false;
+                el(`empty-${this.id}`).hidden = true;
+                if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
+                this.objectUrl = next;
+
+                this.lastAt = Date.now();
+                this.frames += 1;
+                this.errors = 0;
+                this.live = true;
+            }
+
+            // Read multipart/x-mixed-replace off a streaming fetch. The
+            // server ends each connection after a couple of minutes so a
+            // forgotten tab cannot hold a worker thread, so this reconnects
+            // until the mode changes or the page is paused.
+            async streamLoop() {
+                while (running && isLive() && !this.stopped) {
+                    try {
+                        const res = await Auth.fetch(
+                            `/api/cctv/stream?id=${encodeURIComponent(this.id)}`);
+                        if (!res.ok || !res.body) throw new Error(String(res.status));
+
+                        const reader = res.body.getReader();
+                        this.reader = reader;
+                        let buf = new Uint8Array(0);
+                        const dec = new TextDecoder();
+
+                        while (running && isLive() && !this.stopped) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            buf = concatBytes(buf, value);
+
+                            // Drain every complete part currently buffered;
+                            // one read can carry several frames, or half of one.
+                            for (;;) {
+                                const headEnd = findBytes(buf, CRLF2, 0);
+                                if (headEnd < 0) break;
+                                const head = dec.decode(buf.subarray(0, headEnd));
+                                const m = head.match(/Content-Length:\s*(\d+)/i);
+                                if (!m) { buf = buf.subarray(headEnd + 4); continue; }
+                                const len = parseInt(m[1], 10);
+                                const start = headEnd + 4;
+                                if (buf.length < start + len) break;   // incomplete
+                                this.paint(new Blob([buf.slice(start, start + len)],
+                                                    { type: 'image/jpeg' }));
+                                buf = buf.subarray(start + len);
+                            }
+                        }
+                        try { await reader.cancel(); } catch (e) { /* already gone */ }
+                    } catch (e) {
+                        // 503 means the server is at its viewer limit, which
+                        // polling still gets around - so fall back rather
+                        // than leaving the tile black.
+                        this.errors += 1;
+                        if (this.errors >= 3) this.live = false;
+                        setOverall();
+                        await new Promise(r => setTimeout(r, 1000));
+                    }
+                }
+                this.reader = null;
+            }
+
+            start() {
+                this.stopped = false;
+                if (isLive()) this.streamLoop();
+                else this.tick();
+            }
+
+            stop() {
+                this.stopped = true;
+                clearTimeout(this.timer);
+                if (this.reader) { try { this.reader.cancel(); } catch (e) {} }
             }
 
             // Sequential, not setInterval: a camera answering slower than
@@ -170,25 +278,14 @@
             // until the browser's connection pool is full and every one
             // of them is slow.
             async tick() {
-                if (!running) return;
+                if (!running || isLive() || this.stopped) return;
                 try {
                     const res = await Auth.fetch(`/api/cctv/snapshot?id=${encodeURIComponent(this.id)}`);
                     if (!res.ok) throw new Error(String(res.status));
                     const blob = await res.blob();
                     if (!blob.size) throw new Error('empty');
 
-                    const next = URL.createObjectURL(blob);
-                    const img = el(`img-${this.id}`);
-                    img.src = next;
-                    img.hidden = false;
-                    el(`empty-${this.id}`).hidden = true;
-                    if (this.objectUrl) URL.revokeObjectURL(this.objectUrl);
-                    this.objectUrl = next;
-
-                    this.lastAt = Date.now();
-                    this.frames += 1;
-                    this.errors = 0;
-                    this.live = true;
+                    this.paint(blob);
                 } catch (e) {
                     this.errors += 1;
                     // One dropped frame is normal on wifi. Only call it
@@ -236,7 +333,7 @@
                 if (cams.has(info.id)) continue;
                 const cam = new Camera(info);
                 cams.set(info.id, cam);
-                if (running) cam.tick();
+                if (running) cam.start();
             }
 
             el('noCams').hidden = cams.size > 0;
@@ -253,9 +350,15 @@
             el('toggleBtn').innerHTML = running
                 ? '<i class="fas fa-pause"></i><span>Pause</span>'
                 : '<i class="fas fa-play"></i><span>Resume</span>';
-            if (running) cams.forEach(c => c.tick());
-            else cams.forEach(c => clearTimeout(c.timer));
+            if (running) cams.forEach(c => c.start());
+            else cams.forEach(c => c.stop());
             setOverall();
+        });
+
+        // Changing this changes the transport, not just a number, so
+        // every tile has to be torn down and restarted on the new one.
+        el('rateSelect').addEventListener('change', () => {
+            cams.forEach(c => { c.stop(); if (running) c.start(); });
         });
 
         el('rescanBtn').addEventListener('click', discover);
