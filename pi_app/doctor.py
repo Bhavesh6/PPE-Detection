@@ -348,17 +348,20 @@ def main():
     print("\nSafetyFirst checkpoint pre-flight\n" + "=" * 40)
 
     check_platform()
-    spi = check_spi()
-    libs = check_libraries()
+    check_spi()
+    check_libraries()
     check_camera()
     base = check_backend()
     token = check_credentials(base)
     check_policy(base, token)
 
-    if spi and libs:
-        check_reader(scan)
-    else:
-        report(WARN, "Badge reader", "Skipped - SPI or libraries unavailable.")
+    # Always run. open_reader() prefers the master ESP32 over USB and only
+    # falls back to an RC522 on the SPI header, so gating this on the SPI
+    # libraries skipped the check on exactly the gates that use the
+    # supported path: the badge wire, the one thing a checkpoint cannot do
+    # without, went untested on every Pi wired the way this ships. The
+    # check reports whichever reader it actually got.
+    check_reader(scan)
 
     check_gps(scan)
     check_offline_queue()
