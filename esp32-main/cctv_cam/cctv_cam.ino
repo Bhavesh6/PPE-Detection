@@ -309,11 +309,19 @@ static esp_err_t control_handler(httpd_req_t *req) {
   const int n = atoi(val);
   int rc = -1;
   if (!strcmp(var, "framesize")) {
-    // The buffers are UXGA-sized at boot, so anything up to that is safe
-    // to switch to on a running camera. Whether the link can carry it is
-    // a separate question, and one you can now answer by trying.
-    if (n < 0 || n > FRAMESIZE_UXGA) {
-      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "framesize out of range (0..FRAMESIZE_UXGA)");
+    // How far this can go depends on which path the camera came up on.
+    //
+    // Hardware JPEG allocated UXGA buffers at boot, so anything up to
+    // that is safe to switch to while running. A sensor with no encoder
+    // did not: it is on the RGB565 fallback, whose buffer was allocated
+    // at QVGA, and asking it for a larger frame means writing past what
+    // was reserved. It would also be pointless - a VGA RGB565 frame is
+    // 600KB to compress in software, per frame, on one core.
+    const framesize_t ceiling = hw_jpeg ? FRAMESIZE_UXGA : FRAMESIZE_QVGA;
+    if (n < 0 || n > ceiling) {
+      httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST,
+                          hw_jpeg ? "framesize out of range (0..UXGA)"
+                                  : "this sensor has no JPEG encoder; QVGA is the ceiling");
       return ESP_FAIL;
     }
     rc = s->set_framesize(s, (framesize_t)n);
