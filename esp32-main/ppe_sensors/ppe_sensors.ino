@@ -227,6 +227,26 @@ typedef struct {
 static uint8_t masterMac[6] = MASTER_MAC;
 static bool espnowReady = false;
 
+/* Whether the master actually answered.
+
+   esp_now_send() returning ESP_OK only means the radio accepted the
+   packet for transmission. Unicast ESP-NOW is acknowledged at the MAC
+   layer, and this callback is where that answer arrives - so a node whose
+   master is off, out of range, or on another channel can be told apart
+   from one that is being heard, instead of both printing "sent". */
+static volatile bool lastSendOk = true;
+
+static void onEspNowSent(const uint8_t *mac, esp_now_send_status_t status) {
+  (void)mac;
+  bool ok = (status == ESP_NOW_SEND_SUCCESS);
+  if (!ok && lastSendOk) {
+    Serial.println("# ESP-NOW not reaching the master - nothing is acknowledging");
+  } else if (ok && !lastSendOk) {
+    Serial.println("# ESP-NOW reaching the master again");
+  }
+  lastSendOk = ok;
+}
+
 static void espnowBegin() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();               // never associate: see the note above
@@ -242,6 +262,8 @@ static void espnowBegin() {
     Serial.println("# ESP-NOW init failed - this node cannot report");
     return;
   }
+
+  esp_now_register_send_cb(onEspNowSent);
 
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, masterMac, 6);
@@ -271,11 +293,11 @@ static void espnowSend(const char *kind, float value, const char *unit, const ch
   if (severity) strncpy(pkt.severity, severity, sizeof(pkt.severity) - 1);
 
   esp_err_t err = esp_now_send(masterMac, (uint8_t *)&pkt, sizeof(pkt));
-  // Worth printing: ESP-NOW has no acknowledgement the caller can see
-  // here, so this is the only evidence the packet left the board at all.
+  // "queued", not "sent": this only says the radio took it. Whether the
+  // master heard it arrives later, in onEspNowSent above.
   Serial.printf("ESP-NOW %s %s -> %s\n", kind,
                 (severity && *severity) ? severity : "reading",
-                err == ESP_OK ? "sent" : "FAILED");
+                err == ESP_OK ? "queued" : "REFUSED BY RADIO");
 }
 #endif
 
