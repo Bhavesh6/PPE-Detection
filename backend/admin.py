@@ -154,6 +154,17 @@ def list_violations():
         DetectionRecord.query.filter(DetectionRecord.verdict.in_(verdicts))
         .order_by(DetectionRecord.timestamp.desc())
     )
+
+    # ?user= narrows to one worker. Needed to answer "what has this person
+    # been refused for", which is the question a safety notice starts from
+    # and which paging through everyone cannot answer.
+    user_arg = request.args.get("user")
+    if user_arg:
+        try:
+            query = query.filter(DetectionRecord.user_id == int(user_arg))
+        except ValueError:
+            return jsonify({"success": False,
+                            "message": "user must be a worker id"}), 400
     total = query.count()
     rows = query.offset((page - 1) * per_page).limit(per_page).all()
 

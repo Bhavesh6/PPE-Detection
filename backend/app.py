@@ -67,12 +67,14 @@ def create_app():
     from cctv import cctv_bp
     from detection import detection_bp
     from gate import gate_bp
+    from notices import notices_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(detection_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(gate_bp)
     app.register_blueprint(cctv_bp)
+    app.register_blueprint(notices_bp)
 
     with app.app_context():
         db.create_all()
