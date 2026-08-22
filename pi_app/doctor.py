@@ -221,11 +221,13 @@ def check_gps(scan):
         report(BAD, "GPS", str(exc))
         return
 
-    preference = os.environ.get("SAFETYFIRST_GPS", "off").lower()
+    preference = os.environ.get("SAFETYFIRST_GPS", "auto").lower()
     if preference == "off":
         report(WARN, "GPS",
-               "SAFETYFIRST_GPS is off (the default) - location stays whatever\n"
-               "the console has set. Set to auto once a module is wired up.")
+               "SAFETYFIRST_GPS is off - location stays whatever the console\n"
+               "has set. Unset it to go back to auto, which finds the module\n"
+               "by USB vendor id when one is plugged in and stays quiet when\n"
+               "one is not.")
         return
 
     try:

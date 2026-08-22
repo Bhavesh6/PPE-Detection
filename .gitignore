@@ -58,3 +58,9 @@ opencode.jsonc
 
 # Stored refusal frames — personal data, not source
 backend/instance/
+
+# Written by the desktop launcher at runtime. The log is whatever the
+# gate printed on this particular Pi, and the lock file only exists
+# while it is running.
+pi_app/checkpoint.log
+pi_app/.checkpoint.lock

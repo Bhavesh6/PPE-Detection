@@ -216,10 +216,31 @@ static int dutyFor(float tempC, float load) {
   return fromTemp > fromLoad ? fromTemp : fromLoad;
 }
 
+/* Who this board is, in one line the Pi can match on.
+
+   The Pi no longer takes the first /dev/ttyUSB* it finds - with the GNSS
+   modem attached that is one of the modem's seven interfaces, not us. It
+   opens each candidate and asks instead, so we have to answer. Printed at
+   boot (opening the port resets us, so the Pi usually sees it unprompted)
+   and again whenever it asks with ID?.
+
+   Kept as a '#' comment line: the Pi's protocol parser already ignores
+   these, so this cannot be mistaken for a badge or a reading. */
+static void printIdentity() {
+  uint8_t mac[6] = {0};
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  Serial.printf("# SAFETYFIRST gate-master 1 %02X%02X%02X%02X%02X%02X\n",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
 /* Lines from the Pi. Unknown input is ignored rather than answered, so
    the Pi can print whatever it likes on this wire without confusing us —
    the same courtesy the Pi extends to our own '#' comments. */
 static void handleSerialLine(const String &line) {
+  if (line.startsWith("ID?")) {
+    printIdentity();
+    return;
+  }
   if (line.startsWith("TEMP ")) {
     float temp = 0, load = 0;
     // Load is optional: a Pi that cannot read it still gets cooled.
@@ -288,6 +309,11 @@ static void serviceFan() {
 void setup() {
   Serial.begin(115200);
   delay(300);
+
+  // First line out of the port, before any hardware that might hang: the
+  // Pi is probing for us and a board that identifies itself only after a
+  // slow RC522 timeout is a board the Pi gives up on.
+  printIdentity();
 
   SPI.begin();                    // SCK 18, MISO 19, MOSI 23
   rfid.PCD_Init();

@@ -25,7 +25,7 @@ Configuration comes from the environment (a .env beside this file works too):
     SAFETYFIRST_INTERVAL    seconds between sends (default 0.5)
     SAFETYFIRST_READER      auto | mfrc522 | keyboard
     SAFETYFIRST_WINDOWED    set to 1 to disable fullscreen
-    SAFETYFIRST_GPS         off | auto | serial     (default off — no module yet)
+    SAFETYFIRST_GPS         auto | off | quectel | serial   (default auto — plug and play)
     SAFETYFIRST_GPS_PORT    serial port for the GPS module (default /dev/ttyUSB0)
     SAFETYFIRST_GPS_INTERVAL  seconds between location reports (default 20)
     SAFETYFIRST_QUEUE_FLUSH_INTERVAL  seconds between retrying queued attendance records (default 15)
