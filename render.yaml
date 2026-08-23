@@ -26,6 +26,19 @@ services:
       # Comma-separated frontend origins, e.g. https://your-app.vercel.app
       - key: CORS_ORIGINS
         sync: false
+      # Render terminates TLS at its own load balancer, so every request
+      # reaches the app from that one address. Left at the default 0 the
+      # limiter buckets the whole internet together and legitimate callers
+      # 429 each other out - measured locally, 24 distinct addresses shared
+      # a single bucket. One hop, because there is exactly one proxy: any
+      # higher and a caller could forge the address the limiter counts.
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"
+      # The public origin of THIS service, e.g. https://ppe-detection-api.onrender.com
+      # Safety notices email an absolute link; without this the backend
+      # refuses to send rather than posting one that will not resolve.
+      - key: PUBLIC_BASE_URL
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: ppe-detection-db

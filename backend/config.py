@@ -80,6 +80,42 @@ def check_secrets():
     )
 
 
+def check_deployment():
+    """Warn about settings that are wrong specifically once hosted.
+
+    Warnings rather than refusals: unlike a default signing key, none of
+    these let anyone in. They break the app for the people who are
+    supposed to be using it, which is quieter and therefore easier to
+    deploy without noticing.
+    """
+    if not _looks_deployed():
+        return
+
+    notes = []
+    if int(os.environ.get("TRUSTED_PROXY_HOPS", "0")) == 0:
+        notes.append(
+            "TRUSTED_PROXY_HOPS is 0, but every managed host puts a proxy in "
+            "front of this app. Every request therefore arrives from the same "
+            "address, so the rate limiter counts the whole internet as one "
+            "caller and legitimate users lock each other out - the public "
+            "notice pages first, since the limiter is their only protection. "
+            "Set it to the number of proxies in front of this app (1 on "
+            "Render, Hugging Face Spaces, Fly, or behind a single nginx). Do "
+            "not set it higher than the real count: each extra hop is one "
+            "more address a caller can forge."
+        )
+    if not os.environ.get("PUBLIC_BASE_URL", "").strip():
+        notes.append(
+            "PUBLIC_BASE_URL is unset, so safety notices cannot be emailed - "
+            "a relative link is useless in an inbox. The console still hands "
+            "officers the link to send by hand. Set it to this service's "
+            "public origin to enable sending."
+        )
+
+    for note in notes:
+        print("WARNING: " + note, flush=True)
+
+
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", DEV_SECRET_KEY)
 
