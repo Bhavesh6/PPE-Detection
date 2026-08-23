@@ -23,6 +23,119 @@ from flask import current_app
 MAX_MESSAGE_LEN = 800
 MAX_HISTORY_TURNS = 6  # each turn is a user+model pair; older context is dropped, not summarized
 
+# Answers for a server with no language model configured.
+#
+# The widget used to reply "The help assistant is not configured on this
+# server", which is true and useless: it reads as a broken feature rather
+# than an unset key, and it is the first thing anyone poking around the
+# console tries. Most of what people actually ask is "where is X" — a
+# question this file already knows the answer to, without a model.
+#
+# Each entry is (roles, keywords, answer). Matching is a keyword count, so
+# the phrasing does not have to be guessed at. Entries are scoped by role
+# so a worker is not sent to a page they cannot open.
+_GUIDE = [
+    (("admin",), ("camera", "cctv", "cam", "feed", "stream", "tile"),
+     "Site Cameras shows live tiles from the site's fixed cameras, relayed "
+     "through the checkpoint device rather than exposed directly. A tile "
+     "that says it is paused means the device has not got a frame from that "
+     "camera yet — usually the camera's address is wrong or it is off the "
+     "network. The camera that decides the gate verdict is a different one: "
+     "that is on the checkpoint itself, and you see it on Gate Control."),
+    (("admin", "operator", "guest"), ("gate", "verdict", "granted", "denied", "check", "scan"),
+     "Gate Control runs the live check: the camera looks for the required "
+     "PPE and shows granted or denied, with the missing items listed. That "
+     "is the same decision the physical checkpoint makes."),
+    (("admin",), ("alert", "hazard", "gas", "smoke", "threshold", "sensor", "reading"),
+     "Alerts covers three things. Hazard alerts are raised by the sensor "
+     "nodes — a critical one holds the gate for everyone until it is "
+     "acknowledged. Sensor Thresholds sets the warning and critical level "
+     "per sensor kind. Live Readings shows the latest value from each "
+     "sensor, and Reading History charts them over time."),
+    (("admin",), ("ppe", "required", "hardhat", "helmet", "vest", "mask",
+                  "confidence", "threshold", "policy", "setting"),
+     "Checkpoint Policy is where you choose which PPE is required and set "
+     "the detection confidence threshold. Only equipment the model can "
+     "actually see is offered — hardhat, safety vest, mask. Raising the "
+     "confidence means fewer false refusals but a higher chance of missing "
+     "a real one. Changes apply on the next camera frame, no restart."),
+    (("admin",), ("notice", "contractor", "supervisor", "subcontractor",
+                  "letter", "formal", "dispute", "acknowledge"),
+     "Safety Notices is how a refusal reaches someone who has no login — a "
+     "subcontractor's supervisor, an agency. Issue one against a worker "
+     "with the refusals it concerns; it gets a reference and a due date. "
+     "The recipient opens a link that needs no account, reads it with the "
+     "evidence, and either accepts it with a note on what they will do or "
+     "disputes it with a reason. Send it by email if mail is configured, "
+     "otherwise use Mark sent after sending the link yourself."),
+    (("admin",), ("report", "csv", "export", "download", "spreadsheet"),
+     "Reports exports gate decisions as CSV for a date range you choose. "
+     "Safety Notices has its own exports too — one notice as JSON, or the "
+     "whole list as CSV."),
+    (("admin",), ("analytic", "compliance", "rate", "trend", "chart",
+                  "graph", "statistic", "scorecard"),
+     "Analytics has the compliance rate, a daily granted/denied trend, a "
+     "breakdown of which PPE is missing most often, an hour-of-day "
+     "histogram, and per-worker scorecards."),
+    (("admin",), ("worker", "personnel", "staff", "badge", "rfid", "card",
+                  "employee", "account", "role"),
+     "Personnel manages worker accounts, their badges and their roles. A "
+     "badge scan looks up who someone is; the camera then decides whether "
+     "they get in."),
+    (("admin",), ("audit", "change log", "who changed", "history of changes"),
+     "The Change Log is an append-only record of who changed which policy, "
+     "person or alert setting, and when. Nothing in it can be edited or "
+     "deleted, by design."),
+    (("admin",), ("gps", "location", "where", "site location", "map",
+                  "coordinates", "position"),
+     "Site Location shows where the checkpoint reports itself to be. With a "
+     "GNSS module attached it updates itself and the badge reads \"Live from "
+     "device\"; otherwise it stays wherever an admin set it by hand. A "
+     "module needs a clear view of the sky before it can report anything."),
+    (("admin",), ("violation", "refusal", "evidence", "capture", "photo", "frame"),
+     "Captures lists every refusal with the camera frame that caused it, "
+     "kept as evidence. The images are deleted after a retention window; "
+     "the decision record itself is kept regardless."),
+    (("operator", "guest"), ("history", "my record", "my check", "past", "attendance"),
+     "Your records page lists every time you were checked, whether you were "
+     "let in, and what was missing if you were not. Any safety notice "
+     "issued about you appears there too."),
+]
+
+
+def _offline_answer(message, role, page):
+    """Answer from the built-in guide when no model is configured.
+
+    Deliberately not dressed up as the real assistant: it says what it is,
+    so nobody mistakes a keyword match for a conversation and asks it a
+    follow-up it cannot handle.
+    """
+    text = (message or "").lower()
+
+    best, best_score = None, 0
+    for roles, keywords, answer in _GUIDE:
+        if role not in roles:
+            continue
+        score = sum(1 for word in keywords if word in text)
+        if score > best_score:
+            best, best_score = answer, score
+
+    here = PAGE_CONTEXT.get(page)
+    note = ("\n\nThis is the built-in guide — the full assistant needs a "
+            "GEMINI_API_KEY or GROQ_API_KEY set on the server.")
+
+    if best:
+        return best + note
+
+    topics = ("Alerts and sensor thresholds, Checkpoint Policy, Safety "
+              "Notices, Site Cameras, Site Location, Personnel, Captures, "
+              "Analytics, Reports, and the Change Log."
+              if role == "admin" else
+              "the live gate check and your own records.")
+    where = f"You are on {here}. " if here else ""
+    return (f"{where}I can point you to: {topics} Ask about any of those by "
+            f"name.{note}")
+
 # What the person is actually looking at when they ask. Without this,
 # "how do I set this up?" on the Alerts page is unanswerable — the model
 # has no idea what "this" is. Keyed by the page's filename, since that's
@@ -306,7 +419,10 @@ def ask(message, role, history=None, page=None):
     if len(message) > MAX_MESSAGE_LEN:
         return None, "Message too long"
     if not enabled():
-        return None, "The help assistant is not configured on this server"
+        # Answer from the built-in guide rather than refusing. "Not
+        # configured" is accurate and useless — most questions here are
+        # "where is X", which does not need a model to answer.
+        return _offline_answer(message, role, page), None
 
     system_prompt = _build_system_prompt(role, page)
     turns = _trim_history(history)
