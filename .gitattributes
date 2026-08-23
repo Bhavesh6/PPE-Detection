@@ -20,3 +20,11 @@
 *.md    text eol=lf
 *.ino   text eol=lf
 *.h     text eol=lf
+
+# Shell scripts and desktop entries run on the Pi. A CRLF checkout
+# makes the kernel look for an interpreter whose name ends in a stray
+# carriage return, and fails with a message naming neither the file
+# nor the reason.
+*.sh      text eol=lf
+*.desktop text eol=lf
+*.service text eol=lf

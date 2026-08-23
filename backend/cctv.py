@@ -29,9 +29,14 @@ server can reach:
 Why single frames rather than the cameras' MJPEG streams: an <img> tag
 cannot send an Authorization header, so serving a stream to a long-lived
 <img src> would mean putting the caller's JWT in the query string, where
-it lands in logs and history. Polling costs frame rate and keeps the
-token in a header. Each camera still serves /stream directly to anyone
-on its own LAN, which is the right tool for watching it from the site.
+it lands in logs and history. Each camera still serves /stream directly
+to anyone on its own LAN, which is the right tool for watching it from
+the site.
+
+/snapshot remains that polled frame. /stream below is a third option the
+choice above missed: fetch() reads a streaming body with the header
+intact, so the console can be pushed frames and paint them itself,
+without a token ever reaching a URL.
 """
 
 import hmac
@@ -307,6 +312,89 @@ def snapshot():
         }), 503
 
     return _jpeg(frame)
+
+
+# A streaming response holds its worker thread for as long as it runs, so
+# the number of them has to be bounded or a few forgotten tabs starve the
+# API everything else depends on. Three covers a console and a spare; the
+# next viewer is told to poll instead, which still works.
+MAX_LIVE_STREAMS = 3
+STREAM_SECONDS = 120.0
+STREAM_POLL = 0.05
+
+
+_stream_lock = threading.Lock()
+_live_streams = 0
+
+
+@cctv_bp.route("/stream", methods=["GET"])
+@admin_required
+def stream():
+    """Frames pushed as they arrive, as multipart/x-mixed-replace.
+
+    Read with fetch() rather than an <img src>, so the Authorization
+    header goes with it and no token lands in a URL - see the note at the
+    top of this file about why that ruled streaming out before.
+
+    Worth having over polling because the cost per frame drops to a
+    boundary and a length, instead of a request, a TLS round trip and a
+    response. On the link this runs over - a gateway on a phone hotspot,
+    through a tunnel - that overhead was most of the time budget, not the
+    picture itself.
+
+    Ends itself after STREAM_SECONDS. The console reconnects; a tab left
+    open overnight does not hold a worker until the process restarts.
+    """
+    requested = _clean_id(request.args.get("id"))
+    ids = _known_ids()
+    if requested is None:
+        if len(ids) == 1:
+            requested = ids[0]
+        elif not ids:
+            return jsonify({"success": False, "message": "No frame relayed yet."}), 503
+        else:
+            return jsonify({
+                "success": False,
+                "message": f"Several cameras are connected; specify ?id= ({', '.join(ids)}).",
+            }), 400
+
+    global _live_streams
+    with _stream_lock:
+        if _live_streams >= MAX_LIVE_STREAMS:
+            return jsonify({
+                "success": False,
+                "message": "Too many live viewers right now.",
+            }), 503
+        _live_streams += 1
+
+    def frames():
+        global _live_streams
+        try:
+            last_at = 0.0
+            end = time.monotonic() + STREAM_SECONDS
+            while time.monotonic() < end:
+                data, at, _how = _snapshot_of(requested)
+                # Only on change: resending the same picture would spend
+                # exactly the bandwidth this exists to save.
+                if data and at > last_at:
+                    last_at = at
+                    header = (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n"
+                        b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n"
+                    )
+                    yield header + data + b"\r\n"
+                else:
+                    time.sleep(STREAM_POLL)
+        finally:
+            with _stream_lock:
+                _live_streams -= 1
+
+    return Response(
+        frames(),
+        mimetype="multipart/x-mixed-replace; boundary=frame",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 def _jpeg(data: bytes) -> Response:

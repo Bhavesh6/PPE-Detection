@@ -55,6 +55,7 @@
 #include <MFRC522.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <esp_mac.h>   // esp_read_mac
 
 #define RC522_SS   5
 #define RC522_RST  22
@@ -215,10 +216,42 @@ static int dutyFor(float tempC, float load) {
   return fromTemp > fromLoad ? fromTemp : fromLoad;
 }
 
+/* Who this board is, in one line the Pi can match on.
+
+   The Pi no longer takes the first /dev/ttyUSB* it finds - with the GNSS
+   modem attached that is one of the modem's seven interfaces, not us. It
+   opens each candidate and asks instead, so we have to answer. Printed at
+   boot (opening the port resets us, so the Pi usually sees it unprompted)
+   and again whenever it asks with ID?.
+
+   Kept as a '#' comment line: the Pi's protocol parser already ignores
+   these, so this cannot be mistaken for a badge or a reading.
+
+   The MAC is cached rather than read on demand. Calling esp_read_mac()
+   at the top of setup(), before the Wi-Fi stack is up, put this board
+   into a boot loop that printed nothing but reset noise - flashed and
+   observed, not theorised. The address is only available for certain
+   once the radio has been brought up, so identity is printed twice: a
+   bare line immediately, which is all the Pi's probe needs to recognise
+   us, and the full line with the address once it is known. */
+static char gMacText[13] = "";
+
+static void printIdentity() {
+  if (gMacText[0]) {
+    Serial.printf("# SAFETYFIRST gate-master 1 %s\n", gMacText);
+  } else {
+    Serial.println("# SAFETYFIRST gate-master 1");
+  }
+}
+
 /* Lines from the Pi. Unknown input is ignored rather than answered, so
    the Pi can print whatever it likes on this wire without confusing us —
    the same courtesy the Pi extends to our own '#' comments. */
 static void handleSerialLine(const String &line) {
+  if (line.startsWith("ID?")) {
+    printIdentity();
+    return;
+  }
   if (line.startsWith("TEMP ")) {
     float temp = 0, load = 0;
     // Load is optional: a Pi that cannot read it still gets cooled.
@@ -288,6 +321,11 @@ void setup() {
   Serial.begin(115200);
   delay(300);
 
+  // First line out of the port, before any hardware that might hang: the
+  // Pi is probing for us and a board that identifies itself only after a
+  // slow RC522 timeout is a board the Pi gives up on.
+  printIdentity();
+
   SPI.begin();                    // SCK 18, MISO 19, MOSI 23
   rfid.PCD_Init();
   delay(50);
@@ -310,8 +348,24 @@ void setup() {
 
   if (esp_now_init() == ESP_OK) {
     esp_now_register_recv_cb(onEspNowRecv);
-    Serial.printf("# ESP-NOW ready, mac %s, channel %d\n",
-                  WiFi.macAddress().c_str(), WiFi.channel());
+    // Read the address out of eFuse rather than asking WiFi.macAddress().
+    // That call answers 00:00:00:00:00:00 until the Wi-Fi driver has
+    // finished coming up, and on this board it has not got there by the
+    // time setup() prints - a clean boot on the bench reported all zeros.
+    //
+    // The address is the whole point of this line: it is what each sensor
+    // node needs for MASTER_MAC, and a node pinned to 00:00:00:00:00:00
+    // never reaches anybody. eFuse can be read immediately and does not
+    // care what the driver is doing.
+    uint8_t mac[6] = {0};
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    Serial.printf("# ESP-NOW ready, mac %02X:%02X:%02X:%02X:%02X:%02X, channel %d\n",
+                  mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], WiFi.channel());
+    // Cache it for printIdentity(), and repeat the identity now that the
+    // address is known, so the Pi can log which physical board answered.
+    snprintf(gMacText, sizeof(gMacText), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    printIdentity();
   } else {
     Serial.println("# ESP-NOW init failed - badges will still work");
   }

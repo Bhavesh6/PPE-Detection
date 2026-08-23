@@ -13,7 +13,13 @@ Pillow
 requests
 python-dotenv
 
-# Uncomment if a GPS module is attached (SAFETYFIRST_GPS=auto or serial).
-# Not installed by default — same "deliberately light" reasoning as above.
-# pyserial
+# Required, not optional: the gate master ESP32 arrives over USB and carries
+# badges, hazard alerts and fan telemetry. Without pyserial the Pi cannot see
+# any USB device at all, so badge scanning silently falls back to a keyboard
+# and the gate looks like it simply does not read cards.
+pyserial
+
+# Only needed for a plain NMEA module (a NEO-6M and friends). The Quectel
+# TracX-1b this project owns answers AT commands and is parsed without it,
+# so a checkpoint using that module does not need this line.
 # pynmea2

@@ -1,4 +1,16 @@
 {
-  "buildCommand": "echo \"Static frontend only. Skipping build.\"",
-  "outputDirectory": "frontend"
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "node scripts/vercel-build.js",
+  "outputDirectory": "frontend",
+  "headers": [
+    {
+      "source": "/js/config.js",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=0, must-revalidate"
+        }
+      ]
+    }
+  ]
 }

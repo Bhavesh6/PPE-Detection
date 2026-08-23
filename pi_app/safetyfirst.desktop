@@ -1,0 +1,34 @@
+[Desktop Entry]
+# Template. install_launcher.sh substitutes the install path into the
+# placeholders below and writes the result to ~/.local/share/applications
+# and ~/Desktop. A .desktop file cannot expand a variable or a relative
+# path itself, so this committed copy is deliberately not runnable where
+# it sits — install it, do not launch it from the repo.
+Type=Application
+Version=1.0
+Name=SafetyFirst Gate
+GenericName=PPE Checkpoint
+Comment=Fullscreen PPE compliance gate display
+Exec=__SAFETYFIRST_DIR__/launch.sh
+Path=__SAFETYFIRST_DIR__
+Icon=__SAFETYFIRST_DIR__/icon.png
+Terminal=false
+Categories=Utility;Security;
+StartupNotify=true
+# tkinter names the window after the script, so the running gate groups
+# under this launcher on the taskbar instead of appearing as a second,
+# unnamed entry.
+StartupWMClass=checkpoint.py
+Keywords=PPE;safety;gate;checkpoint;helmet;
+Actions=Windowed;Diagnose;
+
+[Desktop Action Windowed]
+# Fullscreen hides the desktop, which is right at a gate and wrong when
+# somebody is setting the machine up.
+Name=Open in a window
+Exec=env SAFETYFIRST_WINDOWED=1 __SAFETYFIRST_DIR__/launch.sh
+
+[Desktop Action Diagnose]
+# doctor.py prints; this is the one action that genuinely wants a terminal.
+Name=Run diagnostics
+Exec=x-terminal-emulator -e __SAFETYFIRST_DIR__/launch-doctor.sh

@@ -43,6 +43,11 @@ def signup():
 
     user = User(name=name, email=email)
     user.set_password(password)
+    # Named in ADMIN_EMAILS before signing up: trusted from the first
+    # request, so a fresh deployment has a way into its own console
+    # without a shell on the server to run make_admin.py.
+    if email in current_app.config.get("ADMIN_EMAILS", set()):
+        user.is_admin = True
     db.session.add(user)
     db.session.commit()
 

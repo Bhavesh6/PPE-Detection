@@ -312,3 +312,201 @@ class AuditEvent(db.Model):
             "summary": self.summary,
             "detail": json.loads(self.detail_json) if self.detail_json else None,
         }
+
+
+class SafetyNotice(db.Model):
+    """A refusal handed to someone who does not use this system.
+
+    Everything else here answers to an operator with a login. A refusal is
+    seen by whoever opens the console, and the person who can actually fix
+    it — the worker's supervisor, or the contractor employing them — has no
+    account, no notification, and no obligation to respond. The feedback
+    loop ends inside our own database.
+
+    A notice is that loop leaving the building. It cites the refusals it is
+    about, so the evidence and the policy in force at that moment travel
+    with it, and it is opened through a link rather than a login. The
+    recipient is deliberately not a User: giving a contractor an account to
+    read one notice would be a worse trade than a scoped, expiring link.
+
+    Status is computed, never stored. A row saying "delivered" while the
+    due date has passed is a lie the database tells confidently, and the
+    only way to prevent it is to have no column able to say it.
+    """
+
+    __tablename__ = "safety_notices"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # Quotable in an email or over the phone, unlike an id.
+    reference = db.Column(db.String(20), unique=True, nullable=False, index=True)
+
+    # The capability to read and acknowledge this one notice, and nothing
+    # else. Long enough that guessing is not a strategy.
+    token = db.Column(db.String(64), unique=True, nullable=False, index=True)
+
+    subject_user_id = db.Column(db.Integer, db.ForeignKey("users.id"),
+                                nullable=False, index=True)
+    subject = db.relationship("User", foreign_keys=[subject_user_id])
+
+    recipient_name = db.Column(db.String(120), nullable=False)
+    recipient_org = db.Column(db.String(120), nullable=True)
+    recipient_email = db.Column(db.String(255), nullable=True)
+
+    message = db.Column(db.Text, nullable=True)
+
+    issued_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                          nullable=False, index=True)
+    issued_by_id = db.Column(db.Integer, nullable=True)
+    # Kept alongside the id so the trail still reads after an account is
+    # deleted — same reason AuditEvent keeps actor_name.
+    issued_by_name = db.Column(db.String(120), nullable=False)
+
+    due_at = db.Column(db.DateTime, nullable=True)
+
+    # First time the link was opened. "Sent" and "seen" are different
+    # facts, and only one of them is evidence.
+    delivered_at = db.Column(db.DateTime, nullable=True)
+
+    acknowledged_at = db.Column(db.DateTime, nullable=True)
+    acknowledged_by = db.Column(db.String(120), nullable=True)
+    corrective_action = db.Column(db.Text, nullable=True)
+
+    # "accepted" or "disputed". A recipient who thinks the refusal was
+    # wrong - a false positive, the wrong policy, the wrong person - needs
+    # somewhere to say so. Without this the only reply the system accepted
+    # was agreement, which makes it a receipt rather than an exchange, and
+    # quietly records assent that was never given.
+    outcome = db.Column(db.String(16), nullable=True)
+
+    # Withdrawn: the link stops opening. Kept as a timestamp rather than a
+    # deletion so the record of having issued it survives being wrong.
+    revoked_at = db.Column(db.DateTime, nullable=True)
+
+    items = db.relationship("SafetyNoticeItem", backref="notice",
+                            cascade="all, delete-orphan", lazy="selectin")
+    deliveries = db.relationship("NoticeDelivery", backref="notice",
+                                 cascade="all, delete-orphan", lazy="selectin",
+                                 order_by="NoticeDelivery.attempted_at")
+
+    @property
+    def status(self):
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.revoked_at:
+            return "withdrawn"
+        if self.acknowledged_at:
+            # A dispute is answered but not settled: it needs a person,
+            # so it must not disappear into the same bucket as agreement.
+            return "disputed" if self.outcome == "disputed" else "acknowledged"
+        if self.due_at and self.due_at < now:
+            return "overdue"
+        if self.delivered_at:
+            return "opened"
+        return "issued"
+
+    def to_dict(self, include_items=True):
+        data = {
+            "id": self.id,
+            "reference": self.reference,
+            "status": self.status,
+            "subject": {
+                "name": self.subject.name if self.subject else "Unknown",
+                "employee_id": (self.subject.employee_id or "") if self.subject else "",
+                "role": (self.subject.role or "") if self.subject else "",
+            },
+            "recipient": {
+                "name": self.recipient_name,
+                "organisation": self.recipient_org or "",
+                "email": self.recipient_email or "",
+            },
+            "message": self.message or "",
+            "issued_at": _iso_utc(self.issued_at),
+            "issued_by": self.issued_by_name,
+            "due_at": _iso_utc(self.due_at),
+            "delivered_at": _iso_utc(self.delivered_at),
+            "acknowledged_at": _iso_utc(self.acknowledged_at),
+            "acknowledged_by": self.acknowledged_by or "",
+            "revoked_at": _iso_utc(self.revoked_at),
+            "outcome": self.outcome or "",
+            "deliveries": [d.to_dict() for d in self.deliveries],
+            "delivered": any(d.succeeded for d in self.deliveries),
+            "corrective_action": self.corrective_action or "",
+        }
+        if include_items:
+            data["refusals"] = [item.to_dict() for item in self.items]
+        return data
+
+
+class NoticeDelivery(db.Model):
+    """One attempt to put a notice in front of its recipient.
+
+    Issuing a notice and delivering it are different events, and only one
+    of them can fail. Before this the system knew a notice existed and
+    knew when somebody opened it, but nothing in between: an address that
+    bounced looked exactly like a contractor who had not got round to it,
+    and the officer chasing them had no way to tell which.
+
+    A row per attempt rather than a flag on the notice, because "we tried
+    twice and the server refused both times" is the thing worth knowing,
+    and a boolean cannot say it.
+    """
+
+    __tablename__ = "notice_deliveries"
+
+    id = db.Column(db.Integer, primary_key=True)
+    notice_id = db.Column(db.Integer, db.ForeignKey("safety_notices.id"),
+                          nullable=False, index=True)
+
+    # "email" when the server sent it, "manual" when an officer took the
+    # link away to send themselves. Both are delivery; only one is ours.
+    channel = db.Column(db.String(16), nullable=False)
+    target = db.Column(db.String(255), nullable=True)
+
+    attempted_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc),
+                             nullable=False)
+    succeeded = db.Column(db.Boolean, default=False, nullable=False)
+    # The provider's own words. Paraphrasing an SMTP failure into
+    # "delivery failed" throws away the part that says how to fix it.
+    error = db.Column(db.String(500), nullable=True)
+
+    def to_dict(self):
+        return {
+            "channel": self.channel,
+            "target": self.target or "",
+            "attempted_at": _iso_utc(self.attempted_at),
+            "succeeded": self.succeeded,
+            "error": self.error or "",
+        }
+
+
+class SafetyNoticeItem(db.Model):
+    """One refusal cited by a notice.
+
+    A row rather than a list of ids on the notice, so the citation can be
+    joined and counted, and so a notice about three refusals reads as three
+    things rather than a string to be parsed.
+    """
+
+    __tablename__ = "safety_notice_items"
+
+    id = db.Column(db.Integer, primary_key=True)
+    notice_id = db.Column(db.Integer, db.ForeignKey("safety_notices.id"),
+                          nullable=False, index=True)
+    detection_id = db.Column(db.Integer, db.ForeignKey("detection_records.id"),
+                             nullable=False, index=True)
+    detection = db.relationship("DetectionRecord")
+
+    def to_dict(self):
+        rec = self.detection
+        if rec is None:
+            # The refusal was purged; the citation survives so the notice
+            # still says how many there were.
+            return {"detection_id": self.detection_id, "available": False}
+        return {
+            "detection_id": rec.id,
+            "available": True,
+            "timestamp": _iso_utc(rec.timestamp),
+            "missing_ppe": [p for p in rec.missing_ppe.split(",") if p],
+            "policy": json.loads(rec.policy_json) if rec.policy_json else None,
+            "has_evidence": bool(rec.evidence_file),
+        }

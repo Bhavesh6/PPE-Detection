@@ -38,6 +38,12 @@ import re
 import threading
 import time
 
+import usb_devices
+
+# Claim name in the port registry, so the gate bridge can never open an
+# interface this reader is driving AT commands on.
+OWNER = "gps"
+
 # Quectel Wireless Solutions. Matched on the vendor id and not the
 # product string, because this board reports itself as "Android" —
 # /dev/serial/by-id lists it as usb-Android_Android-ifNN-port0, so a
@@ -129,15 +135,12 @@ class SerialGPSReader(GPSReader):
 
 
 def _quectel_ports() -> list[str]:
-    """Serial ports belonging to a Quectel modem, by USB vendor id."""
-    try:
-        from serial.tools import list_ports  # part of pyserial
-    except ImportError:
-        return []
+    """Serial ports belonging to a Quectel modem, by USB vendor id.
 
-    return [port.device
-            for port in sorted(list_ports.comports(), key=lambda p: p.device)
-            if port.vid == QUECTEL_VID]
+    Ports the gate bridge already holds are filtered out by the registry,
+    so a slow enumeration can never hand us the badge wire.
+    """
+    return usb_devices.gps_ports(owner=OWNER)
 
 
 class QuectelGPSReader(GPSReader):
@@ -161,13 +164,21 @@ class QuectelGPSReader(GPSReader):
         import serial  # imported late: hardware-only dependency
 
         self._poll = poll
-        self._serial = serial.Serial(port, baud, timeout=1)
+        if not usb_devices.claim(port, OWNER):
+            raise OSError(f"{port} is held by {usb_devices.claimed_by(port)}")
+        self._port = port
+        try:
+            self._serial = serial.Serial(port, baud, timeout=1)
+        except Exception:
+            usb_devices.release(port, OWNER)
+            raise
 
         # Several of the modem's interfaces open happily and then never
         # answer. Only the one that replies to a bare AT is usable, so
         # prove it here rather than discovering it in the poll loop.
         if not any(line == "OK" for line in self._command("AT", timeout=2.0)):
             self._serial.close()
+            usb_devices.release(port, OWNER)
             raise OSError(f"{port} opened but did not answer AT")
 
         self.name = f"Quectel EC200U (TracX-1b) on {os.path.basename(port)}"
@@ -229,6 +240,7 @@ class QuectelGPSReader(GPSReader):
             self._serial.close()
         except Exception:  # noqa: BLE001
             pass
+        usb_devices.release(getattr(self, "_port", None), OWNER)
 
 
 class NullGPSReader(GPSReader):
@@ -244,20 +256,26 @@ class NullGPSReader(GPSReader):
 def open_gps() -> GPSReader:
     """Return the best available GPS source.
 
-        off      (the default) always returns the null reader
-        auto     find a Quectel by name; failing that use
-                 SAFETYFIRST_GPS_PORT, but only if it was set explicitly
+        auto     (the default) find a Quectel by USB vendor id; failing
+                 that use SAFETYFIRST_GPS_PORT, but only if it was set
+        off      always returns the null reader
         quectel  force the TracX-1b, and fail loudly if it isn't there
         serial   force a plain NMEA module on SAFETYFIRST_GPS_PORT
 
-    "auto" deliberately does not fall back to the old /dev/ttyUSB0
-    default. On this Pi that port is the gate master ESP32, and opening
-    it would put AT chatter on the wire serial_bridge.py reads badges
-    from. A gate that stops recognising cards is a far worse outcome
-    than a gate that doesn't know where it is, so an unconfigured port
-    is left alone rather than guessed at.
+    "auto" is the default because the module is now identified by vendor
+    id rather than by position: it opens Quectel interfaces and nothing
+    else, and the port registry hides anything the gate bridge holds. It
+    still does not fall back to a bare /dev/ttyUSB0 guess - on this Pi
+    that path is usually the gate master, and putting AT chatter on the
+    badge wire is a far worse outcome than not knowing where the gate
+    is. Plug the module in and it reports; leave it off and nothing
+    changes.
     """
-    preference = os.environ.get("SAFETYFIRST_GPS", "off").lower()
+    # `or "auto"` and not a get() default: a .env carrying a bare
+    # "SAFETYFIRST_GPS=" sets the variable to an empty string, which a
+    # default never sees. Without this that line matches no branch below
+    # and location silently does nothing.
+    preference = (os.environ.get("SAFETYFIRST_GPS") or "auto").strip().lower()
     configured = os.environ.get("SAFETYFIRST_GPS_PORT")
 
     if preference == "off":

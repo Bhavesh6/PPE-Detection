@@ -63,6 +63,16 @@
 #include <ArduinoJson.h>
 #include <DHT.h>
 
+// Unconditional, even though only the ESP-NOW route uses them. The
+// Arduino builder generates forward declarations for this file's
+// functions and inserts them after this first run of includes - so a
+// callback whose signature mentions esp_now_send_info_t gets declared
+// above any include hidden behind an #ifdef further down, and fails with
+// "does not name a type" pointing at a line that looks perfectly fine.
+// Headers cost nothing when unused; the ordering trap costs an hour.
+#include <esp_now.h>
+#include <esp_wifi.h>
+
 // WIFI_SSID, WIFI_PASSWORD, API_BASE, DEVICE_EMAIL, DEVICE_PASSWORD live in
 // secrets.h, next to this file — gitignored. Copy secrets.h.example to
 // secrets.h and fill in real values; the Arduino IDE picks up a
@@ -81,7 +91,12 @@ String authToken;
 // because C++ doesn't hoist globals the way loop()/setup() might suggest:
 // a function defined earlier in the file can't see a variable declared
 // later, only a forward-declared or already-seen one.
-bool autoMode = false;
+// On by default. This was false, which meant a node reported nothing
+// until somebody typed "auto" at a serial console - and went silent
+// again on the next power cycle. That is fine on a bench and useless
+// down a shaft, where the whole point is that nobody is standing there.
+// The toggle stays for testing; only the starting state changes.
+bool autoMode = true;
 unsigned long lastAutoSend = 0;
 // DHT11's datasheet minimum is roughly 1s between reads; 4s is
 // comfortably above that and matches the simulator's cadence, so a
@@ -202,8 +217,6 @@ int postJson(const char *path, const String &payload) {
    and ESPNOW_CHANNEL to the channel on that same line.
 */
 #ifdef REPORT_VIA_ESPNOW
-#include <esp_now.h>
-#include <esp_wifi.h>
 
 #ifndef ESPNOW_CHANNEL
 #define ESPNOW_CHANNEL 1
@@ -222,6 +235,28 @@ typedef struct {
 static uint8_t masterMac[6] = MASTER_MAC;
 static bool espnowReady = false;
 
+/* Whether the master actually answered.
+
+   esp_now_send() returning ESP_OK only means the radio accepted the
+   packet for transmission. Unicast ESP-NOW is acknowledged at the MAC
+   layer, and this callback is where that answer arrives - so a node whose
+   master is off, out of range, or on another channel can be told apart
+   from one that is being heard, instead of both printing "sent". */
+static volatile bool lastSendOk = true;
+
+static void onEspNowSent(const esp_now_send_info_t *info, esp_now_send_status_t status) {
+  // Signature per esp_now_send_cb_t in core 3.x: an info struct, not a
+  // bare MAC pointer. The older two-arg form does not compile here.
+  (void)info;
+  bool ok = (status == ESP_NOW_SEND_SUCCESS);
+  if (!ok && lastSendOk) {
+    Serial.println("# ESP-NOW not reaching the master - nothing is acknowledging");
+  } else if (ok && !lastSendOk) {
+    Serial.println("# ESP-NOW reaching the master again");
+  }
+  lastSendOk = ok;
+}
+
 static void espnowBegin() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();               // never associate: see the note above
@@ -237,6 +272,8 @@ static void espnowBegin() {
     Serial.println("# ESP-NOW init failed - this node cannot report");
     return;
   }
+
+  esp_now_register_send_cb(onEspNowSent);
 
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, masterMac, 6);
@@ -266,11 +303,11 @@ static void espnowSend(const char *kind, float value, const char *unit, const ch
   if (severity) strncpy(pkt.severity, severity, sizeof(pkt.severity) - 1);
 
   esp_err_t err = esp_now_send(masterMac, (uint8_t *)&pkt, sizeof(pkt));
-  // Worth printing: ESP-NOW has no acknowledgement the caller can see
-  // here, so this is the only evidence the packet left the board at all.
+  // "queued", not "sent": this only says the radio took it. Whether the
+  // master heard it arrives later, in onEspNowSent above.
   Serial.printf("ESP-NOW %s %s -> %s\n", kind,
                 (severity && *severity) ? severity : "reading",
-                err == ESP_OK ? "sent" : "FAILED");
+                err == ESP_OK ? "queued" : "REFUSED BY RADIO");
 }
 #endif
 

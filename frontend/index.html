@@ -4,953 +4,399 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SafetyFirst — Nobody should have to remember</title>
-    <meta name="description" content="A checkpoint that verifies protective equipment before anyone steps on site, so safety does not depend on someone remembering to look.">
+    <meta name="description" content="A construction site checkpoint that confirms protective equipment before anyone steps on site, and answers in about a second.">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+
+    <!-- The console's stylesheet, not a copy of it. Every token below comes
+         from here, so this page follows the rest of the product instead of
+         drifting away from it the next time app.css changes. -->
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+
     <style>
-        /* ---------------------------------------------------------------
-           Variant B — human-centred, editorial.
-           Where the main site is a dark industrial console, this one is
-           light, quiet and led by people rather than hardware. Same product,
-           opposite posture: it argues from the worker, not the machine.
-           --------------------------------------------------------------- */
-        :root {
-            --ink: #17181b;
-            --ink-soft: #52565e;
-            --ink-faint: #8b9099;
-            --paper: #ffffff;
-            --tint: #f4f2ee;
-            --line: #e4e2dd;
-            --accent: #b4441f;      /* burnt clay — warm, not safety-orange */
-            --accent-soft: #fbf1ec;
-            --green: #2f6b46;
-            --ease: cubic-bezier(.23, 1, .32, 1);
-        }
-        *, *::before, *::after { box-sizing: border-box; }
+        /* Page-specific composition only. Colour, type, radius, shadow and
+           easing all come from app.css. */
+
         body {
-            margin: 0;
-            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
             color: var(--ink);
-            background: var(--paper);
-            -webkit-font-smoothing: antialiased;
-            line-height: 1.6;
-        }
-        h1, h2, h3 {
-            font-family: 'Fraunces', Georgia, serif;
-            font-weight: 600;
-            letter-spacing: -.02em;
-            line-height: 1.08;
+            font-family: var(--font-body);
             margin: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .wrap {
+            width: min(1080px, calc(100% - 48px));
+            margin-inline: auto;
+        }
+
+        /* -- masthead ------------------------------------------------- */
+
+        .masthead {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            padding: 22px 0;
+        }
+
+        .mark {
+            font-family: var(--font-head);
+            font-size: 1.15rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
+            color: var(--ink);
+            text-decoration: none;
+        }
+
+        .masthead nav {
+            display: flex;
+            align-items: center;
+            gap: 26px;
+        }
+
+        .masthead nav a:not(.btn) {
+            font-size: .92rem;
+            color: var(--muted);
+            text-decoration: none;
+            transition: color var(--dur-fast) var(--ease-out);
+        }
+
+        .masthead nav a:not(.btn):hover { color: var(--ink); }
+
+        /* app.css styles .btn for <button>; as an <a> it still inherits the
+           default underline, which reads as a mistake on a pill. */
+        a.btn { text-decoration: none; white-space: nowrap; }
+
+        /* Below this the three nav items crush together - "How it works"
+           was wrapping onto three lines and the button onto two. The links
+           are all reachable from the page itself, so drop them and keep
+           the one action. */
+        @media (max-width: 640px) {
+            .masthead nav a:not(.btn) { display: none; }
+        }
+
+        /* -- hero ----------------------------------------------------- */
+
+        .hero {
+            padding: clamp(56px, 10vw, 120px) 0 clamp(48px, 8vw, 96px);
+        }
+
+        .hero h1 {
+            font-family: var(--font-head);
+            font-weight: 600;
+            font-size: clamp(2.5rem, 6.4vw, 4.4rem);
+            line-height: 1.02;
+            letter-spacing: -0.035em;
+            margin: 0;
+            max-width: 15ch;
             text-wrap: balance;
         }
-        p { margin: 0; text-wrap: pretty; }
-        a { color: inherit; }
 
-        .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
-        .narrow { max-width: 660px; }
-
-        /* Sections breathe — the whole argument of this variant is calm. */
-        section { padding: clamp(48px, 6.5vw, 92px) 0; }
-        .tint { background: var(--tint); }
-
-        /* Depth, on an all-light page.
-           The reference page ships zero box-shadows and never reads flat —
-           but it earns that with hard black-on-white section contrast. Copy
-           the "no shadows" rule into a page that stays light throughout and
-           you remove the only depth mechanism left, which is exactly how a
-           layout ends up feeling like a stack of paper cut-outs.
-           So: real elevation, real overlap, real layering. */
-        :root {
-            /* Warm-tinted, not neutral black — a grey shadow on a warm paper
-               ground reads as dirt rather than distance. */
-            --lift-1: 0 2px 6px rgba(60, 40, 30, .05),
-                      0 12px 28px -12px rgba(60, 40, 30, .14);
-            --lift-2: 0 4px 10px rgba(60, 40, 30, .06),
-                      0 30px 70px -24px rgba(60, 40, 30, .26);
+        .hero p {
+            margin: 26px 0 0;
+            font-size: clamp(1.05rem, 1.6vw, 1.2rem);
+            line-height: 1.62;
+            color: var(--muted);
+            max-width: 54ch;
         }
 
-        /* A full-width photograph, edge to edge. The single biggest cure for
-           a flat page is letting one image actually breathe. */
-        .bleed {
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 36px;
+        }
+
+        /* -- the one image, doing real work --------------------------- */
+
+        .plate {
             position: relative;
-            height: clamp(220px, 32vh, 360px);
+            /* <figure> carries a UA default of margin: 1em 40px, which was
+               insetting the image 40px on both sides at every width. */
+            margin: clamp(44px, 7vw, 76px) 0 0;
+            border-radius: var(--radius-md);
             overflow: hidden;
-            background: var(--tint);
-        }
-        .bleed img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-        /* Warm block — breaks a run of white without going dark. */
-        .warm { background: var(--accent-soft); }
-
-        /* Big imagery reads as considered; small imagery reads as decoration. */
-        .shot, .device { border-radius: 22px; }
-        .device { padding: 12px; box-shadow: var(--lift-2); }
-        .device img { border-radius: 12px; }
-        .shot { box-shadow: var(--lift-1); }
-
-        /* Content needs to sit IN something. Text laid straight onto the
-           background is why the page read as print on paper — a panel gives
-           it an edge, a ground, and somewhere to cast from. */
-        .panel {
-            background: var(--paper);
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            padding: 30px 28px;
-            box-shadow: var(--lift-1);
-        }
-        .tint .panel, .warm .panel { border-color: rgba(0,0,0,.05); }
-
-        /* Overlap: let a block ride up over the band above it. Crossing a
-           boundary is the cheapest honest depth cue there is. */
-        .lift { margin-top: clamp(-120px, -9vw, -56px); position: relative; z-index: 2; }
-
-        /* nav — sticky and actually visible. Unstyled links floating on white
-           read as page content, not as a header. */
-        .topbar {
-            position: sticky; top: 0; z-index: 30;
-            background: rgba(255,255,255,.86);
-            backdrop-filter: saturate(180%) blur(12px);
-            border-bottom: 1px solid var(--line);
-        }
-        nav {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 15px 0; font-size: .92rem;
-        }
-        .brand { font-family: 'Fraunces', serif; font-weight: 700; font-size: 1.12rem; text-decoration: none; }
-        .nav-links { display: flex; gap: 26px; align-items: center; }
-        .nav-links a { color: var(--ink-soft); text-decoration: none; transition: color .18s var(--ease); }
-        .nav-links a:hover { color: var(--ink); }
-
-        /* hero */
-        .hero { padding-bottom: clamp(52px, 5.5vw, 84px); }
-        .hero-grid {
-            display: grid; gap: clamp(36px, 5vw, 64px);
-            grid-template-columns: 1.05fr .95fr; align-items: center;
-        }
-        .hero h1 { font-size: clamp(2.5rem, 6vw, 4.4rem); margin-bottom: 28px; }
-        /* The hero image runs taller than its column and is allowed to bleed
-           past the container edge — a rectangle that stops politely inside the
-           grid looks pasted on. */
-        .hero-media {
-            position: relative; border-radius: 26px; overflow: hidden;
-            aspect-ratio: 4 / 5; box-shadow: var(--lift-2);
-            margin-right: clamp(-90px, -6vw, 0px);
-        }
-        .hero-media img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        /* A real datum, floated over the photograph. */
-        .hero-chip {
-            position: absolute; left: 18px; bottom: 18px; right: 18px;
-            background: rgba(255,255,255,.94);
-            backdrop-filter: blur(8px);
-            border-radius: 14px; padding: 14px 16px;
-            display: flex; align-items: center; gap: 12px;
-        }
-        .hero-chip .dot {
-            width: 9px; height: 9px; border-radius: 50%; background: var(--green);
-            flex-shrink: 0; box-shadow: 0 0 0 4px rgba(47,107,70,.15);
-        }
-        .hero-chip b { font-size: .9rem; }
-        .hero-chip span { font-size: .8rem; color: var(--ink-soft); }
-        .lede { font-size: clamp(1.08rem, 1.7vw, 1.32rem); color: var(--ink-soft); max-width: 42ch; }
-        .hero-actions { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 40px; }
-
-        .btn {
-            display: inline-flex; align-items: center; gap: 9px;
-            padding: 13px 26px; border-radius: 999px;
-            font-size: .94rem; font-weight: 600; text-decoration: none;
-            border: 1px solid transparent; cursor: pointer;
-            transition: background-color .18s var(--ease), border-color .18s var(--ease),
-                        color .18s var(--ease), transform .14s var(--ease);
-        }
-        .btn:active { transform: scale(.975); }
-        .btn-solid { background: var(--ink); color: var(--paper); }
-        .btn-solid:hover { background: #000; }
-        .btn-quiet { border-color: var(--line); color: var(--ink); }
-        .btn-quiet:hover { border-color: var(--ink); }
-
-        figure { margin: 0; }
-        .shot {
-            width: 100%; border-radius: 22px; display: block;
-            border: 1px solid var(--line);
-        }
-        figcaption { font-size: .84rem; color: var(--ink-faint); margin-top: 12px; }
-
-        /* three-part narrative */
-        .steps { display: grid; gap: 34px; grid-template-columns: repeat(3, 1fr); margin-top: 40px; }
-        .step-n {
-            font-family: 'Fraunces', serif; font-size: .82rem; font-weight: 700;
-            color: var(--accent); letter-spacing: .06em; margin-bottom: 14px;
-        }
-        .step h3 { font-size: 1.32rem; margin-bottom: 10px; }
-        .step p { color: var(--ink-soft); font-size: .96rem; }
-
-        /* pull quote — an oversized opening mark carries the "this is a
-           quote" signal instead of a ruled border, so it reads as a
-           typographic moment rather than a bordered callout box. */
-        .quote .mark {
-            display: block; font-family: 'Fraunces', serif; font-weight: 600;
-            font-size: 3.4rem; line-height: 1; color: var(--accent); margin-bottom: 4px;
-        }
-        .quote blockquote {
-            margin: 0; font-family: 'Fraunces', serif; font-weight: 400;
-            font-size: clamp(1.3rem, 2.6vw, 1.95rem); line-height: 1.34; letter-spacing: -.01em;
-        }
-        .quote cite { display: block; margin-top: 18px; font-style: normal; font-size: .88rem; color: var(--ink-faint); }
-
-        /* facts */
-        .facts { display: grid; gap: 30px; grid-template-columns: repeat(3, 1fr); margin-top: 38px; }
-        .fact-n { font-family: 'Fraunces', serif; font-size: clamp(2.1rem, 4vw, 3rem); font-weight: 600; line-height: 1; }
-        .fact p { color: var(--ink-soft); font-size: .93rem; margin-top: 12px; }
-        .fact-src { font-size: .78rem; color: var(--ink-faint); margin-top: 8px; }
-
-        .split { display: grid; gap: clamp(36px, 6vw, 76px); grid-template-columns: 1fr 1fr; align-items: center; }
-
-        footer { border-top: 1px solid var(--line); padding: 48px 0 64px; }
-        .foot-grid { display: flex; flex-wrap: wrap; gap: 40px; justify-content: space-between; align-items: flex-start; }
-        .foot-links { display: flex; gap: 22px; flex-wrap: wrap; font-size: .9rem; }
-        .foot-links a { color: var(--ink-soft); text-decoration: none; }
-        .foot-links a:hover { color: var(--ink); }
-        .foot-note { font-size: .82rem; color: var(--ink-faint); max-width: 46ch; }
-
-        .compare {
-            position: fixed; right: 18px; bottom: 18px; z-index: 40;
-            background: var(--ink); color: var(--paper);
-            padding: 11px 18px; border-radius: 999px; font-size: .82rem;
-            font-weight: 600; text-decoration: none; box-shadow: 0 6px 24px rgba(0,0,0,.18);
+            background: var(--surface-alt);
+            box-shadow: var(--shadow);
         }
 
-        /* --- product proof ------------------------------------------- */
-        /* The screens are the argument. Framed dark so they read as a
-           device rather than another content block on the page. */
-        .device {
-            background: #0b0d12; border-radius: 14px; padding: 10px;
-            border: 1px solid #1b1f28;
-        }
-        .device img { width: 100%; display: block; border-radius: 7px; }
-        .shots { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; margin-top: 38px; }
-
-        /* --- surfaces --------------------------------------------------- */
-        .surfaces { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line);
-                    border-radius: 18px; overflow: hidden; margin-top: 38px;
-                    grid-template-columns: repeat(3, 1fr); box-shadow: var(--lift-1); }
-        .surface { background: var(--paper); padding: 30px 26px; }
-        .surface h3 { font-size: 1.14rem; margin-bottom: 8px; }
-        .surface p { font-size: .92rem; color: var(--ink-soft); }
-        .surface ul { margin: 16px 0 0; padding: 0; list-style: none; font-size: .88rem; color: var(--ink-soft); }
-        .surface li { padding: 4px 0 4px 18px; position: relative; }
-        .surface li::before { content: '·'; position: absolute; left: 6px; color: var(--accent); font-weight: 700; }
-
-        /* --- roadmap ---------------------------------------------------- */
-        .phases { display: grid; gap: 28px; grid-template-columns: repeat(3, 1fr); margin-top: 38px; }
-        .phase { padding-top: 18px; border-top: 2px solid var(--line); }
-        .phase.now { border-top-color: var(--accent); }
-        .phase-tag { font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
-                     color: var(--ink-faint); margin-bottom: 10px; }
-        .phase.now .phase-tag { color: var(--accent); }
-        .phase h3 { font-size: 1.08rem; margin-bottom: 10px; }
-        .phase ul { margin: 0; padding-left: 17px; font-size: .89rem; color: var(--ink-soft); }
-        .phase li { padding: 3px 0; }
-
-        /* --- team ------------------------------------------------------- */
-        .team { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
-        .member { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line);
-                  border-radius: 999px; padding: 7px 16px 7px 8px; font-size: .9rem; }
-        .member .ini { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft);
-                       color: var(--accent); font-size: .74rem; font-weight: 700;
-                       display: flex; align-items: center; justify-content: center; }
-
-        .stack { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
-        .chip { border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px;
-                font-size: .82rem; color: var(--ink-soft); }
-
-        /* --- build report ------------------------------------------------
-           An accounting for the judges, so it is laid out as a document:
-           ruled rows, a label column, dense lists. Deliberately not the card
-           grids the rest of the page uses — this is meant to be read as a
-           record, not skimmed as marketing. */
-        /* Round one against round two.
-           This comparison IS the argument of the section, so it carries real
-           visual weight instead of two bulleted lists side by side. Round one
-           is deliberately flatter, cooler and unelevated — it reads as the
-           past. Round two sits on paper with actual lift. The difference in
-           treatment does the work before anybody reads a word of it. */
-        .delta {
-            display: grid; grid-template-columns: 1fr 1fr;
-            gap: clamp(18px, 2.6vw, 30px); margin-top: 38px; align-items: start;
-        }
-        .delta-card { border-radius: 18px; padding: 26px 26px 28px; }
-        .delta-then { border: 1px dashed var(--line); background: transparent; }
-        .delta-now {
-            background: var(--paper); border: 1px solid rgba(0,0,0,.05);
-            box-shadow: var(--lift-1);
-        }
-        .delta-tag {
-            font-size: .67rem; letter-spacing: .11em; text-transform: uppercase;
-            font-weight: 700; display: block;
-        }
-        .delta-then .delta-tag { color: var(--ink-faint); }
-        .delta-now .delta-tag { color: var(--accent); }
-        .delta h3 { font-size: 1.2rem; margin: 9px 0 5px; }
-        .delta-then h3 { color: var(--ink-soft); }
-        .delta-sub { font-size: .83rem; color: var(--ink-faint); margin-bottom: 17px; }
-        .delta ul { margin: 0; padding: 0; list-style: none; font-size: .92rem; }
-        .delta li { position: relative; padding: 5px 0 5px 24px; }
-        .delta-then li { color: var(--ink-faint); }
-        /* Hollow ring: present, but not delivered. */
-        .delta-then li::before {
-            content: ''; position: absolute; left: 2px; top: 1.05em;
-            width: 7px; height: 7px; border-radius: 50%;
-            border: 1.5px solid var(--line);
-        }
-        .delta-now li { color: var(--ink-soft); }
-        /* A tick drawn from two borders — no icon font, no emoji, and it
-           inherits the accent so it stays part of the palette. */
-        .delta-now li::before {
-            content: ''; position: absolute; left: 3px; top: .82em;
-            width: 5px; height: 10px;
-            border: solid var(--accent); border-width: 0 2px 2px 0;
-            transform: rotate(43deg);
+        .plate img {
+            display: block;
+            width: 100%;
+            height: clamp(260px, 42vw, 460px);
+            object-fit: cover;
         }
 
-        /* Round one's own closing-slide roadmap, marked against what exists.
-           Everything listed shipped, so the state is carried by the tick and
-           the panel rather than by a status column repeating "Built" five
-           times. */
-        .promises {
-            margin-top: 22px; background: var(--paper);
-            border: 1px solid rgba(0,0,0,.05); border-radius: 18px;
-            box-shadow: var(--lift-1); padding: 6px 26px;
+        .verdict {
+            position: absolute;
+            left: clamp(16px, 3vw, 28px);
+            bottom: clamp(16px, 3vw, 28px);
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 16px 10px 13px;
+            border-radius: 999px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+            font-size: .9rem;
+            font-weight: 500;
         }
-        .promise {
-            display: grid; grid-template-columns: 268px 1fr; gap: 6px 30px;
-            padding: 15px 0 15px 26px; border-bottom: 1px solid var(--line);
-            align-items: baseline; position: relative;
-        }
-        .promise::before {
-            content: ''; position: absolute; left: 2px; top: 1.55em;
-            width: 5px; height: 10px;
-            border: solid var(--accent); border-width: 0 2px 2px 0;
-            transform: rotate(43deg);
-        }
-        .promise-item { font-weight: 600; font-size: .93rem; }
-        .promise-note { font-size: .9rem; color: var(--ink-soft); }
-        .promise:last-child { border-bottom: none; }
 
-        /* The build itself, one card per area. As a rule-separated table this
-           was eight paragraphs of grey prose that scanned as a document; as
-           cards each area is findable, which is how somebody actually reads
-           it — looking for the one thing they care about. */
-        .ledger {
-            margin-top: 42px;
-            display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+        .verdict::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--ok);
         }
-        .ledger-row {
-            background: var(--paper); border: 1px solid rgba(0,0,0,.05);
-            border-radius: 16px; padding: 22px 24px 24px; box-shadow: var(--lift-1);
-        }
-        .ledger-area {
-            font-family: 'Fraunces', Georgia, serif; font-weight: 600; font-size: 1.05rem;
-            padding-top: 11px; border-top: 2px solid var(--accent);
-            display: inline-block; margin-bottom: 9px;
-        }
-        .ledger-line { font-size: .9rem; color: var(--ink-soft); margin: 0; }
 
-        /* The numbers judges actually scan. Previously a grey one-line
-           colophon, which buried them — the figures are the fastest evidence
-           of scope on the page and deserve the big-number treatment. */
-        .colophon {
-            margin-top: 38px; padding-top: 28px; border-top: 1px solid var(--line);
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
-            gap: 22px 18px;
-        }
-        .stat-n {
-            font-family: 'Fraunces', Georgia, serif; font-weight: 600;
-            font-size: clamp(1.55rem, 3vw, 2.15rem); line-height: 1;
-            letter-spacing: -.025em; color: var(--ink);
-        }
-        .stat-l { font-size: .76rem; color: var(--ink-faint); margin-top: 7px; }
+        /* -- sections ------------------------------------------------- */
 
-        .notes { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(18px, 2.6vw, 30px); margin-top: 22px; }
-        .decisions {
-            margin: 0; background: var(--paper); border: 1px solid rgba(0,0,0,.05);
-            border-radius: 16px; padding: 24px 24px 26px; box-shadow: var(--lift-1);
-        }
-        .decisions dt { font-weight: 600; font-size: .93rem; margin-top: 20px; }
-        .decisions dt:first-child { margin-top: 0; }
-        .decisions dd { margin: 4px 0 0; font-size: .91rem; color: var(--ink-soft); }
+        section + section { border-top: 1px solid var(--border); }
 
-        @media (max-width: 820px) {
-            .steps, .facts { grid-template-columns: 1fr; gap: 34px; }
-            .split, .shots, .surfaces, .phases, .hero-grid { grid-template-columns: 1fr; }
-            .delta, .notes, .ledger, .promise { grid-template-columns: 1fr; }
-            .promise { gap: 6px; }
-            .phases { gap: 26px; }
-            .nav-links a:not(.btn) { display: none; }
-            /* The desktop bleed (image running past its grid column) has
-               nothing to bleed past once the grid is one column — left in,
-               it pulls the image past the viewport's own edge instead. */
-            .hero-media { margin-right: 0; }
+        .band { padding: clamp(56px, 9vw, 104px) 0; }
+
+        h2 {
+            font-family: var(--font-head);
+            font-weight: 600;
+            font-size: clamp(1.7rem, 3.2vw, 2.4rem);
+            line-height: 1.14;
+            letter-spacing: -0.025em;
+            margin: 0 0 14px;
+            max-width: 20ch;
+            text-wrap: balance;
         }
-        @media (prefers-reduced-motion: reduce) {
-            * { transition-duration: .01ms !important; }
+
+        .lede {
+            margin: 0;
+            color: var(--muted);
+            font-size: 1.02rem;
+            line-height: 1.65;
+            max-width: 56ch;
+        }
+
+        /* The gate flow. Ordered because the order is the point, but the
+           reader gets that from the sequence — numbering it as well would
+           be saying it twice. */
+        .flow {
+            list-style: none;
+            counter-reset: none;
+            margin: clamp(36px, 5vw, 56px) 0 0;
+            padding: 0;
+            display: grid;
+            gap: clamp(28px, 4vw, 44px);
+            /* Three, because there are three steps. auto-fit was laying out
+               four tracks and leaving one empty. */
+            grid-template-columns: 1fr;
+        }
+
+        @media (min-width: 760px) {
+            .flow { grid-template-columns: repeat(3, 1fr); }
+        }
+
+        .flow h3 {
+            font-family: var(--font-body);
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 0 0 8px;
+            padding-top: 16px;
+            border-top: 2px solid var(--ink);
+        }
+
+        .flow p {
+            margin: 0;
+            color: var(--muted);
+            font-size: .95rem;
+            line-height: 1.62;
+        }
+
+        /* Running kit. A description list, because that is what it is. */
+        .kit {
+            margin: clamp(32px, 4vw, 48px) 0 0;
+            display: grid;
+            gap: 0;
+            /* Two, so four items make two even rows rather than three with
+               one stranded. */
+            grid-template-columns: 1fr;
+        }
+
+        @media (min-width: 700px) {
+            .kit { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        .kit div {
+            padding: 20px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .kit dt {
+            font-weight: 600;
+            font-size: .95rem;
+            margin-bottom: 5px;
+        }
+
+        .kit dd {
+            margin: 0;
+            color: var(--muted);
+            font-size: .92rem;
+            line-height: 1.6;
+        }
+
+        @media (min-width: 700px) {
+            .kit { column-gap: 40px; }
+        }
+
+        /* -- close ---------------------------------------------------- */
+
+        .close { text-align: center; }
+        .close h2 { margin-inline: auto; }
+        .close .lede { margin-inline: auto; }
+        .close .actions { justify-content: center; }
+
+        footer {
+            padding: 32px 0 44px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 22px;
+            align-items: center;
+            justify-content: space-between;
+            /* --faint measures 3.03:1 on --bg, which fails for text this
+               size. --muted is 6.85:1 and still recedes. */
+            color: var(--muted);
+            font-size: .86rem;
+        }
+
+        footer a {
+            color: var(--muted);
+            text-decoration: none;
+        }
+
+        footer a:hover { color: var(--ink); }
+
+        /* -- the one authored moment ---------------------------------- */
+
+        @media (prefers-reduced-motion: no-preference) {
+            .rise {
+                animation: rise 900ms var(--ease-out) both;
+            }
+            .rise:nth-child(2) { animation-delay: 70ms; }
+            .rise:nth-child(3) { animation-delay: 140ms; }
+
+            @keyframes rise {
+                from { opacity: 0; transform: translateY(14px); filter: blur(6px); }
+                to   { opacity: 1; transform: none; filter: none; }
+            }
         }
     </style>
 </head>
 <body>
 
-<div class="topbar">
-    <div class="wrap">
-        <nav>
-            <a href="index.html" class="brand">SafetyFirst</a>
-            <div class="nav-links">
-                <a href="#how">How it works</a>
-                <a href="#why">Why it matters</a>
-                <a href="#report">What we built</a>
-                <a href="visit-site.html">Checkpoint</a>
-                <a href="login.html" class="btn btn-quiet" id="navAuthLink">Sign in</a>
-            </div>
-        </nav>
-    </div>
-</div>
+<header class="wrap masthead">
+    <a href="index.html" class="mark">SafetyFirst</a>
+    <nav>
+        <a href="#gate">How it works</a>
+        <a href="visit-site.html">Checkpoint</a>
+        <a href="login.html" class="btn btn-primary btn-sm">Sign in</a>
+    </nav>
+</header>
 
-<section class="hero">
-    <div class="wrap hero-grid">
-        <div>
-            <h1>Nobody should have to<br>remember to check.</h1>
-            <p class="lede">
-                A worker arrives at the gate. Before they step onto the site, a camera
-                confirms they are wearing what the job requires — and the gate answers
-                in about a second.
-            </p>
-            <div class="hero-actions">
-                <a href="visit-site.html" class="btn btn-solid">See it run &rarr;</a>
-                <a href="#how" class="btn btn-quiet">How it works</a>
-            </div>
+<main>
+
+    <section class="wrap hero">
+        <h1 class="rise">Nobody should have to remember to check.</h1>
+        <p class="rise">
+            A worker arrives at the gate. Before they step onto the site, a camera
+            confirms they are wearing what the job requires — and the gate answers
+            in about a second.
+        </p>
+        <div class="actions rise">
+            <a href="visit-site.html" class="btn btn-primary">See it run</a>
+            <a href="#gate" class="btn btn-outline">How it works</a>
         </div>
-        <figure class="hero-media">
-            <img src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=1100&q=80"
-                 alt="Construction workers in hardhats and high-visibility vests working on site">
-            <figcaption class="hero-chip">
-                <span class="dot"></span>
-                <span><b>Hardhat &amp; vest confirmed</b><br><span>Checked at the gate, logged against a name</span></span>
-            </figcaption>
+
+        <figure class="plate rise">
+            <img src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=1400&q=80"
+                 alt="Construction workers wearing hardhats and high-visibility vests on site">
+            <figcaption class="verdict">Hardhat &amp; vest confirmed</figcaption>
         </figure>
-    </div>
-</section>
+    </section>
 
-<section class="tint" id="how">
-    <div class="wrap">
-        <div class="narrow">
-            <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">Three seconds at the gate</h2>
-            <p class="lede" style="margin-top:20px">
-                No new habits to learn, no forms, nothing to remember. A worker
-                does what they already do: turn up.
-            </p>
-        </div>
+    <section id="gate" class="wrap band">
+        <h2>Three seconds at the gate</h2>
+        <p class="lede">
+            No new habits to learn, no forms, nothing to remember. A worker does
+            what they already do: turn up.
+        </p>
 
-        <div class="steps">
-            <div class="step panel">
-                <div class="step-n">01</div>
+        <ol class="flow">
+            <li>
                 <h3>They badge in</h3>
-                <p>
-                    A card touch identifies who is at the gate. The screen greets them
-                    by name — not an ID number.
-                </p>
-            </div>
-            <div class="step panel">
-                <div class="step-n">02</div>
+                <p>A card touch identifies who is at the gate. The screen greets them by name — not an ID number.</p>
+            </li>
+            <li>
                 <h3>The camera looks</h3>
-                <p>
-                    A vision model checks for a hardhat and a high-visibility vest,
-                    and holds the answer for a moment to be sure.
-                </p>
-            </div>
-            <div class="step panel">
-                <div class="step-n">03</div>
+                <p>A vision model checks for a hardhat and a high-visibility vest, and holds the answer for a moment to be sure.</p>
+            </li>
+            <li>
                 <h3>The gate answers</h3>
-                <p>
-                    Cleared, and they are marked present. Missing something, and the
-                    screen names it so they can fix it and scan again.
-                </p>
-            </div>
-        </div>
-    </div>
-</section>
+                <p>Cleared, and they are marked present. Missing something, and the screen names it so they can fix it and scan again.</p>
+            </li>
+        </ol>
+    </section>
 
-<!-- a moment on site, full width -->
-<div class="bleed">
-    <img src="https://images.unsplash.com/photo-1517089152318-42ec560349c0?auto=format&fit=crop&w=2000&q=80"
-         alt="Aerial view of an active construction site with earthmoving machinery">
-</div>
-
-<!-- the product itself -->
-<section>
-    <div class="wrap">
-        <div class="narrow">
-            <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">One word, readable across the yard</h2>
-            <p class="lede" style="margin-top:20px">
-                These are real screens, not mock-ups — the detection boxes and the
-                ruling come from the model itself.
-            </p>
-        </div>
-
-        <div class="shots lift">
-            <figure>
-                <div class="device"><img src="assets/checkpoint-granted.png"
-                     alt="Checkpoint screen showing Access Granted for a worker wearing a hardhat and vest"></div>
-                <figcaption>Cleared — hardhat and vest confirmed, marked present.</figcaption>
-            </figure>
-            <figure>
-                <div class="device"><img src="assets/checkpoint-denied.png"
-                     alt="Checkpoint screen showing Access Denied with hardhat and safety vest listed as missing"></div>
-                <figcaption>Turned away — and told exactly what to put on.</figcaption>
-            </figure>
-        </div>
-    </div>
-</section>
-
-<section class="tint">
-    <div class="wrap split">
-        <div>
-            <h2 style="font-size:clamp(1.8rem,3.4vw,2.5rem)">It tells them what to fix</h2>
-            <p style="color:var(--ink-soft);margin-top:20px">
-                A refusal that just says “no” teaches nobody anything. This one names
-                the missing item, in plain words, at a size readable from across the
-                gate — then clears itself so the queue keeps moving.
-            </p>
-            <p style="color:var(--ink-soft);margin-top:16px">
-                Every decision is written down against a name, so a supervisor asked
-                what controls were in place has an answer made of records rather than
-                recollection. A refusal keeps the frame that produced it — the model's
-                own boxes, burned in — so the answer isn't just a claim, it's a photograph.
-            </p>
-        </div>
-        <figure>
-            <img class="shot" src="https://images.unsplash.com/photo-1504307651254-35680f356dfd?auto=format&fit=crop&w=1200&q=80"
-                 alt="Construction worker in a hardhat and high-visibility vest on site">
-            <figcaption>Required kit on an Indian site: helmet, safety shoes, reflective jacket.</figcaption>
-        </figure>
-    </div>
-</section>
-
-<section class="warm" id="why">
-    <div class="wrap">
-        <div class="narrow">
-            <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">The equipment was always there</h2>
-            <p class="lede" style="margin-top:20px">
-                Sites rarely fail because nobody issued a helmet. They fail in the
-                moments between issuing it and wearing it — moments no supervisor can
-                stand and watch all day.
-            </p>
-        </div>
-
-        <div class="facts">
-            <div class="fact panel">
-                <div class="fact-n">~60%</div>
-                <p>of construction deaths come from falls, struck-by, caught-in and electrocution.</p>
-                <div class="fact-src">OSHA “Fatal Four”</div>
-            </div>
-            <div class="fact panel">
-                <div class="fact-n">15 years</div>
-                <p>running as the most-cited violation: fall protection. Non-compliance is not rare.</p>
-                <div class="fact-src">OSHA, FY2025</div>
-            </div>
-            <div class="fact panel">
-                <div class="fact-n">0.19</div>
-                <p>deaths per 1,000 miners in India — down from 0.93, and still counted in lives.</p>
-                <div class="fact-src">DGMS</div>
-            </div>
-        </div>
-    </div>
-</section>
-
-<section style="padding-top:clamp(48px,6vw,84px)">
-    <div class="wrap narrow quote">
-        <span class="mark" aria-hidden="true">&#8220;</span>
-        <blockquote>
-            Manual inspection is labour-intensive, time-consuming and susceptible to
-            human error — and the hardest thing of all to catch is the worker who
-            takes the helmet off once they are past the gate.
-        </blockquote>
-        <cite>Paraphrased from published research on vision-based safety compliance</cite>
-    </div>
-</section>
-
-<!-- what you actually get -->
-<section class="tint">
-    <div class="wrap">
-        <div class="narrow">
-            <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">Three surfaces, one record</h2>
-            <p class="lede" style="margin-top:20px">
-                The gate makes the call. Everyone else sees the part that concerns them.
-            </p>
-        </div>
-
-        <div class="surfaces">
-            <article class="surface">
-                <h3>Gate Control</h3>
-                <p>The checkpoint itself — camera, badge, ruling.</p>
-                <ul>
-                    <li>Frame-by-frame verification</li>
-                    <li>Named worker on screen</li>
-                    <li>Live model speed, in frames per second</li>
-                    <li>Manual snapshot, on demand</li>
-                    <li>Spoken alert on refusal</li>
-                </ul>
-            </article>
-            <article class="surface">
-                <h3>Admin Console</h3>
-                <p>What a supervisor opens on a Monday morning.</p>
-                <ul>
-                    <li>Site-wide status: who's in, who's been turned away</li>
-                    <li>Refusals with the photograph that caused them</li>
-                    <li>Missing-PPE breakdown and time-of-day trends</li>
-                    <li>Per-worker compliance scorecard</li>
-                    <li>What's required, changeable without a redeploy</li>
-                    <li>A record of who changed it, and when</li>
-                    <li>Named reports, exportable for a chosen date range</li>
-                </ul>
-            </article>
-            <article class="surface">
-                <h3>My Profile</h3>
-                <p>What each person can see about themselves.</p>
-                <ul>
-                    <li>Personal compliance rate</li>
-                    <li>Days present at the gate</li>
-                    <li>Every entry decision, timestamped</li>
-                    <li>Survives restarts</li>
-                </ul>
-            </article>
-        </div>
-    </div>
-</section>
-
-<!-- grounded in the rules that already exist -->
-<section>
-    <div class="wrap split">
-        <div>
-            <h2 style="font-size:clamp(1.8rem,3.4vw,2.5rem)">It checks what the law already asks for</h2>
-            <p style="color:var(--ink-soft);margin-top:20px">
-                The BOCW Act, the Factories Act and the Occupational Safety Code
-                already oblige an employer to supply protective equipment free of
-                cost. Helmet, safety shoes and reflective jacket are the baseline
-                on an Indian site, and the equipment must be ISI-certified to BIS
-                standards.
-            </p>
-            <p style="color:var(--ink-soft);margin-top:16px">
-                Nothing here invents a policy. It verifies an existing one at the
-                only moment that matters — the moment somebody walks in.
-            </p>
-            <div class="stack">
-                <span class="chip">YOLOv8</span>
-                <span class="chip">Flask + JWT</span>
-                <span class="chip">Raspberry Pi 5</span>
-                <span class="chip">MFRC522 RFID</span>
-                <span class="chip">SQLite / Postgres</span>
-            </div>
-        </div>
-        <figure>
-            <img class="shot" src="assets/checkpoint-idle.png"
-                 alt="Checkpoint display idle, waiting for a badge to be scanned">
-            <figcaption>Idle between workers — the head count stays on screen.</figcaption>
-        </figure>
-    </div>
-</section>
-
-<!-- build report — the accounting for judging -->
-<section class="warm" id="report">
-    <div class="wrap">
-        <div class="narrow">
-            <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">Round one to round two</h2>
-            <p class="lede" style="margin-top:20px">
-                Round one was a detector in a browser tab, and it ended on a slide
-                promising a checkpoint. Round two is that checkpoint.
-            </p>
-        </div>
-
-        <div class="delta">
-            <div class="delta-card delta-then">
-                <span class="delta-tag">Where we started</span>
-                <h3>Round one</h3>
-                <p class="delta-sub">A detector in a browser tab</p>
-                <ul>
-                    <li>YOLOv8 reading protective equipment from any webcam</li>
-                    <li>A dashboard that logged violations with a timestamp, and spoke
-                        the alert aloud</li>
-                    <li>Inference on a hosted GPU, frontend on Vercel</li>
-                    <li>One shared session — every visitor saw the same counters</li>
-                </ul>
-                <p style="font-size:.9rem;color:var(--ink-faint);margin-top:14px">
-                    It watched, and it told you. It could not stop anybody, and it did
-                    not know who it was looking at.
-                    <a href="https://github.com/Nexus369/construction-ppe-detection"
-                       target="_blank" rel="noopener"
-                       style="color:var(--ink-soft)">Round one source&nbsp;&rarr;</a>
-                </p>
-            </div>
-            <div class="delta-card delta-now">
-                <span class="delta-tag">What we built</span>
-                <h3>Round two</h3>
-                <p class="delta-sub">A checkpoint that decides, and answers for it</p>
-                <ul>
-                    <li>A badge-operated checkpoint that decides entry and writes it down</li>
-                    <li>Named workers, not anonymous frames, with attendance on the record</li>
-                    <li>An eight-page console for the people who answer for the site</li>
-                    <li>A safety policy that changes at runtime, never by redeploy</li>
-                    <li>Hazard alerts that can stop the gate everywhere at once</li>
-                    <li>A native gate application for the Raspberry Pi</li>
-                    <li>An append-only record of who changed what, and when</li>
-                </ul>
-            </div>
-        </div>
-
-        <div class="narrow" style="margin-top:48px">
-            <h3 style="font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:1.3rem">
-                What round one promised, and round two built
-            </h3>
-            <p style="color:var(--ink-soft);font-size:.95rem;margin-top:8px">
-                The closing slide of the round-one deck listed what would come next.
-                These are the ones now running.
-            </p>
-        </div>
-
-        <div class="promises">
-            <div class="promise">
-                <div class="promise-item">Edge deployment on a Raspberry Pi</div>
-                <div class="promise-note">A native fullscreen gate application, owning the
-                    camera and badge reader directly.</div>
-            </div>
-            <div class="promise">
-                <div class="promise-item">RFID / NFC tags</div>
-                <div class="promise-note">An MFRC522 reader over SPI, identifying the person
-                    rather than the equipment. The camera was already better at the equipment.</div>
-            </div>
-            <div class="promise">
-                <div class="promise-item">Automated gate control at checkpoints</div>
-                <div class="promise-note">The decision, the refusal, the attendance record and
-                    the queue behind it.</div>
-            </div>
-            <div class="promise">
-                <div class="promise-item">IoT sensors and an offline mode</div>
-                <div class="promise-note">Hazard alerts that hold the gate, raised by a threshold
-                    an administrator sets, plus a local queue so a dropped link cannot lose a
-                    decision.</div>
-            </div>
-            <div class="promise">
-                <div class="promise-item">Analytics on worker risk</div>
-                <div class="promise-note">Per-worker compliance scorecards, a daily trend, and
-                    the hours refusals cluster in.</div>
-            </div>
-        </div>
-
-        <div class="ledger">
-            <div class="ledger-row">
-                <div class="ledger-area">The decision</div>
-                <p class="ledger-line">Badge scan identifies the worker, then the camera rules on their
-                    equipment. A pass has to hold for over a second, so one lucky frame cannot clear
-                    anybody. Entry is marked against a name, refusals included, with model speed shown
-                    live in frames per second.</p>
-            </div>
-            <div class="ledger-row">
-                <div class="ledger-area">Policy</div>
-                <p class="ledger-line">Required equipment and detection confidence are settings, not
-                    constants, and a change takes effect on the next frame across all three surfaces.
-                    Only equipment the model can actually see is offered, because a requirement it could
-                    never satisfy would refuse everyone, permanently.</p>
-            </div>
-            <div class="ledger-row">
-                <div class="ledger-area">Evidence</div>
-                <p class="ledger-line">Every refusal keeps the frame that caused it, with the model's own
-                    boxes drawn in, served through an authenticated route rather than as a public file.
-                    Images expire after thirty days; the decision they support does not. Operators can
-                    capture a frame on demand, kept out of the compliance figures.</p>
-            </div>
-            <div class="ledger-row">
-                <div class="ledger-area">Console</div>
-                <p class="ledger-line">Overview, personnel, captures, reports, analytics, policy, location,
-                    change log and alerts — with per-worker scorecards, a daily trend, the hours refusals
-                    cluster in, and named CSV exports for any date range.</p>
-            </div>
-            <div class="ledger-row">
-                <div class="ledger-area">Hazard alerts</div>
-                <p class="ledger-line">A critical alert overrides equipment compliance and pauses entry;
-                    full protective gear is still not safe in a gas leak. Raised by a device declaring a
-                    severity or a raw sensor value crossing a threshold, it surfaces on the gate display,
-                    the device and every open console tab, and clearing it is recorded against a person.</p>
-            </div>
-            <div class="ledger-row">
-                <div class="ledger-area">Accountability</div>
-                <p class="ledger-line">An append-only log across policy, personnel and alerts. Names are
-                    kept alongside ids so the trail still reads after an account is deleted, and changes
-                    that weaken the gate are marked as such.</p>
-            </div>
-            <div class="ledger-row">
-                <div class="ledger-area">The device</div>
-                <p class="ledger-line">A fullscreen gate application owning the camera and badge reader
-                    directly. Decisions that cannot reach the server are held locally and retried rather
-                    than lost, site position is reported from the device, and a pre-flight tool names the
-                    broken link instead of leaving a blank screen.</p>
-            </div>
-            <div class="ledger-row">
-                <div class="ledger-area">Interface</div>
-                <p class="ledger-line">Rebuilt around one editorial design language shared by every page,
-                    then audited site-wide: four real bugs found where content overflowed with no way to
-                    scroll to it, and every page checked at phone, tablet and desktop widths.</p>
-            </div>
-        </div>
-
-        <div class="colophon">
-            <div><div class="stat-n">39</div><div class="stat-l">API endpoints</div></div>
-            <div><div class="stat-n">8</div><div class="stat-l">Database tables</div></div>
-            <div><div class="stat-n">16</div><div class="stat-l">Pages</div></div>
-            <div><div class="stat-n">3</div><div class="stat-l">Surfaces: gate, console, device</div></div>
-            <div><div class="stat-n">~12k</div><div class="stat-l">Lines written</div></div>
-            <div><div class="stat-n">9</div><div class="stat-l">Days, 2&ndash;11 August</div></div>
-        </div>
-
-        <div class="narrow" style="margin-top:52px">
-            <h3 style="font-family:'Fraunces',Georgia,serif;font-weight:600;font-size:1.3rem">
-                Decisions we would defend
-            </h3>
-        </div>
-        <div class="notes" style="margin-top:12px">
-            <dl class="decisions">
-                <dt>Refusals are photographed. Grants are not.</dt>
-                <dd>A checkpoint that photographs everyone is a surveillance system with a
-                    safety feature attached.</dd>
-
-                <dt>Identity comes from a badge, not a face.</dt>
-                <dd>A card answers the same question without putting a face database on a
-                    construction site.</dd>
-            </dl>
-            <dl class="decisions">
-                <dt>Making the gate weaker is as visible as making it stronger.</dt>
-                <dd>Configurable policy without a log would make every compliance figure
-                    downstream unfalsifiable.</dd>
-
-                <dt>Any signed-in user can clear a hazard alert.</dt>
-                <dd>It is a safety action, not a policy edit. A gas alarm should not wait for
-                    an administrator to be reachable.</dd>
-            </dl>
-        </div>
-    </div>
-</section>
-
-<!-- roadmap -->
-<section class="tint">
-    <div class="wrap">
-        <div class="narrow">
-            <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">From a screen to a turnstile</h2>
-            <p class="lede" style="margin-top:20px">
-                The decision already works. What follows is wiring it to something
-                physical.
-            </p>
-        </div>
-
-        <div class="phases">
-            <div class="phase now">
-                <div class="phase-tag">Working today</div>
-                <h3>The decision</h3>
-                <ul>
-                    <li>PPE verified from any camera</li>
-                    <li>Badge identifies the worker</li>
-                    <li>Attendance marked on entry</li>
-                    <li>Refusals photographed, not just logged</li>
-                    <li>Required PPE set live, no redeploy</li>
-                    <li>Every policy change on the record</li>
-                    <li>Analytics, scorecards and named reports</li>
-                </ul>
-            </div>
-            <div class="phase">
-                <div class="phase-tag">Next</div>
-                <h3>The hardware</h3>
-                <ul>
-                    <li>RFID and the Pi app, on real hardware</li>
-                    <li>Relay driving a real gate</li>
-                    <li>On-device inference via AI HAT</li>
-                    <li>Live site location over GPS</li>
-                </ul>
-            </div>
-            <div class="phase">
-                <div class="phase-tag">Then</div>
-                <h3>The site</h3>
-                <ul>
-                    <li>Local queue when the link drops, synced after</li>
-                    <li>Several gates, one console</li>
-                    <li>Offline operation underground</li>
-                    <li>Shift and contractor reporting</li>
-                </ul>
-            </div>
-        </div>
-    </div>
-</section>
-
-<!-- team -->
-<section>
-    <div class="wrap narrow">
-        <h2 style="font-size:clamp(1.8rem,3.4vw,2.5rem)">Team Mojito</h2>
-        <p style="color:var(--ink-soft);margin-top:18px">
-            Built for FAR AWAY 2026 — Agentic &amp; Autonomous Systems.
+    <section class="wrap band">
+        <h2>It runs on the gate, not on a promise</h2>
+        <p class="lede">
+            The checkpoint decides on the hardware standing at the entrance. If the
+            network goes, it keeps deciding, and files what it owes when the link
+            returns.
         </p>
-        <div class="team">
-            <span class="member"><span class="ini">BW</span>Bhavesh Waghmare</span>
-            <span class="member"><span class="ini">JM</span>Jasbir Singh Monga</span>
-            <span class="member"><span class="ini">PV</span>Priyal Vairagade</span>
-        </div>
-    </div>
-</section>
 
-<section class="tint">
-    <div class="wrap narrow" style="text-align:center">
-        <h2 style="font-size:clamp(1.9rem,3.6vw,2.7rem)">Try it with your own camera</h2>
-        <p class="lede" style="margin:20px auto 0">
-            No signup needed. Point a camera at yourself and watch the checkpoint
-            decide whether you would be let through.
+        <dl class="kit">
+            <div>
+                <dt>Decides on the device</dt>
+                <dd>The model runs on the Raspberry Pi at the gate. No server in the loop, no round trip to wait on.</dd>
+            </div>
+            <div>
+                <dt>Keeps its own roster</dt>
+                <dd>Names, badges and the site's PPE policy are held locally, so a severed link costs a queue to drain — not a decision.</dd>
+            </div>
+            <div>
+                <dt>Sensors that join no network</dt>
+                <dd>Gas and temperature nodes reach the gate directly over ESP-NOW, and the gate carries them the rest of the way.</dd>
+            </div>
+            <div>
+                <dt>Refusals keep their evidence</dt>
+                <dd>Every refusal stores the frame that caused it, with the policy that was in force at that moment.</dd>
+            </div>
+        </dl>
+    </section>
+
+    <section class="wrap band close">
+        <h2>Try it with your own camera</h2>
+        <p class="lede">
+            The checkpoint runs in a browser. Stand in front of a webcam and it will
+            tell you what you are missing.
         </p>
-        <div class="hero-actions" style="justify-content:center">
-            <a href="visit-site.html" class="btn btn-solid">Open the checkpoint &rarr;</a>
+        <div class="actions">
+            <a href="visit-site.html" class="btn btn-primary">Open the checkpoint</a>
+            <a href="login.html" class="btn btn-outline">Sign in to the console</a>
         </div>
-    </div>
-</section>
+    </section>
 
-<footer>
-    <div class="wrap foot-grid">
-        <div>
-            <div class="brand" style="margin-bottom:10px">SafetyFirst</div>
-            <p class="foot-note">
-                A student prototype built for FAR AWAY 2026. Not a certified safety
-                system — a demonstration of what a checkpoint could do.
-            </p>
-        </div>
-        <div class="foot-links">
-            <a href="#how">How it works</a>
-            <a href="#why">Why it matters</a>
-            <a href="#report">What we built</a>
-            <a href="visit-site.html">Checkpoint</a>
-            <a href="login.html" id="footAuthLink">Sign in</a>
-            <a href="https://github.com/Bhavesh6/PPE-Detection" target="_blank" rel="noopener">Source</a>
-        </div>
-    </div>
+</main>
+
+<footer class="wrap">
+    <span>SafetyFirst — Team Mojito</span>
+    <span>
+        <a href="index-full.html">The full story</a>
+    </span>
 </footer>
 
-
-
-<script src="js/config.js?v=20260807a"></script>
-<script src="js/auth.js?v=20260807a"></script>
-<script>
-    // A signed-in visitor landing back on the marketing page shouldn't be
-    // offered "Sign in" again — that's the one link on this page that
-    // actively depends on knowing who's looking at it.
-    if (typeof Auth !== 'undefined' && Auth.isLoggedIn()) {
-        const user = Auth.getUser();
-        const dest = user && user.is_admin ? 'admin.html' : 'visit-site.html';
-        [document.getElementById('navAuthLink'), document.getElementById('footAuthLink')].forEach((el) => {
-            if (!el) return;
-            el.href = dest;
-            el.textContent = 'Dashboard';
-        });
-    }
-</script>
 </body>
 </html>

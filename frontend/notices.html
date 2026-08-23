@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safety Notices — SafetyFirst Admin</title>
+    <meta name="description" content="Refusals sent to the contractor or supervisor responsible, and whether they answered.">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+    <style>
+        .nt-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+        @media (max-width: 1100px) { .nt-layout { grid-template-columns: 1fr; } }
+
+        /* The form is the thing you come back to after reading a row, so it
+           follows rather than scrolling away above a long list. */
+        @media (min-width: 1101px) {
+            .nt-form { position: sticky; top: 20px; }
+        }
+
+        .nt-foot {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border);
+            font-size: .8rem; color: var(--muted);
+        }
+        .nt-tabs { display: flex; gap: 4px; }
+        .nt-tab {
+            font: inherit; font-size: .76rem; font-weight: 600;
+            padding: 4px 10px; border-radius: 999px; cursor: pointer;
+            border: 1px solid var(--border); background: transparent; color: var(--muted);
+        }
+        .nt-tab.is-on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+
+        .nt-row { padding: 13px 16px; display: grid; gap: 4px; }
+        .nt-row + .nt-row { border-top: 1px solid var(--border); }
+
+        .nt-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .nt-ref { font-weight: 600; font-size: .9rem; font-variant-numeric: tabular-nums; }
+        .nt-sub { font-size: .82rem; color: var(--muted); line-height: 1.5; }
+
+        /* The link is the deliverable, so it is copyable rather than
+           decorative — an officer's next move is to paste it somewhere. */
+        .nt-link {
+            display: flex; align-items: center; gap: 6px; margin-top: 6px;
+            flex-wrap: wrap; min-width: 0;
+            font-size: .76rem; color: var(--muted);
+        }
+        .nt-link > i { flex: 0 0 auto; }
+        /* A real flex-basis, not 0%, so the row runs out of room before the
+           buttons do: the actions wrap to their own line instead of being
+           squeezed past the card edge. Touch pointers widen every .btn by
+           ~20px each (app.css), which is where this first went wrong. */
+        .nt-link code {
+            flex: 1 1 14rem; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; background: var(--surface-alt);
+            border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px;
+            font-size: .72rem;
+        }
+        /* The three actions travel as one block: either they all share the
+           link's line or they all drop below it, never one orphan. */
+        .nt-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 0 1 auto; }
+        .nt-acts .btn { flex: 0 0 auto; white-space: nowrap; }
+
+        .pick { max-height: 300px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+        .pick label {
+            display: grid; grid-template-columns: auto 1fr; gap: 10px;
+            align-items: center; padding: 9px 12px; cursor: pointer;
+            font-size: .84rem;
+        }
+        .pick label + label { border-top: 1px solid var(--border); }
+        .pick label:hover { background: var(--surface-alt); }
+        .pick .none { padding: 16px; color: var(--muted); font-size: .85rem; }
+
+        .fld { margin-top: 12px; }
+        .fld label { display: block; font-size: .8rem; font-weight: 600; margin-bottom: 5px; }
+        .fld input, .fld textarea, .fld select {
+            width: 100%; box-sizing: border-box; padding: 8px 11px;
+            font: inherit; font-size: .88rem; color: var(--ink);
+            background: var(--bg); border: 1px solid var(--border-firm);
+            border-radius: var(--radius);
+        }
+        .fld input:focus, .fld textarea:focus, .fld select:focus {
+            outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+        .fld textarea { min-height: 68px; resize: vertical; }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <main class="main">
+            <div class="content">
+
+                <div class="nt-layout">
+
+                    <section class="card">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-paper-plane"></i>Notices</span>
+                            <div class="flex items-center gap-2">
+                                <div class="nt-tabs">
+                                    <button class="nt-tab is-on" data-show="outstanding" type="button">Needs a reply</button>
+                                    <button class="nt-tab" data-show="all" type="button">All</button>
+                                </div>
+                                <a class="btn btn-outline btn-sm" id="csvBtn" href="#">
+                                    <i class="fas fa-file-csv"></i> CSV
+                                </a>
+                            </div>
+                        </div>
+                        <div id="ntList"></div>
+                        <div class="nt-foot" id="ntFoot" hidden>
+                            <span id="ntCount"></span>
+                            <button class="btn btn-outline btn-sm" id="moreBtn" type="button" hidden>Show more</button>
+                        </div>
+                    </section>
+
+                    <section class="card nt-form">
+                        <div class="card-head">
+                            <span class="card-title"><i class="fas fa-plus"></i>Issue a notice</span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-xs" style="color:var(--muted);line-height:1.55;margin:0 0 12px">
+                                Sends the refusals below to whoever is responsible for
+                                the worker. They open it with the link — no account —
+                                and their answer comes back here.
+                            </p>
+
+                            <div class="fld">
+                                <label for="worker">Worker</label>
+                                <select id="worker"></select>
+                            </div>
+
+                            <div class="fld">
+                                <label>Refusals to cite</label>
+                                <div class="pick" id="pick">
+                                    <div class="none">Choose a worker first.</div>
+                                </div>
+                            </div>
+
+                            <div class="fld">
+                                <label for="rname">Send to</label>
+                                <input id="rname" type="text" maxlength="120" placeholder="Supervisor or contractor's name">
+                            </div>
+                            <div class="fld">
+                                <label for="rorg">Organisation <span style="font-weight:400;color:var(--muted)">— optional</span></label>
+                                <input id="rorg" type="text" maxlength="120" placeholder="Their company">
+                            </div>
+                            <div class="fld">
+                                <label for="remail">Their email <span style="font-weight:400;color:var(--muted)">— to send it for you</span></label>
+                                <input id="remail" type="email" maxlength="255" placeholder="Leave blank to send the link yourself">
+                            </div>
+                            <div class="fld">
+                                <label for="rmsg">Message <span style="font-weight:400;color:var(--muted)">— optional</span></label>
+                                <textarea id="rmsg" maxlength="2000" placeholder="What you want them to do about it."></textarea>
+                            </div>
+
+                            <button class="btn btn-primary" id="issueBtn" type="button" style="margin-top:16px;width:100%">
+                                Issue notice
+                            </button>
+                            <p class="text-xs" id="issueMsg" style="margin:10px 0 0;line-height:1.5" hidden></p>
+                        </div>
+                    </section>
+
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <script src="js/config.js?v=20260807a"></script>
+    <script src="js/auth.js?v=20260807a"></script>
+    <script src="js/shell.js?v=20260807a"></script>
+    <script>
+        Auth.requireAdmin();
+        Shell.render('notices', {
+            title: 'Safety Notices',
+            subtitle: 'Refusals sent to whoever can act on them, and whether they answered',
+        });
+
+        const el = id => document.getElementById(id);
+        const fmt = iso => iso ? new Date(iso).toLocaleString(undefined,
+            { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+
+        const BADGE = {
+            acknowledged: ['badge-ok', 'Acknowledged'],
+            overdue:      ['badge-danger', 'Overdue'],
+            opened:       ['badge-info', 'Opened'],
+            issued:       ['badge-muted', 'Awaiting'],
+            disputed:     ['badge-hazard', 'Disagreed'],
+            withdrawn:    ['badge-muted', 'Withdrawn'],
+        };
+
+        // Sent, tried and failed, and never attempted are three different
+        // situations for the officer chasing a reply, so say which.
+        function deliveryLine(n) {
+            const tries = n.deliveries || [];
+            if (!tries.length) {
+                return `<div class="nt-sub" style="color:var(--faint)">Not sent yet</div>`;
+            }
+            const last = tries[tries.length - 1];
+            if (last.succeeded) {
+                const how = last.channel === 'manual' ? 'sent by hand' : `emailed to ${last.target}`;
+                return `<div class="nt-sub" style="color:var(--ok)">Delivered — ${how}</div>`;
+            }
+            return `<div class="nt-sub" style="color:var(--danger)">`
+                 + `Delivery failed after ${tries.length} attempt${tries.length === 1 ? '' : 's'}`
+                 + ` — ${last.error}</div>`;
+        }
+
+        async function send(reference, byHand) {
+            const url = `/api/admin/notices/${encodeURIComponent(reference)}/send`
+                      + (byHand ? '?by=hand' : '');
+            const res = await Auth.fetch(url, { method: 'POST' });
+            const d = await res.json();
+            if (!d.success && d.message) alert(d.message);
+            loadNotices();
+        }
+
+        async function revoke(reference) {
+            if (!confirm(`Withdraw ${reference}? The link stops working, `
+                       + `and the record that it was issued stays.`)) return;
+            const res = await Auth.fetch(
+                `/api/admin/notices/${encodeURIComponent(reference)}/revoke`,
+                { method: 'POST' });
+            const d = await res.json();
+            if (!res.ok || !d.success) { alert(d.message || 'Could not withdraw it.'); return; }
+            loadNotices();
+        }
+
+        let show = 'outstanding';
+        let page = 1;
+
+        async function loadNotices(append) {
+            const res = await Auth.fetch(
+                `/api/admin/notices?show=${show}&page=${page}&per_page=20`);
+            const d = await res.json();
+            const list = el('ntList');
+            if (!append) list.innerHTML = '';
+
+            el('ntFoot').hidden = false;
+            el('ntCount').textContent = d.outstanding
+                ? `${d.outstanding} awaiting a reply · ${d.total} in total`
+                : `all answered · ${d.total} in total`;
+            el('moreBtn').hidden = !d.has_more;
+
+            if (!d.notices || !d.notices.length) {
+                list.innerHTML = `<div class="cell-empty" style="padding:28px">${
+                    show === 'outstanding'
+                        ? 'Nothing waiting on a reply. Every notice has been answered.'
+                        : 'No notices yet. Issue one from a refusal on the right.'}</div>`;
+                return;
+            }
+
+            d.notices.forEach(n => {
+                const [cls, label] = BADGE[n.status] || ['badge-muted', n.status];
+                const row = document.createElement('div');
+                row.className = 'nt-row';
+                const link = `${location.origin}/notice.html?t=`;
+                row.innerHTML = `
+                    <div class="nt-top">
+                        <span class="nt-ref">${n.reference}</span>
+                        <span class="badge ${cls}">${label}</span>
+                    </div>
+                    <div class="nt-sub">
+                        <strong>${n.subject.name}</strong> ·
+                        ${n.refusals.length} refusal${n.refusals.length === 1 ? '' : 's'} ·
+                        sent to ${n.recipient.name}${n.recipient.organisation ? ' at ' + n.recipient.organisation : ''}
+                    </div>
+                    <div class="nt-sub">
+                        Issued ${fmt(n.issued_at)} by ${n.issued_by}
+                        ${n.status === 'acknowledged'
+                            ? `· answered by ${n.acknowledged_by} ${fmt(n.acknowledged_at)}`
+                            : `· due ${fmt(n.due_at)}`}
+                    </div>
+                    ${n.corrective_action
+                        ? `<div class="nt-sub" style="color:${n.status === 'disputed' ? 'var(--hazard)' : 'var(--ok)'}">“${n.corrective_action}”</div>` : ''}
+                    ${deliveryLine(n)}
+                    ${(n.status !== 'acknowledged' && n.status !== 'withdrawn') ? `
+                    <div class="nt-link">
+                        <i class="fas fa-link" style="font-size:.7rem"></i>
+                        <code data-ref="${n.reference}">${link}…</code>
+                        <span class="nt-acts">
+                            <a class="btn btn-outline btn-sm" href="/api/admin/notices/${n.reference}.json"
+                               title="Machine-readable copy">JSON</a>
+                            <button class="btn btn-outline btn-sm" data-send="${n.reference}"
+                                    title="${n.recipient.email ? 'Email it to ' + n.recipient.email : 'Record that you sent it yourself'}">
+                                ${n.recipient.email ? 'Send' : 'Mark sent'}</button>
+                            <button class="btn btn-outline btn-sm" data-revoke="${n.reference}"
+                                    title="Stop this link working">Withdraw</button>
+                        </span>
+                    </div>` : ''}`;
+                const sd = row.querySelector('[data-send]');
+                if (sd) sd.addEventListener('click',
+                    () => send(sd.dataset.send, !n.recipient.email));
+                const rv = row.querySelector('[data-revoke]');
+                if (rv) rv.addEventListener('click', () => revoke(rv.dataset.revoke));
+                list.appendChild(row);
+            });
+        }
+
+        async function loadWorkers() {
+            const res = await Auth.fetch('/api/admin/users');
+            const d = await res.json();
+            const sel = el('worker');
+            sel.innerHTML = '<option value="">Choose…</option>';
+            (d.users || [])
+                .filter(u => !u.is_guest)
+                .forEach(u => {
+                    const o = document.createElement('option');
+                    o.value = u.id;
+                    o.textContent = u.employee_id ? `${u.name} (${u.employee_id})` : u.name;
+                    sel.appendChild(o);
+                });
+        }
+
+        async function loadRefusals(userId) {
+            const pick = el('pick');
+            if (!userId) { pick.innerHTML = '<div class="none">Choose a worker first.</div>'; return; }
+            pick.innerHTML = '<div class="none">Loading…</div>';
+
+            // /results returns only detections and a timestamp - no id and
+            // no verdict - so it cannot answer this. /violations can.
+            const res = await Auth.fetch(
+                `/api/admin/violations?kind=denied&per_page=50&user=${encodeURIComponent(userId)}`);
+            const d = await res.json();
+            const denied = d.violations || d.records || d.items || [];
+
+            if (!denied.length) {
+                pick.innerHTML = '<div class="none">No refusals on record for them.</div>';
+                return;
+            }
+            pick.innerHTML = '';
+            denied.slice(0, 25).forEach(r => {
+                const lab = document.createElement('label');
+                lab.innerHTML = `
+                    <input type="checkbox" value="${r.id}">
+                    <span>${fmt(r.timestamp)} — missing
+                        <strong>${(r.missing_ppe || []).join(', ') || 'equipment'}</strong>
+                        ${r.has_evidence ? '' : ' <span style="color:var(--faint)">(no image)</span>'}
+                    </span>`;
+                pick.appendChild(lab);
+            });
+        }
+
+        el('worker').addEventListener('change', e => loadRefusals(e.target.value));
+
+        el('issueBtn').addEventListener('click', async () => {
+            const btn = el('issueBtn');
+            const msg = el('issueMsg');
+            const chosen = [...document.querySelectorAll('#pick input:checked')].map(i => +i.value);
+
+            msg.hidden = true;
+            btn.disabled = true;
+            btn.textContent = 'Issuing…';
+            try {
+                const res = await Auth.fetch('/api/admin/notices', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        refusals: chosen,
+                        recipient_name: el('rname').value,
+                        recipient_org: el('rorg').value,
+                        recipient_email: el('remail').value,
+                        message: el('rmsg').value,
+                    }),
+                });
+                const d = await res.json();
+                if (!res.ok || !d.success) {
+                    msg.textContent = d.message || 'Could not issue that notice.';
+                    msg.style.color = 'var(--danger)';
+                    msg.hidden = false;
+                    return;
+                }
+                const url = location.origin + d.link;
+                msg.innerHTML = `${d.notice.reference} issued. Send them this link:<br>`
+                    + `<code style="font-size:.72rem;word-break:break-all">${url}</code>`;
+                msg.style.color = 'var(--ok)';
+                msg.hidden = false;
+
+                el('rname').value = ''; el('rorg').value = '';
+                el('remail').value = ''; el('rmsg').value = '';
+                document.querySelectorAll('#pick input:checked').forEach(i => i.checked = false);
+                page = 1;
+                loadNotices();
+            } catch (e) {
+                msg.textContent = 'No connection to the server.';
+                msg.style.color = 'var(--danger)';
+                msg.hidden = false;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Issue notice';
+            }
+        });
+
+        el('csvBtn').addEventListener('click', async e => {
+            e.preventDefault();
+            // Auth.fetch carries the header a plain link cannot.
+            const res = await Auth.fetch('/api/admin/notices.csv');
+            const blob = await res.blob();
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'safety-notices.csv';
+            a.click();
+            URL.revokeObjectURL(a.href);
+        });
+
+        document.querySelectorAll('.nt-tab').forEach(t => {
+            t.addEventListener('click', () => {
+                document.querySelectorAll('.nt-tab').forEach(x => x.classList.remove('is-on'));
+                t.classList.add('is-on');
+                show = t.dataset.show;
+                page = 1;
+                loadNotices();
+            });
+        });
+
+        el('moreBtn').addEventListener('click', () => { page += 1; loadNotices(true); });
+
+        loadNotices();
+        loadWorkers();
+        // Refresh only the first page: polling deeper pages would yank rows
+        // out from under somebody who had scrolled to read them.
+        setInterval(() => { if (page === 1) loadNotices(); }, 30000);
+    </script>
+</body>
+</html>

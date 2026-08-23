@@ -59,6 +59,23 @@
                     </div>
                 </div>
 
+                <!-- Hidden until there is one: an empty card here would
+                     invite a worker to wonder what it is for. -->
+                <section class="card mb-5" id="noticeCard" hidden>
+                    <div class="card-head">
+                        <span class="card-title"><i class="fas fa-paper-plane"></i>Notices sent about you</span>
+                    </div>
+                    <div class="card-body" style="padding-top:12px">
+                        <p class="text-xs" style="color:var(--muted);line-height:1.55;margin:0 0 14px">
+                            When the site sends a refusal to a supervisor or
+                            contractor, it is listed here — including what they
+                            said back. If something here is wrong, tell the site
+                            office and quote the reference.
+                        </p>
+                        <div id="noticeList"></div>
+                    </div>
+                </section>
+
                 <section class="card mb-5">
                     <div class="card-head">
                         <span class="card-title"><i class="fas fa-id-badge"></i>Recent Gate Scans</span>
@@ -282,5 +299,52 @@
 
         refresh();
     </script>
+    <script>
+        // The worker's own copy. They cannot answer a notice from here —
+        // that is the recipient's to do — but they can see it exists.
+        (async function loadMyNotices() {
+            try {
+                const res = await Auth.fetch('/api/notices/me');
+                if (!res.ok) return;
+                const d = await res.json();
+                const list = d.notices || [];
+                if (!list.length) return;
+
+                const BADGE = {
+                    acknowledged: ['badge-ok', 'Accepted'],
+                    disputed:     ['badge-hazard', 'Disagreed'],
+                    overdue:      ['badge-danger', 'No reply yet'],
+                    opened:       ['badge-info', 'Opened'],
+                    issued:       ['badge-muted', 'Sent'],
+                    withdrawn:    ['badge-muted', 'Withdrawn'],
+                };
+                const fmt = iso => iso ? new Date(iso).toLocaleString(undefined,
+                    { dateStyle: 'medium' }) : '—';
+
+                const host = document.getElementById('noticeList');
+                host.innerHTML = list.map(n => {
+                    const [cls, label] = BADGE[n.status] || ['badge-muted', n.status];
+                    const to = n.recipient.organisation
+                        ? `${n.recipient.name} at ${n.recipient.organisation}`
+                        : n.recipient.name;
+                    return `<div style="padding:11px 0;border-top:1px solid var(--border)">
+                        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+                            <strong style="font-size:.88rem">${n.reference}</strong>
+                            <span class="badge ${cls}">${label}</span>
+                        </div>
+                        <div class="text-xs" style="color:var(--muted);margin-top:4px;line-height:1.5">
+                            ${n.refusals.length} refusal${n.refusals.length === 1 ? '' : 's'}
+                            · sent to ${to} on ${fmt(n.issued_at)}
+                        </div>
+                        ${n.corrective_action ? `<div class="text-xs"
+                            style="margin-top:4px;color:${n.status === 'disputed' ? 'var(--hazard)' : 'var(--ok)'}">
+                            “${n.corrective_action}”</div>` : ''}
+                    </div>`;
+                }).join('');
+                document.getElementById('noticeCard').hidden = false;
+            } catch (e) { /* the page is useful without this */ }
+        })();
+    </script>
+
 </body>
 </html>

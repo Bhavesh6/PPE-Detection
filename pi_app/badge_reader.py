@@ -148,7 +148,7 @@ class KeyboardReader(BadgeReader):
                 self.tags.put(tag)
 
 
-def open_reader(alerts=None, policy_provider=None) -> BadgeReader:
+def open_reader(alerts=None, policy_provider=None, readings=None) -> BadgeReader:
     """Return the best available reader.
 
     Order is serial → SPI → keyboard. The master ESP32 wins when it's
@@ -168,7 +168,8 @@ def open_reader(alerts=None, policy_provider=None) -> BadgeReader:
 
         if preference != "auto" or find_port():
             try:
-                return SerialBridgeReader(alerts=alerts, policy_provider=policy_provider)
+                return SerialBridgeReader(alerts=alerts, policy_provider=policy_provider,
+                                          readings=readings)
             except Exception as exc:  # noqa: BLE001 - no pyserial, no port, busy
                 if preference in ("serial", "esp32"):
                     raise SystemExit(f"Serial master unavailable: {exc}")

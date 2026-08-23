@@ -25,7 +25,7 @@ Configuration comes from the environment (a .env beside this file works too):
     SAFETYFIRST_INTERVAL    seconds between sends (default 0.5)
     SAFETYFIRST_READER      auto | mfrc522 | keyboard
     SAFETYFIRST_WINDOWED    set to 1 to disable fullscreen
-    SAFETYFIRST_GPS         off | auto | serial     (default off — no module yet)
+    SAFETYFIRST_GPS         auto | off | quectel | serial   (default auto — plug and play)
     SAFETYFIRST_GPS_PORT    serial port for the GPS module (default /dev/ttyUSB0)
     SAFETYFIRST_GPS_INTERVAL  seconds between location reports (default 20)
     SAFETYFIRST_QUEUE_FLUSH_INTERVAL  seconds between retrying queued attendance records (default 15)
@@ -55,7 +55,9 @@ from badge_reader import open_reader
 from alert_receiver import start_receiver
 from cctv_relay import open_relay
 from gps_reporter import open_gps
+from onnx_detector import open_detector
 from local_alerts import LocalAlerts
+from local_readings import LocalReadings
 from local_store import LocalStore
 from offline_queue import OfflineQueue
 from ui import CheckRow, Meter, ScreenToggle, Type, surface
@@ -75,6 +77,25 @@ PASSWORD = os.environ.get("SAFETYFIRST_PASSWORD", "")
 # comma-separated list, or a name fragment — so this is deliberately not
 # int()-ed here, where a name would raise at import and take the gate down.
 SEND_INTERVAL = float(os.environ.get("SAFETYFIRST_INTERVAL", "0.5"))
+
+# Where detection runs.
+#
+#   auto     (default) the backend decides, and the on-device model takes
+#            over whenever the backend cannot be reached. Needs
+#            SAFETYFIRST_ONNX_MODEL set, or there is nothing to fall back
+#            to and this behaves as "backend".
+#   backend  the backend only. A gate that cannot reach it stops deciding.
+#   local    on-device only. The network is never in the decision path.
+#
+# auto is the default because a construction site is where the link is
+# worst and the gate matters most. Inference on the server keeps the Pi
+# cheap; the local model is what stops a dropped tunnel from becoming a
+# checkpoint that shrugs at everyone who walks up to it.
+INFERENCE_MODE = (os.environ.get("SAFETYFIRST_INFERENCE") or "auto").strip().lower()
+
+# How long to keep deciding on-device after the backend misses, before
+# spending another frame's socket timeout finding out whether it is back.
+BACKEND_RETRY_SECONDS = float(os.environ.get("SAFETYFIRST_BACKEND_RETRY", "15"))
 WINDOWED = os.environ.get("SAFETYFIRST_WINDOWED", "") == "1"
 GPS_INTERVAL = float(os.environ.get("SAFETYFIRST_GPS_INTERVAL", "20"))
 # How often the local mirror refreshes while the cloud is reachable. Often
@@ -96,6 +117,15 @@ LOCAL_ALERT_TOKEN = os.environ.get("SAFETYFIRST_LOCAL_ALERT_TOKEN", "")
 # in a way a roster refresh is not.
 ALERT_REPLAY_INTERVAL = float(os.environ.get("SAFETYFIRST_ALERT_REPLAY_INTERVAL", "10"))
 QUEUE_FLUSH_INTERVAL = float(os.environ.get("SAFETYFIRST_QUEUE_FLUSH_INTERVAL", "15"))
+# Slower than the alert replay above: a backlog of readings is history,
+# and history can wait for the hazards to go first.
+READING_REPLAY_INTERVAL = float(os.environ.get("SAFETYFIRST_READING_REPLAY_INTERVAL", "30"))
+
+# The exact message lookup_badge returns when the backend could not be
+# reached at all, as opposed to reaching it and being told no. The
+# difference decides whether the cached roster may answer instead, so
+# it is a named constant rather than a string compared in two places.
+UNREACHABLE = "Cannot reach the API"
 
 REQUEST_TIMEOUT = 20
 
@@ -182,6 +212,32 @@ class ApiClient:
         self.base = base_url
         self.session = requests.Session()
         self.token = None
+        # Every call the gate makes goes through this session, so this is
+        # the one place that can notice the backend no longer accepting
+        # us. Dropping the token here is what lets signin_retry_loop get
+        # a new one; without it the gate presents a dead credential
+        # forever and quietly does nothing.
+        self.session.hooks["response"].append(self._forget_dead_session)
+
+    def _forget_dead_session(self, res, *args, **kwargs):
+        """Drop a token the backend has started refusing.
+
+        Seen for real: 254 consecutive frames came back 401 while the
+        gate reported itself healthy and signed in, and it only recovered
+        when someone restarted it by hand.
+
+        What triggered it is not established. The obvious suspect - the
+        backend restarting - has since been ruled out: two further
+        restarts produced no 401 at all, because JWT_SECRET_KEY is a
+        fixed literal and tokens outlive the process. So the cause is
+        still open, and that is rather the point of handling it here
+        instead of at whatever produced it: whatever makes the backend
+        stop accepting a session, the gate should notice and get a new
+        one rather than post rejected frames until a human intervenes.
+        """
+        if res.status_code == 401 and self.token:
+            self.token = None
+        return res
 
     def _headers(self):
         return {"Authorization": f"Bearer {self.token}"} if self.token else {}
@@ -250,7 +306,7 @@ class ApiClient:
                 return data["worker"], data.get("already_present_today", False), ""
             return None, False, data.get("message", "Badge not recognised")
         except requests.RequestException:
-            return None, False, "Cannot reach the API"
+            return None, False, UNREACHABLE
 
     def present_today(self) -> int:
         try:
@@ -261,6 +317,27 @@ class ApiClient:
             return res.json().get("present_count", 0) if res.ok else 0
         except requests.RequestException:
             return 0
+
+    def report_reading(self, kind: str, value: float, unit: str, source: str,
+                       taken_at: float | None = None) -> bool:
+        """Replay a buffered sensor reading. True only if the cloud took it.
+
+        taken_at is sent so a value recorded during an outage is filed at
+        the moment it was measured, not the moment the network returned —
+        otherwise a gas trend that climbed while offline appears to have
+        happened all at once on reconnection.
+        """
+        body = {"kind": kind, "value": value, "unit": unit, "source": source}
+        if taken_at is not None:
+            body["taken_at"] = taken_at
+        try:
+            res = self.session.post(
+                f"{self.base}/api/gate/sensors", json=body,
+                headers=self._headers(), timeout=10,
+            )
+            return bool(res.ok and (res.json() or {}).get("success"))
+        except (requests.RequestException, ValueError):
+            return False
 
     def report_alert(self, kind: str, severity: str, message: str, source: str) -> bool:
         """Replay a locally-raised alert. True only if the cloud stored it."""
@@ -413,7 +490,32 @@ def _open_camera(index: int):
     return cap
 
 
-def capture_loop(state: State, api: ApiClient) -> None:
+def rule_locally(detections: list, required: list, held: bool) -> tuple[str, list]:
+    """The gate's verdict, decided here rather than by the backend.
+
+    Deliberately the same rule as backend/detection.py's evaluate_access,
+    including the order of its checks: a hazard outranks PPE compliance,
+    because someone in full gear is still not safe to admit into a gas
+    leak, and an empty doorway is "no person" rather than a refusal so an
+    unattended gate doesn't log a stream of false violations.
+
+    Kept identical so a worker gets the same answer whichever path ruled
+    on them. Two rules that drift apart would produce a gate that decides
+    differently depending on whether the network happened to be up.
+    """
+    present = {d["type"] for d in detections if d.get("detected")}
+
+    if "Person" not in present:
+        return "no_person", []
+    if held:
+        return "alert_hold", []
+
+    missing = [item for item in required
+               if f"NO-{item}" in present or item not in present]
+    return ("denied" if missing else "granted"), missing
+
+
+def capture_loop(state: State, api: ApiClient, detector=None) -> None:
     """Camera at full rate for a live-looking feed; inference throttled.
 
     The camera is (re)opened from inside the loop rather than once at start,
@@ -428,6 +530,13 @@ def capture_loop(state: State, api: ApiClient) -> None:
     last_open_attempt = 0.0
     last_sent = 0.0
     active_index = None
+
+    # Failover state. After the backend misses, stop asking it for a while:
+    # send_frame() waits on a socket timeout, so retrying every frame would
+    # make an unreachable backend slower than no detection at all — the
+    # fallback has to be quick or it is not a fallback.
+    backend_resume_at = 0.0
+    source = "backend"
 
     while True:
         with state.lock:
@@ -487,12 +596,29 @@ def capture_loop(state: State, api: ApiClient) -> None:
         now = time.time()
         if checking and now - last_sent >= SEND_INTERVAL:
             last_sent = now
-            result = api.send_frame(frame)
+
             with state.lock:
-                if result is None:
-                    state.connected = False
-                    state.message = "Lost contact with the detection service"
-                else:
+                required = list(state.required)
+                held = state.active_alert is not None
+
+            can_fall_back = detector is not None and INFERENCE_MODE != "backend"
+            pinned_local = detector is not None and INFERENCE_MODE == "local"
+
+            # Ask the backend unless we are pinned on-device or still
+            # waiting out a recent failure.
+            result = None
+            if not pinned_local and now >= backend_resume_at:
+                result = api.send_frame(frame)
+                if result is None and can_fall_back:
+                    backend_resume_at = now + BACKEND_RETRY_SECONDS
+
+            if result is not None:
+                if source != "backend":
+                    print("[inference] backend is answering again — "
+                          "detection back on the server", file=sys.stderr)
+                    source = "backend"
+                    backend_resume_at = 0.0
+                with state.lock:
                     state.connected = True
                     state.message = ""
                     state.detections = result.get("detections", [])
@@ -500,6 +626,35 @@ def capture_loop(state: State, api: ApiClient) -> None:
                     state.missing = result.get("missing_ppe", [])
                     if result.get("required_ppe"):
                         state.required = result["required_ppe"]
+                continue
+
+            if can_fall_back:
+                # On-device inference: no network in the decision path at
+                # all. This is the whole point of keeping a model on the
+                # gate — a checkpoint that stops deciding when the office
+                # link drops is a checkpoint that fails exactly when a
+                # site is worst connected.
+                if source != "local" and not pinned_local:
+                    print("[inference] backend unreachable — detecting "
+                          "on-device until it returns", file=sys.stderr)
+                    source = "local"
+                detections = detector.detect(frame)
+                verdict, missing = rule_locally(detections, required, held)
+                with state.lock:
+                    state.detections = detections
+                    state.verdict = verdict
+                    state.missing = missing
+                    if not pinned_local:
+                        # connected means "can we reach the backend", which
+                        # is genuinely false — say so, but do not claim the
+                        # gate has stopped deciding, because it has not.
+                        state.connected = False
+                        state.message = "Offline — detecting on this device"
+                continue
+
+            with state.lock:
+                state.connected = False
+                state.message = "Lost contact with the detection service"
 
     if cap is not None:
         cap.release()
@@ -542,6 +697,25 @@ def queue_flush_loop(state: State, api: ApiClient, queue: OfflineQueue) -> None:
         time.sleep(QUEUE_FLUSH_INTERVAL)
 
 
+def reading_replay_loop(state: State, api: ApiClient, readings) -> None:
+    """Push buffered sensor readings to the cloud once it is reachable.
+
+    Lower priority than alert_replay_loop and deliberately so: an unseen
+    hazard is time-critical, a temperature history is not. This also stops
+    at the first failure in a cycle — if the oldest reading cannot get
+    through the network is still down, and the rest will not fare better.
+    """
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+        for row_id, kind, value, unit, source, taken_at in readings.pending():
+            if not api.report_reading(kind, value, unit, source, taken_at):
+                break
+            readings.mark_synced(row_id)
+        time.sleep(READING_REPLAY_INTERVAL)
+
+
 def alert_replay_loop(state: State, api: ApiClient, local_alerts) -> None:
     """Push locally-raised alerts to the cloud once it is reachable.
 
@@ -566,17 +740,27 @@ def alert_replay_loop(state: State, api: ApiClient, local_alerts) -> None:
 
 
 def signin_retry_loop(state: State, api: ApiClient) -> None:
-    """Keep trying to sign in after booting without a backend.
+    """Keep the gate's session alive, not merely get it started.
 
-    Only runs when the gate started offline. Without it, a Pi that rebooted
-    during an outage would stay unauthenticated until someone noticed and
-    restarted it by hand — which is the same failure as refusing to boot,
-    just deferred.
+    This used to run only when the gate booted offline, and to return the
+    moment it succeeded. That covered a Pi rebooting during an outage but
+    missed the commoner case: a session the backend later stops accepting,
+    because it was redeployed or the token simply expired. Nothing renewed
+    it, so the gate carried on presenting a dead credential — badges,
+    frames and readings all refused — until a human restarted it.
+
+    Now it runs for the life of the gate and signs in again whenever the
+    token goes (see ApiClient._forget_dead_session).
     """
     while True:
         with state.lock:
             if not state.running:
                 break
+
+        if api.token:
+            # Still holding a session the backend accepts.
+            time.sleep(SIGNIN_RETRY_INTERVAL)
+            continue
 
         ok, detail, reachable = api.sign_in()
         if ok:
@@ -587,7 +771,8 @@ def signin_retry_loop(state: State, api: ApiClient) -> None:
                 if state.message == OFFLINE_MESSAGE:
                     state.message = ""
             print(f"Signed in as {detail}")
-            return
+            time.sleep(SIGNIN_RETRY_INTERVAL)
+            continue
 
         if reachable:
             # Reachable but refusing us: waiting cannot fix a bad credential,
@@ -600,10 +785,11 @@ def signin_retry_loop(state: State, api: ApiClient) -> None:
 def roster_sync_loop(state: State, api: ApiClient, store) -> None:
     """Keep the local mirror fresh while the cloud is reachable.
 
-    Nothing reads this cache yet — it is filled now so that when failover
-    lands it has something to fail over *to*. A cache first populated at the
-    moment the network dies is useless, which is the whole reason this runs
-    on a timer during normal operation rather than on demand.
+    The gate now reads this cache: badge lookup falls back to it when the
+    backend is unreachable, and the checkpoint policy is taken from it at
+    startup. A cache first populated at the moment the network dies is
+    useless, which is why this runs on a timer during normal operation
+    rather than on demand.
 
     Failures are silent by design: a sync that can't reach the cloud is the
     ordinary case this feature exists for, not an error worth putting on a
@@ -618,8 +804,14 @@ def roster_sync_loop(state: State, api: ApiClient, store) -> None:
         if payload is not None:
             try:
                 count = store.replace_all(payload)
+                policy_required = (payload.get("policy") or {}).get("required_ppe")
                 with state.lock:
                     state.cache_ready = True
+                    # So a policy change reaches an offline-capable
+                    # gate on the next sync rather than the next
+                    # frame the backend happens to rule on.
+                    if policy_required:
+                        state.required = list(policy_required)
                 print(f"[sync] cached {count} workers")
             except (sqlite3.Error, KeyError, TypeError) as exc:
                 # A malformed payload must not kill the thread — the old
@@ -647,7 +839,7 @@ def gps_loop(state: State, api: ApiClient, gps) -> None:
         time.sleep(GPS_INTERVAL)
 
 
-def badge_loop(state: State, api: ApiClient, reader, local_alerts) -> None:
+def badge_loop(state: State, api: ApiClient, reader, local_alerts, store=None) -> None:
     """Turn badge scans into gate sessions."""
     while True:
         with state.lock:
@@ -682,6 +874,23 @@ def badge_loop(state: State, api: ApiClient, reader, local_alerts) -> None:
         # A scan while a decision is on screen clears it and starts the next
         # person — the queue shouldn't wait out a timer.
         worker, already, error = api.lookup_badge(tag)
+
+        # Fall back to the cached roster when the backend is unreachable.
+        # local_store has been filling this mirror since it was written and
+        # nothing had ever read from it — so a gate with no network could
+        # read a badge perfectly and still not know whose it was.
+        #
+        # Only on an unreachable backend, never on a rejection. A backend
+        # that answered "badge not recognised" has consulted the real
+        # roster, and second-guessing that from a stale copy is how a
+        # revoked badge keeps working after someone revoked it.
+        if worker is None and error == UNREACHABLE and store is not None:
+            cached, cached_present = store.worker_by_tag(tag)
+            if cached is not None and store.is_usable():
+                worker, already = cached, cached_present
+                error = ""
+                print(f"[badge] {tag} resolved from the local cache ({store.summary()})")
+
         with state.lock:
             if worker is None:
                 state.banner = error or "Badge not recognised"
@@ -1201,7 +1410,51 @@ class CheckpointApp:
         self.root.after(120, self.root.destroy)
 
 
+# Held open for the life of the process. Module scope on purpose: a local
+# would be garbage collected, and closing the file drops the lock with it.
+_instance_lock = None
+
+
+def claim_single_instance() -> bool:
+    """True if this process may run, False if a gate is already up.
+
+    The guard lives here rather than in launch.sh because a lock held by
+    the launcher protects only against other launcher runs. The desktop
+    icon, a terminal, a systemd unit and an ssh session all start
+    checkpoint.py directly, and on this gate two copies did end up running
+    at once — fighting over the master's serial port and logging
+    "master disconnected" at each other while badges went unread. The
+    lock has to belong to the thing that must be unique.
+
+    flock is released by the kernel when the process ends however it ends,
+    so a killed or crashed gate leaves nothing to clean up. A stale lock
+    file is not a stale lock.
+    """
+    global _instance_lock
+    try:
+        import fcntl  # Unix only; a Windows dev box simply has no guard
+    except ImportError:
+        return True
+
+    handle = open(Path(__file__).with_name(".checkpoint.lock"), "w")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return False
+
+    handle.write(str(os.getpid()))
+    handle.flush()
+    _instance_lock = handle
+    return True
+
+
 def main() -> int:
+    if not claim_single_instance():
+        print("SafetyFirst is already running on this device. Close that "
+              "window before starting it again.", file=sys.stderr)
+        return 1
+
     state = State()
     api = ApiClient(API_BASE)
 
@@ -1241,9 +1494,43 @@ def main() -> int:
     store = LocalStore()
     print(f"Local cache: {store.summary()}")
 
-    reader = open_reader(alerts=local_alerts, policy_provider=store.policy)
+    readings = LocalReadings()
+    print(f"Sensor buffer: {readings.summary()}")
+
+    # Adopt the cached policy before the first badge, not after the
+    # first successful sync. A gate that boots with no network was
+    # otherwise ruling against the hardcoded default rather than the
+    # site's actual policy — so an admin who added "Mask" to the
+    # requirements would have had it quietly ignored, and the gate
+    # would grant entry to someone it should have turned away.
+    cached_required = (store.policy() or {}).get("required_ppe")
+    if cached_required:
+        state.required = list(cached_required)
+        print(f"Checkpoint policy (cached): {', '.join(state.required)}")
+
+    reader = open_reader(alerts=local_alerts, policy_provider=store.policy,
+                         readings=readings)
     print(f"Badge reader: {reader.name}")
     reader.start()
+
+    # Where the PPE decision gets made. On-device keeps the gate ruling
+    # with the network completely down, which the backend path cannot —
+    # and unlike the AI HAT it needs nothing that isn't already installed.
+    detector = open_detector()
+    # Say which arrangement is in force, not just which model loaded. The
+    # difference between "the backend decides" and "the backend decides and
+    # this device takes over if it cannot" is the whole resilience story,
+    # and it should be legible in the first ten lines of a log.
+    if detector is None:
+        print("Inference: backend only (no on-device model configured — "
+              "set SAFETYFIRST_ONNX_MODEL for offline fallback)")
+    elif INFERENCE_MODE == "local":
+        print(f"Inference: on-device only — {detector.name}")
+    elif INFERENCE_MODE == "backend":
+        print(f"Inference: backend only — {detector.name} loaded but pinned off")
+    else:
+        print(f"Inference: backend, falling back to {detector.name} "
+              f"if it cannot be reached (retry every {BACKEND_RETRY_SECONDS:.0f}s)")
 
     gps = open_gps()
     print(f"GPS: {gps.name}")
@@ -1277,14 +1564,16 @@ def main() -> int:
     else:
         print("Local alert receiver: off (set SAFETYFIRST_LOCAL_ALERT_TOKEN to enable)")
 
-    threading.Thread(target=capture_loop, args=(state, api), daemon=True).start()
-    threading.Thread(target=badge_loop, args=(state, api, reader, local_alerts), daemon=True).start()
+    threading.Thread(target=capture_loop, args=(state, api, detector), daemon=True).start()
+    threading.Thread(target=badge_loop, args=(state, api, reader, local_alerts, store), daemon=True).start()
     threading.Thread(target=alert_replay_loop, args=(state, api, local_alerts), daemon=True).start()
+    threading.Thread(target=reading_replay_loop, args=(state, api, readings), daemon=True).start()
     threading.Thread(target=gps_loop, args=(state, api, gps), daemon=True).start()
     threading.Thread(target=queue_flush_loop, args=(state, api, queue), daemon=True).start()
     threading.Thread(target=roster_sync_loop, args=(state, api, store), daemon=True).start()
-    if not state.signed_in:
-        threading.Thread(target=signin_retry_loop, args=(state, api), daemon=True).start()
+    # Always, not just when the gate booted offline: this loop now also
+    # renews a session the backend has stopped accepting.
+    threading.Thread(target=signin_retry_loop, args=(state, api), daemon=True).start()
 
     root = tk.Tk()
     CheckpointApp(root, state, api, queue)

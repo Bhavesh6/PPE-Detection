@@ -24,16 +24,28 @@ LOCATION_CHANGED = "location.changed"
 ALERT_ACKNOWLEDGED = "alert.acknowledged"
 
 
-def record(action, summary, detail=None, actor=None):
-    """Append one audit entry. Returns True if it was written."""
+def record(action, summary, detail=None, actor=None, actor_name=None):
+    """Append one audit entry. Returns True if it was written.
+
+    actor_name is for somebody who acted but holds no account here — a
+    contractor acknowledging a safety notice, say. Naming them skips the
+    JWT lookup entirely, which matters: on a route with no token,
+    get_jwt_identity() raises rather than returning None, and the entry
+    that mattered most would be the one silently lost.
+    """
     try:
-        if actor is None:
-            identity = get_jwt_identity()
+        if actor is None and actor_name is None:
+            try:
+                identity = get_jwt_identity()
+            except RuntimeError:
+                # No JWT verified on this request. Not an error here: some
+                # callers legitimately act outside a session.
+                identity = None
             actor = db.session.get(User, int(identity)) if identity else None
 
         event = AuditEvent(
             actor_id=actor.id if actor else None,
-            actor_name=actor.name if actor else "Unknown",
+            actor_name=(actor.name if actor else (actor_name or "Unknown"))[:120],
             action=action,
             summary=summary[:255],
             detail_json=json.dumps(detail) if detail is not None else None,

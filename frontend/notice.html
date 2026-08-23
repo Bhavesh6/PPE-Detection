@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Safety Notice — SafetyFirst</title>
+    <!-- A link sent to a contractor should not turn up in search results. -->
+    <meta name="robots" content="noindex, nofollow">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/app.css?v=20260807a">
+
+    <style>
+        /* The recipient is not a user of this system and may never see it
+           again. So: no navigation, no account, nothing to learn — one
+           document that explains itself and one thing to do at the end. */
+
+        body {
+            background: var(--bg);
+            color: var(--ink);
+            font-family: var(--font-body);
+            margin: 0;
+        }
+
+        .sheet {
+            width: min(680px, calc(100% - 40px));
+            margin: clamp(28px, 6vw, 64px) auto clamp(48px, 8vw, 88px);
+        }
+
+        .issuer {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .issuer b {
+            font-family: var(--font-head);
+            font-weight: 600;
+            font-size: 1.05rem;
+        }
+
+        .ref {
+            font-size: .82rem;
+            color: var(--muted);
+            letter-spacing: .04em;
+        }
+
+        h1 {
+            font-family: var(--font-head);
+            font-weight: 600;
+            font-size: clamp(1.8rem, 4.4vw, 2.5rem);
+            line-height: 1.12;
+            letter-spacing: -0.03em;
+            margin: 28px 0 0;
+            text-wrap: balance;
+        }
+
+        .who {
+            margin: 14px 0 0;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .who strong { color: var(--ink); font-weight: 600; }
+
+        .message {
+            margin: 26px 0 0;
+            padding: 18px 20px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            line-height: 1.62;
+        }
+
+        h2 {
+            font-family: var(--font-body);
+            font-size: .78rem;
+            font-weight: 700;
+            letter-spacing: .09em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin: clamp(34px, 5vw, 48px) 0 14px;
+        }
+
+        /* -- the cited refusals ---------------------------------------- */
+
+        .refusal {
+            padding: 18px 0;
+            border-top: 1px solid var(--border);
+            display: grid;
+            gap: 16px;
+            grid-template-columns: 1fr;
+        }
+
+        @media (min-width: 560px) {
+            .refusal { grid-template-columns: 168px 1fr; align-items: start; }
+        }
+
+        .refusal img {
+            display: block;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            object-fit: cover;
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+            background: var(--surface-alt);
+        }
+
+        .noshot {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            aspect-ratio: 4 / 3;
+            border-radius: var(--radius);
+            border: 1px dashed var(--border-firm);
+            background: var(--surface-alt);
+            color: var(--faint);
+            font-size: .8rem;
+            padding: 10px;
+        }
+
+        .when { font-weight: 600; font-size: .95rem; margin: 0 0 8px; }
+
+        .missing {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin: 0 0 10px;
+            padding: 0;
+            list-style: none;
+        }
+
+        .rule {
+            margin: 0;
+            font-size: .86rem;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        /* -- the response ---------------------------------------------- */
+
+        .respond {
+            margin-top: clamp(34px, 5vw, 48px);
+            padding: clamp(20px, 3vw, 28px);
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .respond h2 { margin-top: 0; }
+
+        label {
+            display: block;
+            font-size: .88rem;
+            font-weight: 600;
+            margin: 16px 0 6px;
+        }
+
+        label span { font-weight: 400; color: var(--muted); }
+
+        input, textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 11px 13px;
+            font: inherit;
+            font-size: .95rem;
+            color: var(--ink);
+            background: var(--bg);
+            border: 1px solid var(--border-firm);
+            border-radius: var(--radius);
+            transition: border-color var(--dur-fast) var(--ease-out);
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-soft);
+        }
+
+        textarea { min-height: 96px; resize: vertical; line-height: 1.55; }
+
+        .respond .btn { margin-top: 20px; }
+
+        .hint {
+            margin: 10px 0 0;
+            font-size: .84rem;
+            color: var(--muted);
+            line-height: 1.55;
+        }
+
+        .done {
+            margin-top: clamp(34px, 5vw, 48px);
+            padding: clamp(20px, 3vw, 28px);
+            background: var(--ok-soft);
+            border: 1px solid var(--ok);
+            border-radius: var(--radius-md);
+        }
+
+        .done h2 { color: var(--ok); margin-top: 0; }
+        .done p { margin: 0 0 6px; line-height: 1.6; }
+
+        .state {
+            padding: 60px 0;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        footer {
+            margin-top: 40px;
+            padding-top: 18px;
+            border-top: 1px solid var(--border);
+            font-size: .82rem;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body>
+
+<main class="sheet">
+
+    <div id="loading" class="state">Opening this notice…</div>
+
+    <div id="gone" class="state" hidden>
+        <p><strong>This notice is not available.</strong></p>
+        <p>The link may have expired, or it may have been mistyped.<br>
+           Ask whoever sent it to issue a new one.</p>
+    </div>
+
+    <article id="doc" hidden>
+        <header class="issuer">
+            <b>SafetyFirst</b>
+            <span class="ref" id="ref"></span>
+        </header>
+
+        <h1 id="headline"></h1>
+        <p class="who" id="who"></p>
+
+        <p class="message" id="message" hidden></p>
+
+        <h2>What was refused</h2>
+        <div id="refusals"></div>
+
+        <!-- Response form, or the record of the response already given. -->
+        <section class="respond" id="respond" hidden>
+            <h2>Your response</h2>
+            <p class="hint" id="dueLine"></p>
+
+            <label for="name">Your name</label>
+            <input id="name" type="text" autocomplete="name" maxlength="120"
+                   placeholder="Who is confirming this">
+
+            <label for="action">What you have done about it
+                <span>— optional</span></label>
+            <textarea id="action" maxlength="2000"
+                      placeholder="e.g. Vests issued to the crew, toolbox talk held Monday."></textarea>
+
+            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:20px">
+                <button class="btn btn-primary" id="ackBtn" type="button">
+                    Confirm and accept
+                </button>
+                <button class="btn btn-outline" id="disputeBtn" type="button">
+                    I disagree with this
+                </button>
+            </div>
+            <!-- Announced, because the form is replaced on success and the
+                 error appears without moving focus. -->
+            <p class="hint" id="formError" role="alert" aria-live="assertive" hidden></p>
+            <p class="hint">
+                Either answer records your name and the time against this
+                notice, and can only be given once. If you disagree, say why
+                — a refusal can be wrong, and somebody needs to look at it.
+            </p>
+        </section>
+
+        <section class="done" id="done" hidden>
+            <h2>Acknowledged</h2>
+            <p id="doneBy"></p>
+            <p id="doneAction"></p>
+        </section>
+
+        <footer>
+            Sent by the SafetyFirst checkpoint on behalf of the site.
+            Quote <span id="refFoot"></span> if you need to discuss it.
+        </footer>
+    </article>
+
+</main>
+
+<script>
+    const token = new URLSearchParams(location.search).get('t') || '';
+    const el = id => document.getElementById(id);
+    const fmt = iso => iso ? new Date(iso).toLocaleString(undefined, {
+        dateStyle: 'medium', timeStyle: 'short'
+    }) : '';
+
+    function show(which) {
+        ['loading', 'gone', 'doc'].forEach(id => el(id).hidden = id !== which);
+    }
+
+    function renderRefusals(list) {
+        const host = el('refusals');
+        host.innerHTML = '';
+        list.forEach(r => {
+            const row = document.createElement('div');
+            row.className = 'refusal';
+
+            // The image is the persuasive part, so it leads — but a purged
+            // one must say so rather than leaving a broken frame.
+            const shot = r.available && r.has_evidence
+                ? `<img src="/api/notice/${encodeURIComponent(token)}/evidence/${r.detection_id}"
+                        alt="The frame recorded at this refusal" loading="lazy">`
+                : `<div class="noshot">No image kept for this one</div>`;
+
+            const missing = (r.missing_ppe || []).map(
+                p => `<li><span class="badge badge-danger">${p}</span></li>`).join('');
+
+            const required = r.policy && r.policy.required_ppe
+                ? r.policy.required_ppe.join(', ') : null;
+
+            row.innerHTML = `
+                ${shot}
+                <div>
+                    <p class="when">${r.available ? fmt(r.timestamp) : 'Record no longer held'}</p>
+                    <ul class="missing">${missing}</ul>
+                    ${required ? `<p class="rule">The site required ${required} at that moment.</p>` : ''}
+                </div>`;
+            host.appendChild(row);
+        });
+    }
+
+    function render(n) {
+        el('ref').textContent = n.reference;
+        el('refFoot').textContent = n.reference;
+
+        const count = n.refusals.length;
+        el('headline').textContent = count === 1
+            ? `${n.subject.name} was refused entry`
+            : `${n.subject.name} was refused entry ${count} times`;
+
+        const role = n.subject.role ? `, ${n.subject.role}` : '';
+        const emp = n.subject.employee_id ? ` (${n.subject.employee_id})` : '';
+        el('who').innerHTML =
+            `Sent to <strong>${n.recipient.name}</strong>` +
+            (n.recipient.organisation ? ` at <strong>${n.recipient.organisation}</strong>` : '') +
+            ` about <strong>${n.subject.name}</strong>${emp}${role}.<br>` +
+            `Issued ${fmt(n.issued_at)} by ${n.issued_by}.`;
+
+        if (n.message) { el('message').textContent = n.message; el('message').hidden = false; }
+
+        renderRefusals(n.refusals);
+
+        if (n.status === 'acknowledged' || n.status === 'disputed') {
+            const disputed = n.status === 'disputed';
+            const box = el('done');
+            box.hidden = false;
+            if (disputed) {
+                box.style.background = 'var(--hazard-soft)';
+                box.style.borderColor = 'var(--hazard)';
+                box.querySelector('h2').textContent = 'Disagreement recorded';
+                box.querySelector('h2').style.color = 'var(--hazard)';
+            }
+            el('doneBy').textContent = disputed
+                ? `${n.acknowledged_by} disagreed with this on ${fmt(n.acknowledged_at)}. `
+                  + `The site has been told and will look at it.`
+                : `${n.acknowledged_by} confirmed this on ${fmt(n.acknowledged_at)}.`;
+            el('doneAction').textContent = n.corrective_action || '';
+            el('doneAction').hidden = !n.corrective_action;
+        } else {
+            el('respond').hidden = false;
+            el('dueLine').textContent = n.due_at
+                ? `A response is expected by ${fmt(n.due_at)}.`
+                : '';
+        }
+        show('doc');
+    }
+
+    async function load() {
+        if (!token) { show('gone'); return; }
+        try {
+            const res = await fetch(`/api/notice/${encodeURIComponent(token)}`);
+            const data = await res.json();
+            if (!res.ok || !data.success) { show('gone'); return; }
+            render(data.notice);
+        } catch (e) {
+            show('gone');
+        }
+    }
+
+    async function respond(outcome) {
+        const btn = outcome === 'disputed' ? el('disputeBtn') : el('ackBtn');
+        const other = outcome === 'disputed' ? el('ackBtn') : el('disputeBtn');
+        const label = btn.textContent;
+        const err = el('formError');
+        err.hidden = true;
+        btn.disabled = other.disabled = true;
+        btn.textContent = 'Sending…';
+        try {
+            const res = await fetch(`/api/notice/${encodeURIComponent(token)}/acknowledge`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: el('name').value,
+                    corrective_action: el('action').value,
+                    outcome: outcome,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                err.textContent = data.message || 'That did not go through. Please try again.';
+                err.hidden = false;
+                btn.disabled = other.disabled = false;
+                btn.textContent = label;
+                return;
+            }
+            el('respond').hidden = true;
+            render(data.notice);
+        } catch (e) {
+            err.textContent = 'No connection. Please try again.';
+            err.hidden = false;
+            btn.disabled = other.disabled = false;
+            btn.textContent = label;
+        }
+    }
+
+    el('ackBtn').addEventListener('click', () => respond('accepted'));
+    el('disputeBtn').addEventListener('click', () => respond('disputed'));
+
+    load();
+</script>
+
+</body>
+</html>

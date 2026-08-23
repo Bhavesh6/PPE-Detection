@@ -80,6 +80,42 @@ def check_secrets():
     )
 
 
+def check_deployment():
+    """Warn about settings that are wrong specifically once hosted.
+
+    Warnings rather than refusals: unlike a default signing key, none of
+    these let anyone in. They break the app for the people who are
+    supposed to be using it, which is quieter and therefore easier to
+    deploy without noticing.
+    """
+    if not _looks_deployed():
+        return
+
+    notes = []
+    if int(os.environ.get("TRUSTED_PROXY_HOPS", "0")) == 0:
+        notes.append(
+            "TRUSTED_PROXY_HOPS is 0, but every managed host puts a proxy in "
+            "front of this app. Every request therefore arrives from the same "
+            "address, so the rate limiter counts the whole internet as one "
+            "caller and legitimate users lock each other out - the public "
+            "notice pages first, since the limiter is their only protection. "
+            "Set it to the number of proxies in front of this app (1 on "
+            "Render, Hugging Face Spaces, Fly, or behind a single nginx). Do "
+            "not set it higher than the real count: each extra hop is one "
+            "more address a caller can forge."
+        )
+    if not os.environ.get("PUBLIC_BASE_URL", "").strip():
+        notes.append(
+            "PUBLIC_BASE_URL is unset, so safety notices cannot be emailed - "
+            "a relative link is useless in an inbox. The console still hands "
+            "officers the link to send by hand. Set it to this service's "
+            "public origin to enable sending."
+        )
+
+    for note in notes:
+        print("WARNING: " + note, flush=True)
+
+
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", DEV_SECRET_KEY)
 
@@ -116,12 +152,61 @@ class Config:
     # itself is kept; only the image expires.
     EVIDENCE_RETENTION_DAYS = int(os.environ.get("EVIDENCE_RETENTION_DAYS", "30"))
 
+    # Number of reverse proxies in front of this app whose X-Forwarded-For
+    # can be believed. Zero by default, and that default is the safe one:
+    # trusting the header when nothing sets it lets any caller name
+    # themselves whatever they like and walk straight through the rate
+    # limits meant to hold them.
+    #
+    # It matters most for the notice routes, which are the only ones with
+    # no login behind them - there, the limiter is the whole defence.
+    # Behind one proxy (a Cloudflare tunnel, a single nginx) this is 1;
+    # measured with it at 0, twenty-four callers on distinct addresses
+    # shared a single bucket and locked each other out.
+    TRUSTED_PROXY_HOPS = int(os.environ.get("TRUSTED_PROXY_HOPS", "0"))
+
+    # Where this deployment answers from, used to build the absolute link
+    # in a notice email. A relative path is fine in a page the browser
+    # already loaded and useless in an inbox, so without this the server
+    # cannot compose an email worth sending and says so rather than
+    # sending a broken one.
+    PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+
+    # Outbound mail. All blank by default, in which case notices are still
+    # issued and the console hands the officer the link to send themselves
+    # - a site without a mail server should not lose the feature, only the
+    # automation.
+    SMTP_HOST = os.environ.get("SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USER = os.environ.get("SMTP_USER", "")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+    SMTP_FROM = os.environ.get("SMTP_FROM", "")
+    SMTP_STARTTLS = os.environ.get("SMTP_STARTTLS", "1") not in ("0", "false", "False")
+
     # Comma-separated list of allowed frontend origins for CORS.
     CORS_ORIGINS = [
         origin.strip()
         for origin in os.environ.get("CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000").split(",")
         if origin.strip()
     ]
+
+    # Emails that get administrator rights, comma separated.
+    #
+    # Admin used to be grantable only by make_admin.py, which needs a shell
+    # inside the deployment. A managed host does not give you one, so a
+    # freshly deployed site had no route to its own console: the first
+    # person signed up, got an ordinary account, and nothing could ever
+    # promote it. This is the bootstrap - it names who is trusted before
+    # anyone has signed up, which is the only order that works remotely.
+    #
+    # Matching is on the verified account email, and being listed is
+    # checked at sign-up and at every start, so the order of "set the
+    # variable" and "create the account" does not matter.
+    ADMIN_EMAILS = {
+        email.strip().lower()
+        for email in os.environ.get("ADMIN_EMAILS", "").split(",")
+        if email.strip()
+    }
 
     # Base URL of the site CCTV camera (esp32-main/cctv_cam), e.g.
     # http://safetyfirst-cam.local or http://192.168.1.50 — no trailing

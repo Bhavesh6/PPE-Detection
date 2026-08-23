@@ -25,3 +25,13 @@
 // orientation varies even between boards of the same type.
 #define CAM_VFLIP   1
 #define CAM_HMIRROR 1
+
+// No CAM_FRAMESIZE or CAM_QUALITY here, deliberately. Both belong to the
+// hardware-JPEG path, and this sensor never reaches it: the sketch tries
+// JPEG, is refused at init, and re-initialises as RGB565 at QVGA with a
+// buffer sized to match. Setting them here would read as configuration
+// that does something, and it would not.
+//
+// /control?var=framesize is capped at QVGA on this board for the same
+// reason - the buffer was allocated for QVGA, so a larger frame would be
+// written past the end of it.

@@ -6,13 +6,39 @@ from flask_cors import CORS
 
 load_dotenv()
 
-from config import Config, check_secrets
+from config import Config, check_deployment, check_secrets
 from extensions import db, jwt, limiter
 
 # At import, not inside __main__: production runs under gunicorn, which
 # imports this module and never executes that block — so a check placed
 # there would pass silently in the one environment it exists to protect.
 check_secrets()
+check_deployment()
+
+
+def _promote_configured_admins(app):
+    """Give ADMIN_EMAILS accounts admin rights at every start.
+
+    Runs on boot as well as at sign-up so the two can happen in either
+    order: set the variable and then sign up, or sign up and then set the
+    variable and restart. Only ever promotes - it never demotes an admin
+    who was granted rights some other way, because a typo in an
+    environment variable should not lock a site out of its own console.
+    """
+    from models import User
+
+    wanted = app.config.get("ADMIN_EMAILS") or set()
+    if not wanted:
+        return
+
+    promoted = []
+    for user in User.query.filter(User.is_admin.is_(False)).all():
+        if (user.email or "").strip().lower() in wanted:
+            user.is_admin = True
+            promoted.append(user.email)
+    if promoted:
+        db.session.commit()
+        print("Granted admin to: " + ", ".join(promoted), flush=True)
 
 
 def _add_missing_columns():
@@ -32,6 +58,11 @@ def _add_missing_columns():
             "policy_json": "TEXT",
             "evidence_file": "VARCHAR(120)",
         },
+        "safety_notices": {
+            "revoked_at": "DATETIME",
+            "outcome": "VARCHAR(16)",
+        },
+        # notice_deliveries is a new table, so create_all() handles it.
     }
 
     inspector = inspect(db.engine)
@@ -62,21 +93,34 @@ def create_app():
     limiter.init_app(app)
     CORS(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}}, supports_credentials=True)
 
+    # Only when a deployment says how many proxies sit in front of it.
+    # Without this the limiter sees the proxy's address for every caller,
+    # so one recipient refreshing their notice exhausts the allowance of
+    # everyone else's.
+    hops = app.config.get("TRUSTED_PROXY_HOPS", 0)
+    if hops > 0:
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops,
+                                x_host=hops, x_prefix=hops)
+
     from admin import admin_bp
     from auth import auth_bp
     from cctv import cctv_bp
     from detection import detection_bp
     from gate import gate_bp
+    from notices import notices_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(detection_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(gate_bp)
     app.register_blueprint(cctv_bp)
+    app.register_blueprint(notices_bp)
 
     with app.app_context():
         db.create_all()
         _add_missing_columns()
+        _promote_configured_admins(app)
 
     # Serve the console from the API when they are deployed together.
     #

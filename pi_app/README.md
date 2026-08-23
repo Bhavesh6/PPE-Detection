@@ -52,16 +52,37 @@ Wiring (BCM): `SDA→GPIO8(CE0)  SCK→GPIO11  MOSI→GPIO10  MISO→GPIO9  RST�
 
 ### GPS module (optional, not required to run the gate)
 
-Off by default — the checkpoint's location is whatever an admin sets by
-hand in the console's **Site Location** page. If an NMEA GPS module (e.g. a
-NEO-6M) is wired up over serial:
+Plug it in — there is nothing to configure. The Quectel TracX-1b this project
+owns is found by its USB vendor id and switched on automatically. With no
+module attached the checkpoint's location stays whatever an admin set by hand
+in the console's **Site Location** page.
+
+A plain NMEA module (a NEO-6M and friends) needs one extra package and an
+explicit port, because nothing in USB descriptors distinguishes one of those
+from any other serial device:
 
 ```bash
-pip install pyserial pynmea2
+pip install pynmea2
 ```
 
-then set in `.env`: `SAFETYFIRST_GPS=auto` and `SAFETYFIRST_GPS_PORT` to the
-module's serial port (default `/dev/ttyUSB0`). See `gps_reporter.py`.
+then set `SAFETYFIRST_GPS_PORT` in `.env`. `SAFETYFIRST_GPS=off` disables
+location entirely. See `gps_reporter.py`.
+
+### How USB devices are found
+
+The gate master ESP32 and the GNSS modem are both identified rather than
+guessed at. The Pi lists USB serial ports, filters them by vendor id, and
+then asks each remaining candidate who it is before trusting it — the master
+answers `ID?` with its own name. Once found, a board is remembered by USB
+serial number, so moving it to a different socket does not lose it.
+
+This matters more than it sounds. The modem presents **seven** serial
+interfaces. Taking "the first `/dev/ttyUSB*`" hands the gate one of those
+instead of the master, and badge scanning stops working the moment location
+is plugged in — with nothing in the logs to say why.
+
+Nothing to set for any of this. `SAFETYFIRST_SERIAL_PORT` still pins a
+specific port if you ever need to override the search. See `usb_devices.py`.
 
 ## Configure
 
@@ -104,7 +125,43 @@ Press **Esc** or **q** to exit.
 While developing on a laptop, `SAFETYFIRST_WINDOWED=1` runs it in a normal
 window instead of taking over the screen.
 
+## Home screen icon
+
+A gate is an appliance, so it can be opened like one — a hard-hat icon on the
+Pi's desktop, no terminal and no command to remember:
+
+```bash
+cd pi_app
+./install_launcher.sh
+```
+
+That adds the icon to the desktop and to the applications menu. Two variants:
+
+```bash
+./install_launcher.sh --autostart   # also open it at login, restarting on crash
+./install_launcher.sh --remove      # take all of it back off
+```
+
+Run it as the desktop user, **not** with sudo — everything lands under `$HOME`,
+and a sudo run installs the icon into root's home where nobody will see it.
+
+Tapping the icon opens the gate fullscreen. Right-click it for two extra
+actions: **Open in a window**, for setting the machine up, and **Run
+diagnostics**, which is `doctor.py` in a terminal.
+
+Because there is no console behind an icon, `launch.sh` puts failures on the
+screen rather than into the void — a missing `python3-tk` named as such, a
+crashed app with its last log lines, or a second copy being opened while one
+is already running (which would otherwise fight the first over the camera and
+the master's serial port). Everything it runs is appended to
+`pi_app/checkpoint.log`.
+
 ## Start automatically on boot
+
+`./install_launcher.sh --autostart` above is the simpler route and is enough
+for a Pi that logs into its desktop. Use a systemd unit instead when the gate
+should come up without anyone logging in, or when you want it supervised by
+the init system rather than by the desktop session.
 
 Create `/etc/systemd/system/safetyfirst.service`:
 

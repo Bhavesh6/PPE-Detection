@@ -27,10 +27,10 @@ it back in recovers on its own, matching how the camera behaves.
 
 from __future__ import annotations
 
-import glob
 import os
 import time
 
+import usb_devices
 from badge_reader import BadgeReader
 
 BAUD = int(os.environ.get("SAFETYFIRST_SERIAL_BAUD", "115200"))
@@ -45,17 +45,20 @@ REPEAT_LOCKOUT_SECONDS = 3.0
 TEMP_REPORT_SECONDS = float(os.environ.get("SAFETYFIRST_TEMP_REPORT_INTERVAL", "5"))
 
 
-def find_port() -> str | None:
-    """First likely master board, or None.
+# Who this module is, as far as the port registry is concerned. Claiming
+# under a name is what keeps the GPS reader out of the badge wire.
+OWNER = "gate"
 
-    USB-UART bridges (CH340, CP2102) appear as ttyUSB*; boards with native
-    USB as ttyACM*. Both are plausible depending on which ESP32 is used.
+
+def find_port() -> str | None:
+    """The master board's port, or None.
+
+    Identified rather than guessed - see usb_devices. This used to take
+    the first /dev/ttyUSB*, which on a checkpoint with the GNSS modem
+    attached is one of the modem's seven interfaces and not the gate at
+    all: badges stopped arriving the moment location was plugged in.
     """
-    for pattern in ("/dev/ttyUSB*", "/dev/ttyACM*"):
-        found = sorted(glob.glob(pattern))
-        if found:
-            return found[0]
-    return None
+    return usb_devices.find_gate_master(owner=OWNER)
 
 
 class SerialBridgeReader(BadgeReader):
@@ -63,7 +66,8 @@ class SerialBridgeReader(BadgeReader):
 
     name = "ESP32 master (USB serial)"
 
-    def __init__(self, port: str | None = None, alerts=None, policy_provider=None):
+    def __init__(self, port: str | None = None, alerts=None, policy_provider=None,
+                 readings=None):
         super().__init__()
         import serial  # late: only needed when a board is actually attached
 
@@ -71,7 +75,11 @@ class SerialBridgeReader(BadgeReader):
         self._port = port or os.environ.get("SAFETYFIRST_SERIAL_PORT") or ""
         self._alerts = alerts
         self._policy = policy_provider or (lambda: {})
+        self._readings = readings
         self._conn = None
+        # The path currently held, so _close releases exactly what _open
+        # claimed even after auto-detection moved to a different port.
+        self._active: str | None = None
 
         # Last fan status the master reported. Read by doctor.py and the
         # gate's status line; None-ish values mean it has never spoken,
@@ -85,13 +93,32 @@ class SerialBridgeReader(BadgeReader):
         port = self._port or find_port()
         if not port:
             return False
+        # Two readers, one process: whoever claims the path owns it until
+        # they close it.
+        if not usb_devices.claim(port, OWNER):
+            return False
         try:
             # A read timeout rather than blocking, so stop() can end this
             # thread instead of it sitting in readline() forever.
             self._conn = self._serial.Serial(port, BAUD, timeout=1)
+            # Throw away whatever accumulated while nothing was reading.
+            # Measured on the bench: opening the port delivered 95 copies
+            # of one reading in a single second - the same value, filed 95
+            # times with the timestamp of the moment we opened, which is a
+            # spike in the history that never happened. Steady state is a
+            # clean line every couple of seconds; only this backlog is
+            # wrong, and it is stale by definition.
+            self._conn.reset_input_buffer()
+            self._active = port
             self.name = f"ESP32 master ({port})"
             return True
         except (OSError, self._serial.SerialException):
+            usb_devices.release(port, OWNER)
+            # The remembered board did not open. It may have been
+            # unplugged and something else may now hold that path, so the
+            # next attempt starts from a fresh probe rather than trusting
+            # the cache back onto the wrong device.
+            usb_devices.forget_master()
             self._conn = None
             return False
 
@@ -102,6 +129,8 @@ class SerialBridgeReader(BadgeReader):
             except Exception:  # noqa: BLE001 - already going away
                 pass
             self._conn = None
+        usb_devices.release(self._active, OWNER)
+        self._active = None
 
     # -- protocol --------------------------------------------------------
     def _handle(self, line: str, last: dict) -> None:
@@ -159,6 +188,15 @@ class SerialBridgeReader(BadgeReader):
             except ValueError:
                 return
             unit = parts[3] if len(parts) > 3 else ""
+
+            # Buffer every reading, crossing or not. Online the backend logs
+            # them all; offline they used to vanish, leaving holes in the
+            # history exactly where the network was worst — so a trend that
+            # was climbing towards a threshold looked like it started the
+            # moment the connection came back.
+            if self._readings is not None:
+                self._readings.record(kind, value, unit, source="esp32-master")
+
             thresholds = (self._policy() or {}).get("sensor_thresholds") or {}
             severity, _cfg = evaluate(kind, value, thresholds)
             if severity is None:
@@ -171,8 +209,11 @@ class SerialBridgeReader(BadgeReader):
     def _cpu_temperature(self) -> float | None:
         """This Pi's CPU temperature in °C, or None if it can't be read.
 
-        Read from sysfs rather than `vcgencmd`, which needs /dev/vcio and
-        is not present on every image — including this one.
+        Read from sysfs rather than `vcgencmd`. vcgencmd is installed on
+        this Pi but cannot be used by the gate: it talks to /dev/vcio,
+        which is root:video 0660, and this process is not in that group —
+        it exits 255 with "Can't open device file". sysfs needs no
+        privileges and no group membership at all.
         """
         try:
             with open("/sys/class/thermal/thermal_zone0/temp") as handle:

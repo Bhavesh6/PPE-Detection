@@ -13,6 +13,21 @@ from __future__ import annotations
 import glob
 import os
 import sys
+from pathlib import Path
+
+# Read the same .env checkpoint.py reads, before anything below looks at
+# os.environ. Without this the doctor diagnoses a configuration nobody
+# runs: it would miss SAFETYFIRST_GPS=off and pass a GPS the gate has
+# switched off, check localhost instead of the real SAFETYFIRST_API, and
+# warn about missing device credentials that are sitting in the file. A
+# pre-flight check that reads different settings than the app is worse
+# than none, because it is believed.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(Path(__file__).with_name(".env"))
+except ImportError:
+    pass
 
 OK, BAD, WARN = "  OK  ", " FAIL ", " WARN "
 _failures = 0
@@ -68,9 +83,18 @@ def check_libraries():
             missing.append(package)
 
     if missing:
-        report(BAD, "Reader libraries",
-               f"Missing: {', '.join(missing)}\n"
-               f"Install: pip install {' '.join(missing)}")
+        # Not a failure any more. Badges reach this Pi from the sensor mesh
+        # through the master ESP32 over USB; the RC522 on the SPI header is
+        # the fallback for a gate with no master attached. Reporting FAIL
+        # here painted a fully working checkpoint red, which is worse than
+        # saying nothing — a red line nobody can act on teaches people to
+        # ignore the whole report. check_reader() below tests what is
+        # actually being used.
+        report(WARN, "Reader libraries",
+               f"Not installed: {', '.join(missing)}\n"
+               "Only needed for a direct RC522 on the SPI header. If the gate\n"
+               "master ESP32 is attached over USB, this is expected and fine.\n"
+               f"To add the fallback anyway: pip install {' '.join(missing)}")
         return False
     report(OK, "Reader libraries", "spidev, RPi.GPIO, mfrc522")
     return True
@@ -83,21 +107,39 @@ def check_camera():
         report(BAD, "Camera", "opencv is not installed (pip install opencv-python-headless)")
         return
 
-    index = int(os.environ.get("SAFETYFIRST_CAMERA", "0"))
-    cap = cv2.VideoCapture(index)
+    setting = os.environ.get("SAFETYFIRST_CAMERA") or "0"
+
+    # Resolve exactly the way the gate does. SAFETYFIRST_CAMERA accepts a
+    # name fragment ("HD camera") as well as an index, and int()-ing it here
+    # killed the doctor on a setting the gate handles perfectly well — the
+    # pre-flight check crashing on a working configuration.
     try:
-        if not cap.isOpened():
-            report(BAD, "Camera", f"Could not open camera index {index}.\n"
-                                  "Check the ribbon/USB connection, or set SAFETYFIRST_CAMERA.")
+        from checkpoint import _camera_candidates
+
+        candidates = _camera_candidates()
+    except Exception:  # noqa: BLE001 - checkpoint pulls in the whole GUI stack
+        parts = [p.strip() for p in setting.split(",") if p.strip()]
+        candidates = [int(p) for p in parts] if all(p.isdigit() for p in parts) else [0]
+
+    for index in candidates:
+        cap = cv2.VideoCapture(index)
+        try:
+            if not cap.isOpened():
+                continue
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            h, w = frame.shape[:2]
+            report(OK, "Camera", f"{setting!r} -> index {index}, {w}x{h}")
             return
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            report(BAD, "Camera", "Camera opened but returned no frame.")
-            return
-        h, w = frame.shape[:2]
-        report(OK, "Camera", f"index {index}, {w}x{h}")
-    finally:
-        cap.release()
+        finally:
+            cap.release()
+
+    report(BAD, "Camera",
+           f"No working camera for SAFETYFIRST_CAMERA={setting!r}.\n"
+           f"Tried index(es): {', '.join(str(c) for c in candidates)}\n"
+           "Check the connection, or set SAFETYFIRST_CAMERA to an index or a\n"
+           "name fragment from: v4l2-ctl --list-devices")
 
 
 def check_backend():
@@ -221,11 +263,13 @@ def check_gps(scan):
         report(BAD, "GPS", str(exc))
         return
 
-    preference = os.environ.get("SAFETYFIRST_GPS", "off").lower()
+    preference = (os.environ.get("SAFETYFIRST_GPS") or "auto").strip().lower()
     if preference == "off":
         report(WARN, "GPS",
-               "SAFETYFIRST_GPS is off (the default) - location stays whatever\n"
-               "the console has set. Set to auto once a module is wired up.")
+               "SAFETYFIRST_GPS is off - location stays whatever the console\n"
+               "has set. Unset it to go back to auto, which finds the module\n"
+               "by USB vendor id when one is plugged in and stays quiet when\n"
+               "one is not.")
         return
 
     try:
@@ -304,17 +348,20 @@ def main():
     print("\nSafetyFirst checkpoint pre-flight\n" + "=" * 40)
 
     check_platform()
-    spi = check_spi()
-    libs = check_libraries()
+    check_spi()
+    check_libraries()
     check_camera()
     base = check_backend()
     token = check_credentials(base)
     check_policy(base, token)
 
-    if spi and libs:
-        check_reader(scan)
-    else:
-        report(WARN, "Badge reader", "Skipped - SPI or libraries unavailable.")
+    # Always run. open_reader() prefers the master ESP32 over USB and only
+    # falls back to an RC522 on the SPI header, so gating this on the SPI
+    # libraries skipped the check on exactly the gates that use the
+    # supported path: the badge wire, the one thing a checkpoint cannot do
+    # without, went untested on every Pi wired the way this ships. The
+    # check reports whichever reader it actually got.
+    check_reader(scan)
 
     check_gps(scan)
     check_offline_queue()

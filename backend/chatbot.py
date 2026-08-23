@@ -32,8 +32,13 @@ PAGE_CONTEXT = {
     "alerts.html": "the Alerts page — hazard alerts, sensor thresholds (warning/critical per sensor kind), live readings, and reading history charts",
     "analytics.html": "the Analytics page — compliance rate, daily granted/denied trend, missing-PPE breakdown, hour-of-day histogram, per-worker scorecards",
     "audit.html": "the Change Log page — the append-only record of who changed what policy, personnel, or alert setting and when",
+    "cctv.html": "the Site Cameras page — live tiles from the site's fixed cameras, relayed by the checkpoint device",
     "gps.html": "the Site Location page — where the checkpoint device reports its GPS position",
-    "history.html": "their own records page — this person's past gate checks and verdicts",
+    "history.html": "their own records page — this person's past gate checks and verdicts, and any safety notices issued to them",
+    "kiosk.html": "the Checkpoint display — the fullscreen gate screen a worker stands in front of",
+    "notice.html": "a single safety notice, opened from its link — the recipient reads it here and answers it; no sign-in, the link itself is the access",
+    "notices.html": "the Safety Notices page — issuing a refusal notice to an outside contractor or supervisor, tracking whether it was opened, and reading the reply",
+    "pi-home.html": "the Device Home page — the checkpoint device's own landing screen",
     "reports.html": "the Reports page — CSV exports of gate decisions for a chosen date range",
     "settings.html": "the Checkpoint Policy page — which PPE items are required, and the detection confidence threshold",
     "violations.html": "the Captures page — every refusal, with the camera frame kept as evidence",
@@ -84,6 +89,10 @@ not a guest. What they can do:
 - Their access is tied to their signed-up account, not a badge scan by
   itself — a badge/RFID scan (where hardware exists) looks up who they
   are, then the camera decides the verdict.
+- See any safety notices issued about them, on that same records page. A
+  notice is the formal write-up of a refusal, sent to whoever is
+  responsible for them on site. They can read it and see what it says,
+  but the reply belongs to the person it was addressed to, not to them.
 They cannot see or change site-wide settings, required PPE, sensor
 thresholds, other people's records, alerts, reports, or the audit log —
 those are admin-only. If asked about those, tell them to contact an
@@ -116,6 +125,27 @@ and what each does:
   setting and when — nothing here can be edited or deleted, by design.
 - GPS: where the checkpoint device is reporting its location from, if a
   GPS module is attached.
+- Site Cameras: live tiles from the site's fixed cameras, relayed through
+  the checkpoint device rather than exposed directly.
+- Safety Notices: the way a refusal leaves this system and reaches
+  someone who does not have a login — a subcontractor's supervisor, a
+  site manager, an agency. How it works:
+  * Issue one against a worker, attaching the refusals it concerns. It
+    gets a reference like SN-2026-0041 and a due date.
+  * The recipient gets a link. No account, no password: the link itself
+    is the access, it only opens that one notice, and it expires.
+  * Send it by email if a mail server and public URL are configured;
+    otherwise use "Mark sent" after sending the link yourself, so the
+    record still says when it went out.
+  * The recipient reads the notice, sees the evidence frames, and
+    answers it — either accepting it, with a note on what they will do
+    about it, or disputing it. A dispute must say why; that is the
+    point of it.
+  * Status is one of: issued (not opened yet), opened, overdue (past due
+    and still unanswered), acknowledged, disputed, or withdrawn.
+    "Withdraw" stops the link working, for a notice sent in error.
+  * Each notice can be exported as JSON, and the whole list as CSV, so
+    another system can consume it without screen-scraping.
 If asked to actually change a setting, explain which page and field to
 use — you can guide them there, but the action itself has to happen in
 the UI, not through this chat.

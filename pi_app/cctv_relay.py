@@ -50,7 +50,25 @@ import requests
 # Must satisfy the backend's own id rule, or /frame rejects the post.
 _ID_OK = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
 
+# urllib3 puts the connection object's address inside its error text
+# ("<HTTPConnection object at 0xffff316ac6e0>"), and that address differs
+# on every attempt. Comparing raw messages therefore made each repeat of
+# one unchanging fault look like a brand new failure.
+_ADDR = re.compile(r"0x[0-9a-fA-F]+")
+
 # The camera is on the LAN and either answers quickly or is not there.
+# Spelled by code point: an escaped literal has a habit of being
+# rewritten by whatever edits this file.
+CRLF = bytes((13, 10))
+CRLF2 = CRLF * 2
+
+# A frame this much larger than anything the camera sends means the
+# boundary was lost; resync rather than buffer without bound.
+MAX_STREAM_BUFFER = 512 * 1024
+
+# How long to poll before trying the stream again.
+STREAM_RETRY_AFTER = 30.0
+
 CAMERA_TIMEOUT = 4.0
 UPLOAD_TIMEOUT = 10.0
 
@@ -143,14 +161,98 @@ def camera_targets() -> list[tuple[str, str]]:
     return targets
 
 
+def store_dir() -> str:
+    """Where to keep frames the backend never received. Blank = don't."""
+    return os.environ.get("SAFETYFIRST_CCTV_STORE", "").strip()
+
+
+def store_budget_mb() -> float:
+    try:
+        return float(os.environ.get("SAFETYFIRST_CCTV_STORE_MB", "200"))
+    except ValueError:
+        return 200.0
+
+
+def store_interval() -> float:
+    """Seconds between stored frames while offline.
+
+    Deliberately slower than the relay. Keeping every frame of a
+    multi-hour outage is tens of thousands of images that nobody will
+    look through, and a full SD card takes the whole gate down to
+    preserve footage of an empty yard.
+    """
+    try:
+        return float(os.environ.get("SAFETYFIRST_CCTV_STORE_INTERVAL", "10"))
+    except ValueError:
+        return 10.0
+
+
+class FrameStore:
+    """Frames kept on disk because the backend could not be reached.
+
+    Not a replay queue, and that is the important distinction. The backend
+    holds one current frame per camera — it has no concept of a frame from
+    an hour ago, so posting a backlog would simply overwrite the live view
+    with history and then be discarded. What an outage actually needs is a
+    local record of what the camera saw, which is what this is.
+
+    Bounded by total size, oldest discarded first. A gate that fills its
+    own disk stops being a gate.
+    """
+
+    def __init__(self, directory: str, budget_mb: float):
+        self._dir = directory
+        self._budget = int(budget_mb * 1024 * 1024)
+        os.makedirs(directory, exist_ok=True)
+
+    def save(self, camera_id: str, jpeg: bytes) -> None:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        path = os.path.join(self._dir, f"{camera_id}_{stamp}.jpg")
+        try:
+            with open(path, "wb") as handle:
+                handle.write(jpeg)
+            self._prune()
+        except OSError as exc:
+            # A failed write must not stop the relay retrying the backend:
+            # getting the live feed back matters more than the archive.
+            print(f"[cctv] could not store frame ({exc})")
+
+    def _prune(self) -> None:
+        try:
+            files = []
+            total = 0
+            with os.scandir(self._dir) as entries:
+                for entry in entries:
+                    if entry.is_file() and entry.name.endswith(".jpg"):
+                        size = entry.stat().st_size
+                        files.append((entry.stat().st_mtime, entry.path, size))
+                        total += size
+            if total <= self._budget:
+                return
+            files.sort()                       # oldest first
+            for _mtime, path, size in files:
+                if total <= self._budget:
+                    break
+                os.remove(path)
+                total -= size
+        except OSError:
+            pass
+
+
 class CCTVRelay:
     """Pulls JPEGs off one local camera and posts them to the backend."""
 
-    def __init__(self, api, camera_id: str, url: str, poll: float = 1.0):
+    def __init__(self, api, camera_id: str, url: str, poll: float = 1.0, store=None):
         self._api = api
         self._id = camera_id
         self._camera = url.rstrip("/")
-        self._interval = max(0.2, poll)
+        # Floored, but low. The old 0.2 floor guarded a loop that fetched
+        # and posted in series, where asking for frames faster than one
+        # round trip only queued work. The reader is separate now, so this
+        # is purely how often the newest frame is forwarded, and the
+        # uplink decides the real ceiling - measured at about 3.8/sec,
+        # which is already slower than this allows.
+        self._interval = max(0.05, poll)
         self._running = True
         self._thread: threading.Thread | None = None
 
@@ -158,7 +260,20 @@ class CCTVRelay:
         # broken. "The camera is unreachable" and "the backend refused the
         # frame" send you to opposite ends of the site.
         self.frames_sent = 0
+        self.frames_stored = 0
         self.last_error: str | None = None
+        self._store = store
+        self._store_every = store_interval()
+        self._last_stored = 0.0
+
+        # Filled by the reader thread, drained by the sender. Only ever
+        # the newest frame: a queue would mean posting the past.
+        self._latest: bytes | None = None
+        self._latest_at = 0.0
+        self._sent_at = 0.0
+        self._latest_lock = threading.Lock()
+        self._stream_failures = 0
+        self._reader: threading.Thread | None = None
 
     @property
     def name(self) -> str:
@@ -167,6 +282,12 @@ class CCTVRelay:
         return f"{self._id} ({self._camera} @ {self._interval:g}s)"
 
     def start(self) -> None:
+        # Two threads on purpose. Posting a frame over the gate's uplink
+        # takes long enough that doing it inline would leave the camera's
+        # stream unread meanwhile, and we would resume on frames that had
+        # gone stale while we waited.
+        self._reader = threading.Thread(target=self._reader_loop, daemon=True)
+        self._reader.start()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
 
@@ -174,10 +295,108 @@ class CCTVRelay:
         self._running = False
 
     def _grab(self) -> bytes:
+        """One frame, asked for individually. The fallback, not the norm."""
         res = requests.get(f"{self._camera}/snapshot", timeout=CAMERA_TIMEOUT)
         if res.status_code != 200 or not res.content:
             raise RuntimeError(f"camera returned {res.status_code}")
         return res.content
+
+    def _read_stream(self) -> None:
+        """Hold the camera's MJPEG stream open and keep the newest frame.
+
+        The camera publishes a continuous stream; asking it for one
+        picture at a time made it accept a connection, encode, answer and
+        close, twice a second, forever. The board is meant to do nothing
+        but stream - it has a hardware JPEG encoder precisely so nothing
+        has to be computed - and a request per frame is the one part of
+        that job we were making it do over and over.
+
+        So read the stream once and keep only the latest frame. What gets
+        posted is then whatever the camera saw a moment ago, rather than
+        whatever it could be persuaded to produce on demand.
+        """
+        res = requests.get(f"{self._camera}/stream", stream=True,
+                           timeout=(CAMERA_TIMEOUT, CAMERA_TIMEOUT))
+        if res.status_code != 200:
+            raise RuntimeError(f"camera returned {res.status_code}")
+
+        buf = b""
+        try:
+            for chunk in res.iter_content(chunk_size=4096):
+                if not self._running:
+                    break
+                if not chunk:
+                    continue
+                buf += chunk
+
+                # Drain every complete part in the buffer. One read can
+                # carry several frames, or half of one.
+                while True:
+                    head_end = buf.find(CRLF2)
+                    if head_end < 0:
+                        break
+                    head = buf[:head_end]
+                    marker = b"Content-Length:"
+                    at = head.find(marker)
+                    if at < 0:
+                        buf = buf[head_end + 4:]
+                        continue
+                    try:
+                        length = int(head[at + len(marker):].split(CRLF, 1)[0])
+                    except ValueError:
+                        buf = buf[head_end + 4:]
+                        continue
+                    start = head_end + 4
+                    if len(buf) < start + length:
+                        break                      # incomplete, wait for more
+                    with self._latest_lock:
+                        self._latest = buf[start:start + length]
+                        self._latest_at = time.monotonic()
+                    buf = buf[start + length:]
+
+                # A frame far larger than anything this camera sends means
+                # the boundary was lost. Start again rather than grow
+                # without bound on a stream we can no longer parse.
+                if len(buf) > MAX_STREAM_BUFFER:
+                    raise RuntimeError("lost the stream boundary")
+        finally:
+            res.close()
+
+    def _reader_loop(self) -> None:
+        """Keep a frame available, by whichever route the camera allows.
+
+        Falls back to /snapshot when the stream cannot be held open - an
+        older camera build has no /stream, and a flaky link can drop one
+        repeatedly. A slower feed beats a blank tile.
+        """
+        last_reported = None
+        while self._running:
+            try:
+                self._read_stream()
+                self._stream_failures = 0
+            except Exception as exc:  # noqa: BLE001 - never kill the gate over a picture
+                self._stream_failures += 1
+                message = f"{type(exc).__name__}: {exc}"
+                key = _ADDR.sub("0x*", message)
+                if key != last_reported:
+                    print(f"[cctv:{self._id}] stream unavailable — {message}")
+                    last_reported = key
+
+                # Two failures is enough to stop assuming the stream is
+                # coming back this minute; poll until it does.
+                if self._stream_failures >= 2:
+                    deadline = time.monotonic() + STREAM_RETRY_AFTER
+                    while self._running and time.monotonic() < deadline:
+                        try:
+                            jpeg = self._grab()
+                            with self._latest_lock:
+                                self._latest = jpeg
+                                self._latest_at = time.monotonic()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        time.sleep(self._interval)
+                else:
+                    time.sleep(1.0)
 
     def _send(self, jpeg: bytes) -> None:
         token = getattr(self._api, "token", None)
@@ -205,8 +424,32 @@ class CCTVRelay:
         while self._running:
             started = time.monotonic()
             try:
-                self._send(self._grab())
-                self.frames_sent += 1
+                with self._latest_lock:
+                    jpeg = self._latest
+                    taken_at = self._latest_at
+                if jpeg is None:
+                    raise RuntimeError("no frame from the camera yet")
+                if taken_at <= self._sent_at:
+                    # Nothing new since the last post. Sending it again
+                    # would spend the uplink to say nothing changed.
+                    time.sleep(max(0.0, self._interval - (time.monotonic() - started)))
+                    continue
+                try:
+                    self._send(jpeg)
+                    self.frames_sent += 1
+                    self._sent_at = taken_at
+                except Exception:
+                    # The camera answered but the backend did not. Keep the
+                    # picture on disk — at the observed rate, not the relay's,
+                    # so an outage does not fill the card — then re-raise so
+                    # the failure is still reported exactly as before.
+                    if self._store is not None:
+                        now = time.monotonic()
+                        if now - self._last_stored >= self._store_every:
+                            self._last_stored = now
+                            self._store.save(self._id, jpeg)
+                            self.frames_stored += 1
+                    raise
                 if last_reported is not None:
                     print(f"[cctv:{self._id}] feed restored")
                     last_reported = None
@@ -214,9 +457,16 @@ class CCTVRelay:
             except Exception as exc:  # noqa: BLE001 - never kill the gate over a picture
                 message = f"{type(exc).__name__}: {exc}"
                 self.last_error = message
-                if message != last_reported:
+                # Compare on the message with addresses masked out, not the
+                # message itself. Without this an unreachable camera wrote a
+                # line every second and buried everything the gate actually
+                # said — a badge decision was lost in 45 lines of identical
+                # DNS failures, which is the exact harm this guard exists to
+                # prevent.
+                key = _ADDR.sub("0x*", message)
+                if key != last_reported:
                     print(f"[cctv:{self._id}] paused — {message}")
-                    last_reported = message
+                    last_reported = key
 
             # Measure from the start of the cycle so a slow frame doesn't
             # add its latency to the interval and drift the rate down.
@@ -236,6 +486,10 @@ class RelayGroup:
     @property
     def frames_sent(self) -> int:
         return sum(r.frames_sent for r in self._relays)
+
+    @property
+    def frames_stored(self) -> int:
+        return sum(r.frames_stored for r in self._relays)
 
     def start(self) -> None:
         for relay in self._relays:
@@ -257,8 +511,16 @@ def open_relay(api) -> RelayGroup | None:
     if not targets:
         return None
 
+    # One store across all cameras, so the disk budget is a single
+    # number rather than one per camera that quietly multiplies.
+    directory = store_dir()
+    store = FrameStore(directory, store_budget_mb()) if directory else None
+    if store is not None:
+        print(f"[cctv] storing offline frames in {directory} "
+              f"(max {store_budget_mb():g}MB, one every {store_interval():g}s)")
+
     group = RelayGroup([
-        CCTVRelay(api, camera_id, url, interval(camera_id))
+        CCTVRelay(api, camera_id, url, interval(camera_id), store)
         for camera_id, url in targets
     ])
     group.start()
