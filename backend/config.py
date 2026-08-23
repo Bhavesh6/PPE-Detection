@@ -190,6 +190,24 @@ class Config:
         if origin.strip()
     ]
 
+    # Emails that get administrator rights, comma separated.
+    #
+    # Admin used to be grantable only by make_admin.py, which needs a shell
+    # inside the deployment. A managed host does not give you one, so a
+    # freshly deployed site had no route to its own console: the first
+    # person signed up, got an ordinary account, and nothing could ever
+    # promote it. This is the bootstrap - it names who is trusted before
+    # anyone has signed up, which is the only order that works remotely.
+    #
+    # Matching is on the verified account email, and being listed is
+    # checked at sign-up and at every start, so the order of "set the
+    # variable" and "create the account" does not matter.
+    ADMIN_EMAILS = {
+        email.strip().lower()
+        for email in os.environ.get("ADMIN_EMAILS", "").split(",")
+        if email.strip()
+    }
+
     # Base URL of the site CCTV camera (esp32-main/cctv_cam), e.g.
     # http://safetyfirst-cam.local or http://192.168.1.50 — no trailing
     # path. Blank means no camera, and the console says so rather than

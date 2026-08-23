@@ -16,6 +16,31 @@ check_secrets()
 check_deployment()
 
 
+def _promote_configured_admins(app):
+    """Give ADMIN_EMAILS accounts admin rights at every start.
+
+    Runs on boot as well as at sign-up so the two can happen in either
+    order: set the variable and then sign up, or sign up and then set the
+    variable and restart. Only ever promotes - it never demotes an admin
+    who was granted rights some other way, because a typo in an
+    environment variable should not lock a site out of its own console.
+    """
+    from models import User
+
+    wanted = app.config.get("ADMIN_EMAILS") or set()
+    if not wanted:
+        return
+
+    promoted = []
+    for user in User.query.filter(User.is_admin.is_(False)).all():
+        if (user.email or "").strip().lower() in wanted:
+            user.is_admin = True
+            promoted.append(user.email)
+    if promoted:
+        db.session.commit()
+        print("Granted admin to: " + ", ".join(promoted), flush=True)
+
+
 def _add_missing_columns():
     """Add columns introduced after a database was first created.
 
@@ -95,6 +120,7 @@ def create_app():
     with app.app_context():
         db.create_all()
         _add_missing_columns()
+        _promote_configured_admins(app)
 
     # Serve the console from the API when they are deployed together.
     #
