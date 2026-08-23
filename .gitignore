@@ -44,6 +44,8 @@ runs/
 # Flask's request log — every URL hit, including anything passed as a query
 # param; noise at best, a credential leak at worst.
 backend/app.log
+backend/server.log
+backend/server.err.log
 # Added by code-review-graph
 .code-review-graph/
 
