@@ -54,6 +54,16 @@ As **variables**:
 | `CORS_ORIGINS` | your Vercel URL (step 3) | The browser blocks the frontend from calling the API without it. |
 | `PUBLIC_BASE_URL` | your Vercel URL (step 3) | Safety notices email an absolute link to `/notice.html`, which Vercel serves. Without it the backend refuses to send rather than mailing a link that will not resolve. |
 
+| `ADMIN_EMAILS` | the email you will sign up with |
+
+`ADMIN_EMAILS` is the one people forget and cannot recover from. Admin
+rights are otherwise granted only by `make_admin.py`, which needs a shell
+inside the container - and a Space does not give you one. Set this before
+you sign up and that account is an administrator from its first request.
+Set it afterwards and restart the Space; it promotes on boot too. Without
+it you get an ordinary account and no way to reach the console at all.
+Comma separated for more than one.
+
 Optional: `GOOGLE_CLIENT_ID` for Google sign-in, and `SMTP_HOST` / `SMTP_PORT`
 / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` to email notices automatically.
 Without SMTP the notices feature still works — the console hands the officer a
