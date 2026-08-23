@@ -1356,7 +1356,51 @@ class CheckpointApp:
         self.root.after(120, self.root.destroy)
 
 
+# Held open for the life of the process. Module scope on purpose: a local
+# would be garbage collected, and closing the file drops the lock with it.
+_instance_lock = None
+
+
+def claim_single_instance() -> bool:
+    """True if this process may run, False if a gate is already up.
+
+    The guard lives here rather than in launch.sh because a lock held by
+    the launcher protects only against other launcher runs. The desktop
+    icon, a terminal, a systemd unit and an ssh session all start
+    checkpoint.py directly, and on this gate two copies did end up running
+    at once — fighting over the master's serial port and logging
+    "master disconnected" at each other while badges went unread. The
+    lock has to belong to the thing that must be unique.
+
+    flock is released by the kernel when the process ends however it ends,
+    so a killed or crashed gate leaves nothing to clean up. A stale lock
+    file is not a stale lock.
+    """
+    global _instance_lock
+    try:
+        import fcntl  # Unix only; a Windows dev box simply has no guard
+    except ImportError:
+        return True
+
+    handle = open(Path(__file__).with_name(".checkpoint.lock"), "w")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return False
+
+    handle.write(str(os.getpid()))
+    handle.flush()
+    _instance_lock = handle
+    return True
+
+
 def main() -> int:
+    if not claim_single_instance():
+        print("SafetyFirst is already running on this device. Close that "
+              "window before starting it again.", file=sys.stderr)
+        return 1
+
     state = State()
     api = ApiClient(API_BASE)
 

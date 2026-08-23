@@ -25,7 +25,6 @@ HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 cd "$HERE" || exit 1
 
 LOG="${SAFETYFIRST_LOG:-$HERE/checkpoint.log}"
-LOCK="$HERE/.checkpoint.lock"
 SUPERVISE=0
 [ "${1:-}" = "--supervise" ] && SUPERVISE=1
 
@@ -47,18 +46,19 @@ notify() {
 }
 
 # -- one gate at a time ----------------------------------------------------
-# Two copies would fight over the camera and over the master's serial port,
-# and the loser fails in a way that reads as broken hardware. The lock is
-# held on a file descriptor, so it is released by the kernel however this
-# script ends - including being killed.
-exec 9>"$LOCK" || exit 1
-if command -v flock >/dev/null 2>&1; then
-    if ! flock -n 9; then
-        notify "SafetyFirst is already running" \
-               "The checkpoint is open on this screen already. Close that window before starting it again."
-        exit 0
-    fi
-fi
+# Deliberately NOT locked here. checkpoint.py takes the lock itself, on this
+# same file, for exactly as long as it runs.
+#
+# Locking in the launcher was wrong twice over. It guarded only launches
+# that went through the launcher, so the desktop icon, a terminal and an
+# ssh session could each start a second gate - which happened on the real
+# device, two copies fighting over the master's serial port and logging
+# "master disconnected" at each other while badges went unread. And it
+# would now actively break startup: the launcher holding an exclusive lock
+# on this path is precisely what the app's own claim would fail against.
+#
+# The message the app prints when it refuses reaches the log below, and
+# the crash handler surfaces it.
 
 # -- interpreter -----------------------------------------------------------
 PY="$HERE/venv/bin/python"
