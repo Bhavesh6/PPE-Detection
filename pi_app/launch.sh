@@ -60,6 +60,35 @@ notify() {
 # The message the app prints when it refuses reaches the log below, and
 # the crash handler surfaces it.
 
+# -- find the screen -------------------------------------------------------
+# Tapping the icon inherits DISPLAY and XAUTHORITY from the desktop session,
+# so nothing here is needed for that path. Every other way of starting the
+# gate - a systemd unit, autostart, ssh, cron - inherits neither, and tkinter
+# fails with "couldn't connect to display" no matter how healthy everything
+# else is. That is what the old systemd unit did: it hardcoded DISPLAY=:0,
+# set no XAUTHORITY, crashed, and restarted forever.
+#
+# XAUTHORITY cannot be hardcoded either. Under Wayland the Xwayland cookie
+# is /run/user/<uid>/.mutter-Xwaylandauth.XXXXXX, and those six characters
+# are new on every login - a path that works today is wrong tomorrow. So it
+# is discovered, newest first, rather than written down.
+: "${DISPLAY:=:0}"
+export DISPLAY
+
+if [ -z "${XAUTHORITY:-}" ]; then
+    for candidate in \
+        "/run/user/$(id -u)"/.mutter-Xwaylandauth.* \
+        "/run/user/$(id -u)"/Xauthority \
+        "$HOME/.Xauthority"
+    do
+        if [ -f "$candidate" ]; then
+            XAUTHORITY="$candidate"
+            export XAUTHORITY
+            break
+        fi
+    done
+fi
+
 # -- interpreter -----------------------------------------------------------
 PY="$HERE/venv/bin/python"
 if [ ! -x "$PY" ]; then
