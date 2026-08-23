@@ -53,8 +53,7 @@ As **variables**:
 | `TRUSTED_PROXY_HOPS` | `1` | Spaces terminate TLS at their own proxy, so every request arrives from one address. Left at `0` the rate limiter treats the whole internet as a single caller and real users lock each other out — the public notice pages first. `1` is the true number of proxies; higher lets a caller forge the address the limiter counts. |
 | `CORS_ORIGINS` | your Vercel URL (step 3) | The browser blocks the frontend from calling the API without it. |
 | `PUBLIC_BASE_URL` | your Vercel URL (step 3) | Safety notices email an absolute link to `/notice.html`, which Vercel serves. Without it the backend refuses to send rather than mailing a link that will not resolve. |
-
-| `ADMIN_EMAILS` | the email you will sign up with |
+| `ADMIN_EMAILS` | the email you will sign up with | Otherwise the deployed site has no administrator and no way to appoint one. See below. |
 
 `ADMIN_EMAILS` is the one people forget and cannot recover from. Admin
 rights are otherwise granted only by `make_admin.py`, which needs a shell
