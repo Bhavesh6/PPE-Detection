@@ -86,7 +86,11 @@ fi
 } >>"$LOG" 2>&1
 
 run_once() {
-    "$PY" "$HERE/checkpoint.py" >>"$LOG" 2>&1
+    # Unbuffered, because the log is redirected to a file and Python then
+    # block-buffers stdout: the gate would print its startup lines into a
+    # 8KB buffer and the log would sit empty for minutes. A launcher whose
+    # whole job is surfacing failures cannot have its evidence arrive late.
+    PYTHONUNBUFFERED=1 "$PY" "$HERE/checkpoint.py" >>"$LOG" 2>&1
 }
 
 if [ "$SUPERVISE" -eq 0 ]; then
