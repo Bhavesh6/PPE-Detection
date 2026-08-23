@@ -107,6 +107,11 @@ SIGNIN_RETRY_INTERVAL = float(os.environ.get("SAFETYFIRST_SIGNIN_RETRY_INTERVAL"
 # Shown while the gate is up but has never reached the backend. Matched
 # exactly when clearing it, so a real error raised later isn't wiped.
 OFFLINE_MESSAGE = "Offline — no contact with the service"
+# Shown while the backend is unreachable but the gate is still ruling
+# on-device. A constant because two places have to agree on it: the
+# detection loop sets it, and the roster sync clears it when the link
+# comes back. As a literal in one of them it was set and never cleared.
+DEGRADED_MESSAGE = "Offline — detecting on this device"
 # LAN receiver so sensors can still report a hazard with the cloud down.
 # The token is required: this endpoint can hold the gate, so it must not run
 # open. Unset means the receiver stays off entirely.
@@ -649,7 +654,7 @@ def capture_loop(state: State, api: ApiClient, detector=None) -> None:
                         # is genuinely false — say so, but do not claim the
                         # gate has stopped deciding, because it has not.
                         state.connected = False
-                        state.message = "Offline — detecting on this device"
+                        state.message = DEGRADED_MESSAGE
                 continue
 
             with state.lock:
@@ -801,6 +806,20 @@ def roster_sync_loop(state: State, api: ApiClient, store) -> None:
                 break
 
         payload = api.fetch_roster()
+
+        # This loop is the only thing that talks to the backend on a timer
+        # rather than only while somebody is standing at the gate, so it is
+        # the one that can notice the link coming back. Without this the
+        # display stayed "offline" after any blip until the next completed
+        # check — the sync was succeeding every minute, visibly caching
+        # workers, while the screen told the shift the service was down.
+        with state.lock:
+            reachable = payload is not None
+            if state.connected != reachable:
+                state.connected = reachable
+            if reachable and state.message in (OFFLINE_MESSAGE, DEGRADED_MESSAGE):
+                state.message = ""
+
         if payload is not None:
             try:
                 count = store.replace_all(payload)
