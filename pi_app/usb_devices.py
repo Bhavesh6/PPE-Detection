@@ -158,20 +158,41 @@ def _probe(device: str) -> str | None:
         return None
 
     try:
-        conn = serial.Serial(device, BAUD, timeout=0.3)
+        conn = serial.Serial()
+        conn.port = device
+        conn.baudrate = BAUD
+        conn.timeout = 0.3
+        # Do NOT let the driver yank DTR/RTS on open. On a CP2102 that is
+        # the ESP32's reset line, so merely identifying the board rebooted
+        # it - dropping ESP-NOW peers and fan control - and the probe then
+        # spent its whole window reading a board that was still booting.
+        # Measured on the gate: the first call returned None and only a
+        # second succeeded, which is how the badge reader ended up on the
+        # keyboard fallback for an entire session. Left alone, a running
+        # master is already talking and matches on its first line.
+        conn.dtr = False
+        conn.rts = False
+        conn.open()
     except Exception:  # noqa: BLE001 - busy, gone, or no permission
         return None
 
     try:
         conn.reset_input_buffer()
-        try:
-            conn.write(b"ID?\n")
-            conn.flush()
-        except Exception:  # noqa: BLE001 - read-only or one-way device
-            pass
-
         deadline = time.monotonic() + PROBE_SECONDS
+        next_prompt = 0.0
         while time.monotonic() < deadline:
+            # Re-ask periodically rather than once. A board that was mid-
+            # reset when we opened misses a single ID?, and an idle master
+            # with nothing to report would otherwise stay silent until the
+            # window expired.
+            now = time.monotonic()
+            if now >= next_prompt:
+                next_prompt = now + 1.2
+                try:
+                    conn.write(b"ID?\n")
+                    conn.flush()
+                except Exception:  # noqa: BLE001 - read-only or one-way device
+                    pass
             try:
                 raw = conn.readline()
             except Exception:  # noqa: BLE001 - yanked mid-probe
@@ -234,15 +255,23 @@ def find_gate_master(owner: str = "gate", probe: bool = True) -> str | None:
         if any(p.device == cached for p in candidates):
             return cached
 
-    for port in candidates:
-        role = _probe(port.device)
-        if role is None:
-            continue
-        _last_master["serial"] = port.serial_number or ""
-        _last_master["device"] = port.device
-        _last_master["role"] = role
-        _last_master["at"] = time.monotonic()
-        return port.device
+    # Two passes. The badge wire is the one thing a gate cannot do without,
+    # and the cost of giving up too early is not a retry a second later -
+    # open_reader() falls through to the keyboard and stays there for the
+    # life of the process. A board that was resetting, busy, or mid-flash
+    # on the first pass deserves a second look before that happens.
+    for attempt in range(2):
+        for port in candidates:
+            role = _probe(port.device)
+            if role is None:
+                continue
+            _last_master["serial"] = port.serial_number or ""
+            _last_master["device"] = port.device
+            _last_master["role"] = role
+            _last_master["at"] = time.monotonic()
+            return port.device
+        if attempt == 0 and candidates:
+            time.sleep(0.5)
     return None
 
 
