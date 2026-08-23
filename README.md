@@ -48,6 +48,35 @@ section to get it running.
 - An audit log for policy changes and personnel deletions — closes the
   accountability gap that making policy configurable would otherwise open.
 - Live inference performance readout (FPS / latency) on the gate view.
+- **Safety notices**: the way a refusal leaves this system and reaches
+  somebody who has no login — a subcontractor's supervisor, an agency, a
+  site manager. A notice is issued against a worker with the refusals it
+  concerns, gets a reference and a due date, and travels as a link that
+  needs no account, opens only that one notice, and expires. The recipient
+  reads it with the evidence and answers it: accepted with a note on what
+  they will do, or disputed with a reason. Status is computed from the
+  record rather than stored, so it cannot drift from what happened. Each
+  notice exports as JSON and the list as CSV, so another system can consume
+  it without screen-scraping. See [backend/notices.py](backend/notices.py).
+- **Inference survives the network.** Detection runs on the backend, and the
+  gate falls back to an on-device ONNX model whenever the backend cannot be
+  reached, then hands back when it returns — logging each handover.
+  Verified with the backend switched off entirely: the gate resolved a badge
+  from its local cache, ruled on-device, queued three decisions, and synced
+  all three the moment the backend came back. A site is where the connection
+  is worst and the gate matters most.
+- **USB devices are identified, not counted.** The gate master ESP32 and the
+  GNSS modem are matched on USB vendor id, asked to identify themselves, and
+  remembered by serial number so replugging into another socket still finds
+  them. The modem presents seven serial interfaces; taking "the first
+  /dev/ttyUSB*" hands the gate one of those instead of the master and badge
+  scanning stops the moment location is plugged in. See
+  [pi_app/usb_devices.py](pi_app/usb_devices.py).
+- **The gate opens like an appliance.** A hard-hat icon on the Pi's desktop,
+  no terminal: `pi_app/install_launcher.sh`. The launcher discovers the
+  display itself, holds a lock so a second tap cannot start a rival gate
+  fighting over the camera and serial port, and puts failures on screen
+  because there is no console behind an icon.
 - Spoken gate announcements ("Access granted.", "Put on your hardhat...") via
   ElevenLabs, cached on disk per phrase so a repeated sentence never pays for
   or waits on synthesis twice. Falls back to the browser's built-in voice
@@ -195,6 +224,8 @@ backend/
   audit.py                        Append-only change log for policy/personnel/alert changes
   tts.py                            Spoken gate announcements (ElevenLabs), cached on disk per phrase
   ppe_detection.py                   YOLOv8 model loading + inference
+  notices.py                        Safety notices — issue, capability links, replies, exports
+  chatbot.py                         In-app help assistant, with a built-in guide when no key is set
   make_admin.py                    CLI: flag a user as admin
   seed_workers.py                   CLI: create demo workers with fake badge IDs
 frontend/                            Static HTML/CSS/JS, no build step
@@ -332,6 +363,13 @@ address configured — it uses its own origin. Works on Hugging Face
 Spaces (the YAML frontmatter at the top of this file is already set up
 for it), Render, Fly.io, or anything that runs a container.
 
+A split deployment works too — backend on a Space, frontend on Vercel.
+`vercel.json` and `scripts/vercel-build.js` write the API's URL into the
+frontend at build time from an `API_BASE_URL` project variable, so the
+backend's address lives in a host setting rather than in the source.
+**[DEPLOY.md](DEPLOY.md) has the full sequence**, which matters: the two
+hosts each need the other's URL, so neither can be finished in one pass.
+
 **Two variables are required.** The app *refuses to start* on a known
 host if they're missing, rather than serving traffic with signing keys
 that are published in this repository:
@@ -340,6 +378,22 @@ that are published in this repository:
 SECRET_KEY          python -c "import secrets; print(secrets.token_urlsafe(48))"
 JWT_SECRET_KEY      (a second, different one)
 ```
+
+**Set `ADMIN_EMAILS` before anyone signs up.** Admin rights are otherwise
+granted only by `make_admin.py`, which needs a shell inside the
+container — and a managed host does not give you one. Without it the
+first person to sign up gets an ordinary account and *nothing on the
+running system can promote it*: the console, policy, personnel, reports
+and notices are all unreachable. Listing an email here makes that account
+an administrator from its first request, and it is re-applied at every
+start, so setting the variable and creating the account can happen in
+either order.
+
+**Set `TRUSTED_PROXY_HOPS=1` on any managed host.** They terminate TLS at
+their own load balancer, so every request arrives from a single address.
+Left at the default `0` the rate limiter counts the whole internet as one
+caller and real users lock each other out — the public notice pages
+first, where the limiter is the only protection there is.
 
 **Set `DATABASE_URL` too, in practice.** Spaces and Render have
 ephemeral filesystems: the default SQLite file and every evidence photo
