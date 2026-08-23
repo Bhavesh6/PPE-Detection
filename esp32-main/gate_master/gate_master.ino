@@ -225,12 +225,23 @@ static int dutyFor(float tempC, float load) {
    and again whenever it asks with ID?.
 
    Kept as a '#' comment line: the Pi's protocol parser already ignores
-   these, so this cannot be mistaken for a badge or a reading. */
+   these, so this cannot be mistaken for a badge or a reading.
+
+   The MAC is cached rather than read on demand. Calling esp_read_mac()
+   at the top of setup(), before the Wi-Fi stack is up, put this board
+   into a boot loop that printed nothing but reset noise - flashed and
+   observed, not theorised. The address is only available for certain
+   once the radio has been brought up, so identity is printed twice: a
+   bare line immediately, which is all the Pi's probe needs to recognise
+   us, and the full line with the address once it is known. */
+static char gMacText[13] = "";
+
 static void printIdentity() {
-  uint8_t mac[6] = {0};
-  esp_read_mac(mac, ESP_MAC_WIFI_STA);
-  Serial.printf("# SAFETYFIRST gate-master 1 %02X%02X%02X%02X%02X%02X\n",
-                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  if (gMacText[0]) {
+    Serial.printf("# SAFETYFIRST gate-master 1 %s\n", gMacText);
+  } else {
+    Serial.println("# SAFETYFIRST gate-master 1");
+  }
 }
 
 /* Lines from the Pi. Unknown input is ignored rather than answered, so
@@ -350,6 +361,11 @@ void setup() {
     esp_read_mac(mac, ESP_MAC_WIFI_STA);
     Serial.printf("# ESP-NOW ready, mac %02X:%02X:%02X:%02X:%02X:%02X, channel %d\n",
                   mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], WiFi.channel());
+    // Cache it for printIdentity(), and repeat the identity now that the
+    // address is known, so the Pi can log which physical board answered.
+    snprintf(gMacText, sizeof(gMacText), "%02X%02X%02X%02X%02X%02X",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    printIdentity();
   } else {
     Serial.println("# ESP-NOW init failed - badges will still work");
   }
