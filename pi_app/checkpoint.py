@@ -77,6 +77,25 @@ PASSWORD = os.environ.get("SAFETYFIRST_PASSWORD", "")
 # comma-separated list, or a name fragment — so this is deliberately not
 # int()-ed here, where a name would raise at import and take the gate down.
 SEND_INTERVAL = float(os.environ.get("SAFETYFIRST_INTERVAL", "0.5"))
+
+# Where detection runs.
+#
+#   auto     (default) the backend decides, and the on-device model takes
+#            over whenever the backend cannot be reached. Needs
+#            SAFETYFIRST_ONNX_MODEL set, or there is nothing to fall back
+#            to and this behaves as "backend".
+#   backend  the backend only. A gate that cannot reach it stops deciding.
+#   local    on-device only. The network is never in the decision path.
+#
+# auto is the default because a construction site is where the link is
+# worst and the gate matters most. Inference on the server keeps the Pi
+# cheap; the local model is what stops a dropped tunnel from becoming a
+# checkpoint that shrugs at everyone who walks up to it.
+INFERENCE_MODE = (os.environ.get("SAFETYFIRST_INFERENCE") or "auto").strip().lower()
+
+# How long to keep deciding on-device after the backend misses, before
+# spending another frame's socket timeout finding out whether it is back.
+BACKEND_RETRY_SECONDS = float(os.environ.get("SAFETYFIRST_BACKEND_RETRY", "15"))
 WINDOWED = os.environ.get("SAFETYFIRST_WINDOWED", "") == "1"
 GPS_INTERVAL = float(os.environ.get("SAFETYFIRST_GPS_INTERVAL", "20"))
 # How often the local mirror refreshes while the cloud is reachable. Often
@@ -512,6 +531,13 @@ def capture_loop(state: State, api: ApiClient, detector=None) -> None:
     last_sent = 0.0
     active_index = None
 
+    # Failover state. After the backend misses, stop asking it for a while:
+    # send_frame() waits on a socket timeout, so retrying every frame would
+    # make an unreachable backend slower than no detection at all — the
+    # fallback has to be quick or it is not a fallback.
+    backend_resume_at = 0.0
+    source = "backend"
+
     while True:
         with state.lock:
             if not state.running:
@@ -571,29 +597,28 @@ def capture_loop(state: State, api: ApiClient, detector=None) -> None:
         if checking and now - last_sent >= SEND_INTERVAL:
             last_sent = now
 
-            if detector is not None:
-                # On-device inference: no network in the decision path at
-                # all. state.connected is left alone here on purpose — it
-                # means "can we reach the backend", which is still true or
-                # false regardless of where the model ran, and the loops
-                # that actually talk to the backend are the ones that know.
-                with state.lock:
-                    required = list(state.required)
-                    held = state.active_alert is not None
-                detections = detector.detect(frame)
-                verdict, missing = rule_locally(detections, required, held)
-                with state.lock:
-                    state.detections = detections
-                    state.verdict = verdict
-                    state.missing = missing
-                continue
-
-            result = api.send_frame(frame)
             with state.lock:
-                if result is None:
-                    state.connected = False
-                    state.message = "Lost contact with the detection service"
-                else:
+                required = list(state.required)
+                held = state.active_alert is not None
+
+            can_fall_back = detector is not None and INFERENCE_MODE != "backend"
+            pinned_local = detector is not None and INFERENCE_MODE == "local"
+
+            # Ask the backend unless we are pinned on-device or still
+            # waiting out a recent failure.
+            result = None
+            if not pinned_local and now >= backend_resume_at:
+                result = api.send_frame(frame)
+                if result is None and can_fall_back:
+                    backend_resume_at = now + BACKEND_RETRY_SECONDS
+
+            if result is not None:
+                if source != "backend":
+                    print("[inference] backend is answering again — "
+                          "detection back on the server", file=sys.stderr)
+                    source = "backend"
+                    backend_resume_at = 0.0
+                with state.lock:
                     state.connected = True
                     state.message = ""
                     state.detections = result.get("detections", [])
@@ -601,6 +626,35 @@ def capture_loop(state: State, api: ApiClient, detector=None) -> None:
                     state.missing = result.get("missing_ppe", [])
                     if result.get("required_ppe"):
                         state.required = result["required_ppe"]
+                continue
+
+            if can_fall_back:
+                # On-device inference: no network in the decision path at
+                # all. This is the whole point of keeping a model on the
+                # gate — a checkpoint that stops deciding when the office
+                # link drops is a checkpoint that fails exactly when a
+                # site is worst connected.
+                if source != "local" and not pinned_local:
+                    print("[inference] backend unreachable — detecting "
+                          "on-device until it returns", file=sys.stderr)
+                    source = "local"
+                detections = detector.detect(frame)
+                verdict, missing = rule_locally(detections, required, held)
+                with state.lock:
+                    state.detections = detections
+                    state.verdict = verdict
+                    state.missing = missing
+                    if not pinned_local:
+                        # connected means "can we reach the backend", which
+                        # is genuinely false — say so, but do not claim the
+                        # gate has stopped deciding, because it has not.
+                        state.connected = False
+                        state.message = "Offline — detecting on this device"
+                continue
+
+            with state.lock:
+                state.connected = False
+                state.message = "Lost contact with the detection service"
 
     if cap is not None:
         cap.release()
@@ -1463,7 +1517,20 @@ def main() -> int:
     # with the network completely down, which the backend path cannot —
     # and unlike the AI HAT it needs nothing that isn't already installed.
     detector = open_detector()
-    print(f"Inference: {detector.name if detector else 'backend (send frames to the API)'}")
+    # Say which arrangement is in force, not just which model loaded. The
+    # difference between "the backend decides" and "the backend decides and
+    # this device takes over if it cannot" is the whole resilience story,
+    # and it should be legible in the first ten lines of a log.
+    if detector is None:
+        print("Inference: backend only (no on-device model configured — "
+              "set SAFETYFIRST_ONNX_MODEL for offline fallback)")
+    elif INFERENCE_MODE == "local":
+        print(f"Inference: on-device only — {detector.name}")
+    elif INFERENCE_MODE == "backend":
+        print(f"Inference: backend only — {detector.name} loaded but pinned off")
+    else:
+        print(f"Inference: backend, falling back to {detector.name} "
+              f"if it cannot be reached (retry every {BACKEND_RETRY_SECONDS:.0f}s)")
 
     gps = open_gps()
     print(f"GPS: {gps.name}")
