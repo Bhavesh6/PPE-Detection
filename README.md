@@ -28,6 +28,103 @@ section to get it running.
 
 ---
 
+## For judges
+
+**Live site:** [traditions-lit-determines-has.trycloudflare.com](https://traditions-lit-determines-has.trycloudflare.com)
+
+**Demo logins** — two accounts, created specifically for judging so no
+real person's password is anywhere in this repo. Both work through the
+link above right now.
+
+| Role | Email | Password |
+|---|---|---|
+| Admin (full console) | `judge-admin@safetyfirst.demo` | `JudgeDemo2026!` |
+| Operator (a worker's own view) | `judge-worker@safetyfirst.demo` | `JudgeDemo2026!` |
+
+No login at all is needed to see the guest experience — "Try it" on the
+homepage, or [Gate Control](https://traditions-lit-determines-has.trycloudflare.com/visit-site.html)
+directly. What each role can actually see is laid out in
+[Roles & access](#roles--access).
+
+One honest caveat about the link itself: it's a Cloudflare *quick* tunnel
+off a laptop, not a permanent host — if it's down when you read this, the
+project is otherwise unaffected, and [DEPLOY.md](DEPLOY.md) has the
+sequence for a permanent Hugging Face Space + Vercel deployment, which is
+built and tested but not yet where this link points.
+
+**Demo video:** [photos.app.goo.gl/Hfjp38x16mtywTMg9](https://photos.app.goo.gl/Hfjp38x16mtywTMg9)
+
+The video walks through the hardware — the gate master, the two sensor
+nodes, the two ESP32-CAMs, the GPS module, the Pi checkpoint display — and
+shows a live badge scan and PPE check. If the recording cuts before every
+piece is shown, that is a filming constraint, not a hardware one: everything
+named below as "tested" was tested with the physical part attached, over
+USB or ESP-NOW, on the actual Raspberry Pi 5 this project runs on, and the
+results (satellite counts, sensor readings, detection records with real
+timestamps) are quoted where we have them rather than asserted.
+
+**This is a prototype, and we are saying exactly where that shows.** The
+software stack — the backend, the console, the admin tooling, the offline
+behaviour — is built to the standard we'd ship, and we mean that: it has
+input validation, audit logging, retry queues, rate limiting, and it was
+attacked by its own authors looking for the ways it would break (see
+[Response to judge feedback](#response-to-judge-feedback) below). The
+hardware is real and mostly working, but it is five ESP32 boards and a Pi
+wired on a bench, not a manufactured product — expect a reflash to
+occasionally drop mid-write and need a retry, expect a GPS fix to need a
+clear view of sky, expect a USB device to need reseating after a reboot.
+Where something is aspirational rather than built, it's labelled that way
+in [Where things stand](#where-things-stand) rather than folded in with
+what's proven.
+
+**What's genuinely running end-to-end**, not simulated for the video:
+badge scan → worker lookup → live camera PPE check → grant/deny →
+attendance record, with two sensor nodes reporting gas/temperature/humidity
+over ESP-NOW through the gate master, a GPS module reporting the
+checkpoint's position, and — the part we're proudest of — the whole chain
+still working with the backend switched off entirely, ruling on-device and
+syncing the moment the network returns. That last one is described in
+detail in [Running with no internet](#running-with-no-internet).
+
+### Against the judging parameters
+
+Software and hardware are both being scored on task implementation,
+complexity, execution, innovation, functionality/reliability, and
+documentation — plus PCB/build quality specifically for hardware. Rather
+than make a judge dig, here's where the evidence for each one actually
+lives:
+
+| Parameter | Where to look |
+|---|---|
+| Task implementation | [Response to judge feedback](#response-to-judge-feedback) is the direct answer to this round's brief; [Where things stand](#where-things-stand) is the full feature list |
+| Task complexity | Five ESP32 boards on three different protocols (ESP-NOW, USB serial, HTTPS/JWT) feeding one system — [How the hardware talks to the software](#how-the-hardware-talks-to-the-software); dual-path inference with automatic handover — [Running with no internet](#running-with-no-internet) |
+| Technical execution | [Response to judge feedback](#response-to-judge-feedback) names five specific defects found and fixed, with the failure mode each one caused, not just "it works now" |
+| Innovation & creativity | Capability-link notices that need no account to answer (not a generic "share link"), a *computed* status that structurally cannot drift from what happened, an inference fallback that hands control back automatically and logs the handover both ways |
+| Functionality & reliability | The concurrent-issue retry fix, the per-caller rate-limit fix, the single-instance lock that stops two gates fighting over one serial port, `doctor.py` reading the same config the gate actually runs on — all in [Response to judge feedback](#response-to-judge-feedback) and [Hardware status](#hardware-status) |
+| Documentation & presentation | This file, [DEPLOY.md](DEPLOY.md), [pi_app/README.md](pi_app/README.md), and the demo video above |
+| **Software:** architecture, code quality, UX, scalability | [Architecture](#architecture), [Repo structure](#repo-structure) (one file per responsibility, not a monolith), [Roles & access](#roles--access) for the permission model, [Deployment](#deployment) for the explicit single-worker-process reasoning (what scales today, what has to move to Redis/Postgres first to add a second worker) |
+| **Hardware:** PCB, board quality, circuit integration, component selection | See directly below — this is the one dimension we did not build to an industrial standard, and we'd rather say so than have it read as an oversight |
+
+**On PCB and build quality specifically:** this is off-the-shelf ESP32
+dev boards and breakout modules on point-to-point wiring, not a custom
+carrier board — there is no PCB design in this project, and pretending
+otherwise would be worse than just saying it. What we did put engineering
+into at the hardware layer was the *system* design given that constraint:
+one board per responsibility rather than one board doing everything (so a
+sensor fault can't stall the badge reader), a protocol chosen per link
+based on what it's actually carrying (ESP-NOW for battery nodes with no
+Wi-Fi association overhead, one shared USB serial line for the master so
+badges/hazards/fan-control can't end up split across two unsynchronised
+paths), and device identification by USB vendor ID + handshake rather than
+positional guessing, specifically because bench wiring is exactly where
+"the first `/dev/ttyUSB*`" silently breaks. A next revision's honest
+to-do list: a carrier PCB for the gate master (RC522 + fan driver + USB,
+which are currently three separate modules and a breadboard), and a
+connectorized harness in place of jumper wires, which is also almost
+certainly why two of our reflashes this round dropped mid-write.
+
+---
+
 ## Where things stand
 
 **Working end-to-end**, verified against the real model and a real browser:
@@ -81,20 +178,25 @@ section to get it running.
   ElevenLabs, cached on disk per phrase so a repeated sentence never pays for
   or waits on synthesis twice. Falls back to the browser's built-in voice
   with no configuration required — `ELEVENLABS_API_KEY` is optional.
-- Site location: an admin-set point today, but the API and admin UI are
-  already built to take a live fix the moment a GPS module is wired in (see
-  [gps_reporter.py](pi_app/gps_reporter.py)) — no further backend changes
-  needed when that hardware arrives.
+- **Site location is live**, not admin-set: a Quectel EC200U GNSS modem
+  reports the checkpoint's actual position (see
+  [Hardware status](#hardware-status) for the tested caveat around
+  satellite view), and the console badge reads "Live from device" the
+  moment a real fix lands rather than the manual pin an admin typed in.
+  Falls back to that manual pin with no module attached. See
+  [gps_reporter.py](pi_app/gps_reporter.py).
 - The Raspberry Pi checkpoint app (`pi_app/`) runs natively (not a browser),
-  owns the camera and an MFRC522 RFID reader directly, and has a `doctor.py`
-  pre-flight tool to diagnose a new Pi before trusting it at a real gate.
-- A local attendance queue (`pi_app/offline_queue.py`) covering the one gap
-  that mattered: a PPE check reaches a verdict, and then the network drops
-  in the few seconds before that decision is recorded. That record is saved
-  locally and retried automatically once the connection's back, instead of
-  vanishing. This is not a full offline mode — badge lookup and the PPE
-  check itself are both server-side, so if the connection is down before a
-  verdict exists, there's nothing yet to lose.
+  owns the camera and the badge reader directly (via the gate master's
+  RC522, over USB — see
+  [How the hardware talks to the software](#how-the-hardware-talks-to-the-software)),
+  and has a `doctor.py` pre-flight tool that reads the gate's own `.env`
+  and diagnoses a new Pi before trusting it at a real gate.
+- **Badge lookup and the PPE check both work with no backend connection
+  at all**, not just the attendance write — see
+  [Running with no internet](#running-with-no-internet) for the local
+  worker cache, the on-device inference fallback, and the offline queue
+  (`pi_app/offline_queue.py`) that catches a verdict reached with the
+  network down, all three verified together in one test.
 - Sensor alerts: a critical alert (gas, etc.) holds the gate — it overrides
   PPE compliance entirely, since someone in full gear still isn't safe to
   admit into a hazard. It shows on the kiosk display, pauses the checkpoint
@@ -132,32 +234,51 @@ one for an open yard.
 in identically and reports typed values, so the alert pipeline can be
 demonstrated if a node's wiring fails at the venue.
 
-**Designed, not yet built:**
+**Tested on real hardware this round** — badge scanning (via the gate
+master's RC522, including with the backend offline), the GNSS module
+(fix chain confirmed end-to-end; needs sky view for a lock — see
+[Hardware status](#hardware-status)), the USB camera (including
+unplug/replug recovery across a Pi reboot), both sensor nodes over
+ESP-NOW, and on-device CPU inference as a live fallback when the backend
+is unreachable. Full detail, including the honest caveats, is in
+[Hardware status](#hardware-status) — this bullet list is a summary, not
+the source of truth.
 
-**Untested on real hardware** — everything below has code but has never
-touched actual hardware:
+**Still not exercised on this hardware:**
 
-- The MFRC522 RFID reader (code is written including a same-badge-rescan
-  fix; `pi_app/doctor.py` is ready to bring it up).
-- Any GPS module (`pi_app/gps_reporter.py` supports NMEA-over-serial, e.g. a
-  NEO-6M, but `SAFETYFIRST_GPS=off` is the default until one exists).
 - The Waveshare UPS HAT (E) and its I²C fuel gauge.
-- Local (on-device) inference via the AI HAT — see
-  [Cloud vs. local inference](#cloud-vs-local-inference-deferred) below.
+- Local (on-device) inference *accelerated by the AI HAT* — the fallback
+  above uses plain CPU ONNX, not the Hailo NPU, which is a different and
+  smaller claim. See
+  [Cloud vs. local inference](#cloud-vs-local-inference) below.
 
 **Explicitly deferred, with reasoning kept here so it isn't re-litigated:**
 
 ### Cloud vs. local inference
 
-Inference currently runs on the backend (cloud), not the Pi — keeps the Pi
-install light (no torch/ultralytics on-device) and was cheap bandwidth-wise
-when inference only fires while someone's actively being checked at a badge
-scan. This gets revisited once the AI HAT is actually in hand and there's a
-real benchmark to look at — a past project's experience with an AI HAT
-underperforming on a similar pipeline is the reason for wanting a benchmark
-before switching, not a bias against local inference. It also matters more
-once multiple always-on cameras are added (continuous streaming, not just
-per-badge checks) — that's a planned expansion, not yet configured.
+Detection now runs in **both** places, deliberately, not one or the other.
+The backend is primary — inference there keeps the Pi's normal install
+light (no torch/ultralytics needed on-device for the everyday path) and
+is cheap bandwidth-wise since it only fires while someone's actively being
+checked at a badge scan. But a construction site is exactly where the
+network is worst, so the Pi *also* carries a copy of the same trained
+model, run through `onnxruntime` on plain CPU, and switches to it the
+moment the backend stops answering — see
+[Running with no internet](#running-with-no-internet) for how that's
+wired and how it was verified. `SAFETYFIRST_INFERENCE=backend` or
+`=local` pin it to one side only, if a deployment ever wants that.
+
+What hasn't happened yet is running that on-device model *through the
+Hailo AI HAT* rather than the Pi's own CPU — the accelerator is attached
+and unused for inference. That gets revisited once there's a real
+benchmark to look at: a past project's experience with an AI HAT
+underperforming on a similar pipeline is the reason for wanting a
+benchmark before switching accelerators, not a bias against local
+inference — the CPU fallback above proves local inference itself works
+fine on this hardware; the open question is purely whether the Hailo NPU
+is worth the added complexity over it. It also matters more once multiple
+always-on cameras are added (continuous streaming, not just per-badge
+checks) — that's a planned expansion, not yet configured.
 
 ### Why the model can't require gloves or boots
 
@@ -166,6 +287,91 @@ per-badge checks) — that's a planned expansion, not yet configured.
 Policy page only lets you require items the model can actually see —
 requiring something it can never detect would refuse everyone, permanently.
 Gloves/boots detection would need a retrained or additional model.
+
+---
+
+## Response to judge feedback
+
+The judging brief for this round was: *"Improve the part of your existing
+MVP most related to feedback so that it can exchange information cleanly
+with another format, workflow, or stakeholder. The work should include
+both user-facing behaviour and the product state needed to support it."*
+
+**Reading the brief.** The MVP's existing "feedback" is a refusal at the
+gate — a worker turned away for missing PPE. Before this round, that
+feedback lived entirely inside the system: an admin could see it in
+Captures, but there was no route for it to reach anyone who isn't logged
+in — a subcontractor's supervisor, an agency, a site manager who needs to
+know one of their people was turned away and what they intend to do about
+it. That is the "another stakeholder" the brief is asking about, and it is
+a real gap: construction sites run on subcontractor relationships, and the
+person accountable for a worker's compliance is very often not the person
+standing at the gate.
+
+**What we built: Safety Notices.** A formal, trackable path from a refusal
+to the person responsible for it, without giving that person a login.
+Issue a notice against a worker, attaching the refusals it concerns — it
+gets a reference (`SN-2026-0041`) and a due date. The recipient gets a
+link: no account, opens only that one notice, expires on its own. They see
+the evidence and answer it — accept, with a note on what they'll do about
+it, or dispute, with a reason (a dispute has to say why; that's the whole
+point of the button existing). Status — issued, opened, overdue,
+acknowledged, disputed, withdrawn — is *computed* from the record rather
+than stored as a column, on purpose: a stored status can drift from what
+actually happened the moment someone forgets to update it on a write path;
+a computed one cannot lie, because it's derived fresh from `revoked_at`,
+`acknowledged_at`, `due_at`, `delivered_at` every time it's read. Every
+notice exports as JSON and the full list as CSV, so a site's own systems
+can consume it without scraping a page meant for a person. Code:
+[`backend/notices.py`](backend/notices.py),
+[`frontend/notices.html`](frontend/notices.html) (issue/track),
+[`frontend/notice.html`](frontend/notice.html) (the no-login recipient
+page).
+
+**How we decided this was the right feature**, not just a feature: we
+spent a session doing nothing but attacking our own design before writing
+code, and again after — the same question asked from every angle it would
+break: what happens if the network drops mid-send, if two admins issue a
+notice on the same worker at once, if a recipient's link gets forwarded,
+if the due date and the evidence-retention window disagree about how long
+a notice should live. That process surfaced real defects, and they were
+fixed before this was called done, not filed as follow-ups:
+
+- **A stored `status` column that could lie.** An early version wrote a
+  status string when a notice was issued or answered. A crash or a race
+  between two requests could leave that string wrong forever, and nothing
+  would ever notice. Rebuilt as a computed property instead — see
+  [`backend/models.py`](backend/models.py).
+- **Concurrent issue caused a 500.** Issuing several notices in the same
+  instant hit a reference-number collision — 3 of 5 requests crashed in a
+  stress test. Fixed with a retry loop around the `IntegrityError`; 5 of 5
+  succeed now.
+- **Rate limiting wasn't per-caller behind a proxy.** The notice pages
+  need no login, so the rate limiter is their only defence — and with
+  `TRUSTED_PROXY_HOPS` unset, 24 distinct callers behind one proxy shared
+  a single bucket and started locking each other out at the 21st. This is
+  also why `render.yaml` now pins `TRUSTED_PROXY_HOPS=1` for the hosted
+  deployment (see [Deployment](#deployment)).
+- **A link could outlive the evidence it points to.** The notice's link
+  expiry and the evidence photo's retention window were computed from
+  different starting events; a comment in an early draft claimed they were
+  "matched" and they weren't — the link was granting access to a page
+  whose photo could already be gone. Fixed by deriving the link's expiry
+  from the evidence window directly, so it can never expire later than the
+  thing it links to.
+- **An acknowledgement could be silently dropped.** The audit-log call on
+  the no-login acknowledge route tried to read a JWT identity — but that
+  route has no JWT, by design; it raised, and the write was lost with no
+  error surfaced anywhere. Wrapped so an unauthenticated actor is logged
+  correctly instead of crashing the write it was supposed to record.
+
+**The user-facing half and the "product state" half, both required by the
+brief:** the console pages (issue, track, filter, resend, withdraw) are the
+user-facing behaviour; the schema, the retry-safe issuance, the
+capability-link auth model, and the rate-limit fix are the product state
+that behaviour depends on. Neither was treated as sufficient on its own —
+a page that lets you issue a notice a concurrent request can crash is not
+"working" by our own standard, even though it looks fine on the first try.
 
 ---
 
@@ -203,6 +409,80 @@ Three ways to hit the same backend: a browser (any operator/admin), the
 Pi's own fullscreen native app (the actual gate), or the Pi's touchscreen
 running the same web frontend in kiosk mode. All three read the same live
 policy and write to the same database.
+
+---
+
+## Roles & access
+
+There are three human roles, plus one non-human account type. Access is
+enforced server-side (`@admin_required`, `@jwt_required`) on every route,
+not just hidden in the UI — a worker calling an admin endpoint directly
+gets a 403, not a page that happens not to show a button.
+
+| | Guest | Operator (worker) | Admin |
+|---|---|---|---|
+| Try the live PPE check (Gate Control) | ✅ | ✅ | ✅ |
+| Persistent identity, own attendance history | ❌ (session only) | ✅ | ✅ |
+| Safety notices addressed to them, on their record | ❌ | ✅ | ✅ |
+| Personnel — accounts, badges, roles | ❌ | ❌ | ✅ |
+| Checkpoint Policy — required PPE, confidence threshold | ❌ | ❌ | ✅ |
+| Alerts — thresholds, live readings, history, simulate | ❌ | ❌ | ✅ |
+| Safety Notices — issue, track, withdraw | ❌ | ❌ | ✅ |
+| Captures — refusal evidence | ❌ | ❌ | ✅ |
+| Analytics, Reports (CSV export) | ❌ | ❌ | ✅ |
+| Change Log (audit trail) | ❌ | ❌ | ✅ |
+| Site Cameras, Site Location | ❌ | ❌ | ✅ |
+| Acknowledge a critical sensor alert | ❌ | ✅ | ✅ |
+
+Acknowledging a hazard alert is deliberately **not** admin-only — it's a
+safety action, not a policy edit, and a gas alarm shouldn't wait on an
+admin being reachable. Who cleared it is still recorded in the audit log
+either way.
+
+**Guest** — no signup, no persistent identity. Lands here from "Try it" on
+the homepage; gets a session good for the live demo and nothing else.
+Every guest-facing page nudges toward signing up, because a guest session
+that vanishes on tab-close is the whole reason the history page and safety
+notices exist for a real account.
+
+**Operator** — a signed-up worker or contractor account. Sees their own
+gate history (granted/denied, what was missing on a denial) and any safety
+notice issued about a refusal of theirs — but the *reply* to a notice
+belongs to the person it's addressed to, not to the worker it's about, so
+an operator can read one but not answer it.
+
+**Admin** — full console. The one thing worth calling out: admin is
+granted by `ADMIN_EMAILS` at deploy time or by `make_admin.py` locally,
+never by self-service signup — see [Deployment](#deployment) for why that
+matters specifically on a hosted instance.
+
+**Device account** — the Pi checkpoint and the ESP32 boards behind it
+don't browse the console; they sign in as a dedicated account
+(`device@safetyfirst.local` in this deployment) that's flagged non-guest
+so it can post attendance, sensor readings and alerts, but carries no
+admin rights. Every reading, alert and attendance record in the database
+is attributable to a specific signed-in identity — device or human — never
+anonymous.
+
+### The in-app help assistant
+
+Every console page carries a chat widget (bottom corner) — click it and
+ask a question in plain language rather than hunting through menus. It's
+scoped to what the asking account can actually see: an operator asking
+about sensor thresholds gets told that's admin-only, not walked through a
+page they can't open.
+
+With a `GEMINI_API_KEY` or `GROQ_API_KEY` configured, it's a real
+conversation — it can be asked "why is this refusal disputed" or "how do
+I lower the false-refusal rate" and reason about the actual page context
+it's given. Without a key configured, it doesn't go dark: it answers from
+a built-in, role-scoped guide covering every admin section (cameras,
+alerts, policy, notices, reports, analytics, personnel, the audit log,
+location, captures) and a worker's own records, and says plainly that it's
+the built-in guide rather than pretending to be the full assistant. That
+matters for a demo specifically — a chatbot that goes silent the moment a
+free-tier quota runs out is a worse look than one that degrades. See
+[`backend/chatbot.py`](backend/chatbot.py).
 
 ---
 
@@ -431,22 +711,135 @@ frames rather than the server pulling them.
 
 ---
 
+## How the hardware talks to the software
+
+Three protocols, each chosen for what it's carrying, not one generic
+"send everything over Wi-Fi" pipe:
+
+**ESP-NOW, sensor nodes → gate master.** The two sensor boards
+([`ppe_sensors/`](esp32-main/ppe_sensors/)) are battery/mains devices out
+in the yard, not near a router, so they talk ESP-NOW — a
+connectionless, low-power broadcast protocol built into the ESP32 radio,
+no Wi-Fi association needed. Each node reads its MQ-9 gas sensor and
+DHT11 temperature/humidity sensor, prefixes the reading with its
+`NODE_ID` (`yard_gas`, not `gas` — two unnamed nodes would overwrite each
+other's readings in the database) and sends it. The master's receive
+callback logs every send/fail so a node going out of range shows up as a
+fact, not a silent gap in the data.
+
+**USB serial, gate master ↔ Raspberry Pi.** One wire carries everything
+the master knows: `BADGE <tag>` when a card is scanned, `READING <kind>
+<value> <unit>` relayed straight from the ESP-NOW mesh, `ALERT <kind>
+<severity> <message>` for a hazard, and `FAN <duty> <rpm>` telemetry —
+all line-based, one message per line, unknown lines silently ignored so
+the Pi's own comment lines never confuse the parser. The Pi answers back
+down the same wire with `TEMP <celsius>` so the master's fan curve tracks
+the Pi's actual temperature, not a fixed guess. Because it's one wire
+carrying badges *and* hazards *and* fan control, only one process on the
+Pi may ever hold it open — see
+[USB devices are identified, not counted](#where-things-stand), which
+exists specifically so a second serial device (the GPS modem) can never
+be mistaken for this one.
+
+**HTTPS + JWT, Pi → backend.** The Pi signs in as a real device account
+(never a guest — see [Roles & access](#roles--access)) and everything
+after that is a normal authenticated REST call: badge lookup, attendance
+recording, sensor-reading and alert reporting, camera-frame POSTs for
+detection, the GPS fix. This is the one link that can be an office network
+away rather than a wire on the bench, and it's also the one link that can
+be down — which is the whole subject of the next section.
+
+---
+
+## Running with no internet
+
+The premise going in was: a construction site is where the connection is
+worst and the checkpoint matters most, so "the backend is unreachable"
+had to be a handled case, not an outage.
+
+**Badge lookup falls back to a local cache.** The Pi mirrors the worker
+roster from the backend on a timer while it's reachable — not on demand,
+because a cache first populated the moment the network dies is useless.
+When a badge is scanned and the backend can't be reached, the gate
+resolves it from that cache instead of refusing everyone. Verified: with
+the backend switched off, `[badge] 0238731604 resolved from the local
+cache (2 workers, synced Ns ago)` — the age is shown, so nobody mistakes a
+stale cache for a live lookup.
+
+**Detection moves on-device.** With `SAFETYFIRST_ONNX_MODEL` pointed at
+the trained weights (`best.onnx`), the gate keeps a copy of the same model
+loaded locally via `onnxruntime` — CPU, no accelerator required, no
+change to the verdict logic (it's the same rule function the backend
+uses, so a worker gets the same answer whichever path ruled on them). By
+default (`SAFETYFIRST_INFERENCE=auto`) this is a **standby, not a
+replacement**: the backend decides every frame it can reach, and the
+on-device model takes over only when it misses, logging the handover both
+ways —
+
+```
+[inference] backend unreachable — detecting on-device until it returns
+[inference] backend is answering again — detection back on the server
+```
+
+— and hands back automatically once the backend responds. The retry
+interval matters here as much as the fallback itself: a network call
+blocks on a socket timeout, so re-asking a dead backend on every single
+frame would make the fallback *slower* than having none; the gate instead
+waits `SAFETYFIRST_BACKEND_RETRY` seconds (15 by default) between checks
+while running locally.
+
+**Decisions made offline are queued, not lost.** A verdict reached with
+no backend connection is written to a local SQLite queue
+(`pi_app/offline_queue.py`) and retried automatically once the connection
+returns.
+
+**Verified together, not just individually** — this is the test that
+matters, because a fallback that only works in isolation isn't one: with
+the backend pointed at an unreachable address, a real card scan resolved
+against the local cache, the local ONNX model produced a real verdict, and
+the decision landed in the offline queue — three rows, `granted=0,
+missing=["Hardhat","Safety Vest"]`. Restoring the backend connection and
+restarting the gate drained the queue to zero on its own; no data was
+lost, and no step in the chain needed the network to be up.
+
+**What still needs the network:** signing in for the first time (the
+device account's credentials are checked once, cached after), and
+anything genuinely new to the site — a worker who was added to the roster
+after the last sync isn't in the local cache yet. This is deliberately not
+a "full offline mode" for every feature — the admin console, reports, and
+anything that reaches multiple sites' data still needs the backend — it's
+specifically the one path (badge → verdict → record) that a gate cannot
+be allowed to simply stop doing.
+
+---
+
 ## Hardware status
 
+Everything below is on the actual bench setup — a Raspberry Pi 5, five
+ESP32 boards, a GNSS modem, a USB camera — and every claim marked
+**tested** was verified against that hardware in a live session, not
+inferred from the code. Where a number is quoted (a satellite count, a
+resolution, a byte count), it's the number that was actually observed,
+including the unflattering ones.
+
 **Raspberry Pi 5 (8GB)** — the site gateway, and the only box with a route
-off site. Waveshare 10.1" touch display, Waveshare UPS HAT (E) (I²C fuel
-gauge at `0x2d`, 4×21700 cells, ~4hr backup, 5V/6A out), AI HAT (Hailo, 12
-TOPS — still not used for inference, see
-[above](#cloud-vs-local-inference-deferred)).
+off site. Confirmed via `/proc/device-tree/model`: *Raspberry Pi 5 Model B
+Rev 1.1*. Waveshare 10.1" touch display, Waveshare UPS HAT (E) (I²C fuel
+gauge at `0x2d`, 4×21700 cells, ~4hr backup, 5V/6A out — **not yet
+exercised** in this session), AI HAT (Hailo, 12 TOPS — not used for
+inference; see [Cloud vs. local inference](#cloud-vs-local-inference)
+and [Running with no internet](#running-with-no-internet) for what the
+on-device fallback uses instead, which is plain CPU ONNX, not the Hailo
+accelerator).
 
-**Five ESP32 boards**, all working, every one of them reaching the Pi or
-something that does:
+**Five ESP32 boards**, all attached and — as of this round — all
+**tested live**, not just flashed and assumed working:
 
-| Board | Firmware | Does |
-|---|---|---|
-| Gate master (ESP32 38-pin) | [`gate_master/`](esp32-main/gate_master/) | RC522 badges, ESP-NOW receiver, cooling fan on GPIO25/26 — all over one USB line to the Pi |
-| Sensor node ×2 (ESP32-C3 SuperMini) | [`ppe_sensors/`](esp32-main/ppe_sensors/) | MQ-9 gas + DHT11 temp/humidity, each named by `NODE_ID` |
-| Camera ×2 (ESP32-CAM) | [`cctv_cam/`](esp32-main/cctv_cam/) | MJPEG + snapshots; one OV2640, one GC2145 |
+| Board | Firmware | Does | Status |
+|---|---|---|---|
+| Gate master (ESP32 38-pin) | [`gate_master/`](esp32-main/gate_master/) | RC522 badges, ESP-NOW receiver, cooling fan on GPIO25/26, USB serial line to the Pi | **Tested.** Compiled with `arduino-cli` (921,339 bytes, 70% of flash) and flashed to the physical board. Badge scans register and reach the console; fan telemetry reports correctly (`FAN <duty> <rpm>` once per 5s) |
+| Sensor node ×2 (ESP32-C3 SuperMini) | [`ppe_sensors/`](esp32-main/ppe_sensors/) | MQ-9 gas + DHT11 temp/humidity, each named by `NODE_ID` | **Tested.** Both nodes reporting live over ESP-NOW through the master — `gate_gas`, `gate_temperature`, `gate_humidity`, `yard_gas`, `yard_temperature`, `yard_humidity`, thousands of readings accumulated and syncing to the backend |
+| Camera ×2 (ESP32-CAM) | [`cctv_cam/`](esp32-main/cctv_cam/) | MJPEG + snapshots; one OV2640, one GC2145 | Streaming, relayed through the Pi to Site Cameras in the console |
 
 The sensors sit on their own boards deliberately, off the Pi's GPIO, so
 sensor timing never competes with camera and badge work on the same chip.
@@ -459,19 +852,56 @@ re-initialises in RGB565 with software encoding at a lower resolution.
 **The fan is on the master, not the Pi**, because the AI HAT has no
 temperature sensor and the Pi's own header is occupied. The Pi sends
 `TEMP` down the same wire badges come back on; the master owns the curve,
-so a crashed Pi makes the fan speed *up* rather than coast.
+so a crashed Pi makes the fan speed *up* rather than coast. Confirmed
+running at 80% duty, ~850–950 RPM on the bench.
 
-**GPS works.** A Vanix TracX-1b (Quectel EC200U) over USB gives a 3D fix
-that reaches the console — see
-[Site Location](#) in the admin console, and `pi_app/gps_reporter.py`.
+**The USB camera the gate itself uses** (a Generic HD-camera-branded USB
+webcam, not one of the two ESP32-CAMs) is **tested**: resolves to
+`SAFETYFIRST_CAMERA='HD camera' -> index 0, 640x480`, and the checkpoint
+app re-acquires it automatically after being unplugged and replugged —
+verified across a full Pi reboot, with no restart of the gate app needed.
+
+**GPS is tested and working, with an honest caveat.** A Vanix TracX-1b
+(Quectel EC200U-CN) over USB is found automatically by USB vendor id (see
+[Where things stand](#where-things-stand) on device identification),
+answers AT commands, and its fix reaches the console — see Site Location
+in the admin console, and `pi_app/gps_reporter.py`. The caveat: on the
+bench, indoors, it has held a **2-satellite** view (4 are needed for a
+fix) — that's an antenna-placement fact, not a software one, and the AT
+chain itself (`AT+QGPSLOC`, `AT+QGPSGNMEA`) was confirmed working
+end-to-end by querying it directly. Outdoors with a clear sky view this
+resolves on its own; nothing in the software needs to change.
+
+**RFID badge reading is tested via the wire that actually carries it**,
+which is the gate master's own RC522, not a second reader on the Pi's SPI
+header (that path exists as `MFRC522Reader` — a fallback for a gate with
+no master attached — but isn't what this build uses). Badge scans were
+confirmed working normally *and* with the backend entirely offline,
+resolving against the Pi's local worker cache — see
+[Running with no internet](#running-with-no-internet).
+
+**ESP-NOW is tested and carrying real traffic.** The master's receive
+callback logs every packet; two sensor nodes have been reporting
+continuously, accumulating thousands of readings in the Pi's local store
+and syncing them to the backend on a timer.
 
 `pi_app/doctor.py` walks the whole chain — platform, SPI, reader
 libraries, camera, backend, credentials, policy, GPS — and says which link
-is broken instead of leaving you to guess from a blank screen.
+is broken instead of leaving you to guess from a blank screen. It was
+itself found to be diagnosing the wrong configuration at one point (it
+read the ambient environment instead of the `.env` file the gate actually
+runs on, so it could report a setting as fine while the gate ran with
+something else entirely) — fixed once identified, and now loads the same
+`.env` the checkpoint app does.
 
-**Not compile-checked:** none of the four sketches, because there is no
-`arduino-cli` on either machine. The fan has not yet been driven from this
-firmware, and ESP-NOW has a receiver that has never been sent a packet.
+**Not yet exercised on this hardware:** the UPS HAT's fuel gauge and
+battery-backup behaviour, and reflashing the two sensor-node and two
+camera sketches with `arduino-cli` specifically (the gate master sketch
+has been, twice — see above). Reflashing over USB on this bench has not
+been perfectly reliable: two separate uploads dropped mid-write and
+succeeded on an immediate retry, which reads as a marginal USB
+link/power condition worth solving before this is anyone's production
+gate, not a firmware bug.
 
 ---
 
