@@ -142,7 +142,9 @@ certainly why two of our reflashes this round dropped mid-write.
 - Configurable checkpoint policy (which PPE is required, confidence
   threshold) — takes effect on the next frame, no restart. All three
   surfaces (web dashboard, kiosk display, camera overlay) read the live
-  policy instead of a hardcoded list.
+  policy instead of a hardcoded list. The browser-based Gate Control page
+  draws live bounding boxes over the camera feed as the model sees them —
+  what's detected is visible, not a verdict handed down from a black box.
 - Evidence capture: refusals are photographed automatically (never grants —
   a deliberate privacy stance), snapshots are operator-triggered. Images
   auto-purge after 30 days; the decision record does not.
@@ -178,6 +180,14 @@ certainly why two of our reflashes this round dropped mid-write.
   display itself, holds a lock so a second tap cannot start a rival gate
   fighting over the camera and serial port, and puts failures on screen
   because there is no console behind an icon.
+- **The public homepage is deliberately minimal** — four sections, one
+  authored motion, no invented metrics — because the first version tried
+  to summarise the whole project on one page and read as generic rather
+  than specific. The original stays reachable as "The full story"
+  (`index-full.html`) rather than being deleted, and both versions carry
+  the same sign-in awareness: a returning admin sees "Dashboard" instead
+  of "Sign in", not the same link regardless of who's looking — a real
+  regression the rewrite introduced and this round fixed.
 - Spoken gate announcements ("Access granted.", "Put on your hardhat...") via
   ElevenLabs, cached on disk per phrase so a repeated sentence never pays for
   or waits on synthesis twice. Falls back to the browser's built-in voice
@@ -517,7 +527,8 @@ backend/
   make_admin.py                    CLI: flag a user as admin
   seed_workers.py                   CLI: create demo workers with fake badge IDs
 frontend/                            Static HTML/CSS/JS, no build step
-  index.html                          Public marketing/status page
+  index.html                          Public homepage — deliberately minimal (see below)
+  index-full.html                       The original, longer homepage — kept, linked as "The full story"
   login.html, signup.html               Auth
   visit-site.html                        Browser-based gate control (camera + live verdict)
   admin.html, alerts.html, violations.html, Admin console pages (all require Auth.requireAdmin())
@@ -757,6 +768,23 @@ detection, the GPS fix. This is the one link that can be an office network
 away rather than a wire on the bench, and it's also the one link that can
 be down — which is the whole subject of the next section.
 
+**A shared secret, camera → backend directly, bypassing the Pi.** The two
+ESP32-CAMs normally stream to the Pi (MJPEG over the LAN, relayed into
+Site Cameras — see the known `.local` resolution issue in
+[Hardware status](#hardware-status)), but "the yard is invisible because
+the gate is rebooting" is a bad property for a monitoring feed, so that's
+not the only path: with `CCTV_UPLOAD_TOKEN` set, a camera can post a frame
+straight to the backend on its own, proving itself with a shared secret
+rather than a login. Deliberately *not* a JWT — sign-in and token refresh
+on an ESP32 is latency and crash surface a camera doesn't need — and
+deliberately scoped to do exactly one thing: this token can replace a
+picture and nothing else in the API accepts it, so extracting it from a
+camera in the field is a low-value target rather than a way into the
+system. Blank by default, so the fallback stays off until someone opts
+in. Same idea as [Running with no internet](#running-with-no-internet),
+one link narrower: a single point of failure — here, the Pi being off —
+shouldn't be able to take out everything downstream of it.
+
 ---
 
 ## Running with no internet
@@ -921,6 +949,20 @@ resolving against the Pi's local worker cache — see
 callback logs every packet; two sensor nodes have been reporting
 continuously, accumulating thousands of readings in the Pi's local store
 and syncing them to the backend on a timer.
+
+**A known, currently-unresolved issue: the two ESP32-CAMs' `.local`
+hostnames don't reliably resolve from the Pi.** `SAFETYFIRST_CCTV_URL`
+points the relay at `safetyfirst-cam.local` / `safetyfirst-yard.local`
+(mDNS), and at last check the Pi couldn't resolve either — the relay
+logged `stream unavailable... Failed to resolve 'safetyfirst-cam.local'`
+and Site Cameras showed no tile rather than a frozen or wrong one. This is
+specifically the Pi's mDNS resolution, not the cameras — both stream fine
+to a laptop on the same LAN. The env var already accepts a plain IP
+instead of a `.local` name (`SAFETYFIRST_CCTV_URL=cam=http://192.168.1.51`
+— see `pi_app/.env.example`), which is the practical fix until whatever's
+wrong with `avahi`/mDNS on that Pi image is tracked down; we're naming it
+here rather than letting a judge discover a blank camera tile mid-demo and
+wonder if the hardware is the problem.
 
 `pi_app/doctor.py` walks the whole chain — platform, SPI, reader
 libraries, camera, backend, credentials, policy, GPS — and says which link
