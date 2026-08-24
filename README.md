@@ -83,8 +83,12 @@ attendance record, with two sensor nodes reporting gas/temperature/humidity
 over ESP-NOW through the gate master, a GPS module reporting the
 checkpoint's position, and — the part we're proudest of — the whole chain
 still working with the backend switched off entirely, ruling on-device and
-syncing the moment the network returns. That last one is described in
-detail in [Running with no internet](#running-with-no-internet).
+syncing the moment the network returns. That's backed by a UPS HAT on the
+Pi itself, rated for hours of runtime, because on a real site a power cut
+and a network outage tend to be the same event — see
+[Running with no internet](#running-with-no-internet) for the software
+side of that story and [Hardware status](#hardware-status) for the power
+side.
 
 ### Against the judging parameters
 
@@ -246,7 +250,11 @@ the source of truth.
 
 **Still not exercised on this hardware:**
 
-- The Waveshare UPS HAT (E) and its I²C fuel gauge.
+- A live, timed power-cut endurance test of the Waveshare UPS HAT (E) —
+  it's installed and wired specifically to keep the gate alive through a
+  mains outage (see [Hardware status](#hardware-status)), but the ~4–5hr
+  figure is the component's rated capacity, not something we've personally
+  timed on this bench yet.
 - Local (on-device) inference *accelerated by the AI HAT* — the fallback
   above uses plain CPU ONNX, not the Hailo NPU, which is a different and
   smaller claim. See
@@ -811,6 +819,13 @@ anything that reaches multiple sites' data still needs the backend — it's
 specifically the one path (badge → verdict → record) that a gate cannot
 be allowed to simply stop doing.
 
+**What still needs mains power:** the Pi itself, eventually. None of the
+above helps if the gate has no power at all — that's what the UPS HAT is
+for, and why it's on this build rather than being an optional extra; see
+[Hardware status](#hardware-status). Put together, the design goal is
+that neither a dead network link nor a dead mains circuit, on its own,
+should be able to stop a badge from being checked.
+
 ---
 
 ## Hardware status
@@ -824,13 +839,35 @@ including the unflattering ones.
 
 **Raspberry Pi 5 (8GB)** — the site gateway, and the only box with a route
 off site. Confirmed via `/proc/device-tree/model`: *Raspberry Pi 5 Model B
-Rev 1.1*. Waveshare 10.1" touch display, Waveshare UPS HAT (E) (I²C fuel
-gauge at `0x2d`, 4×21700 cells, ~4hr backup, 5V/6A out — **not yet
-exercised** in this session), AI HAT (Hailo, 12 TOPS — not used for
-inference; see [Cloud vs. local inference](#cloud-vs-local-inference)
+Rev 1.1*. Waveshare 10.1" touch display, AI HAT (Hailo, 12 TOPS — not used
+for inference; see [Cloud vs. local inference](#cloud-vs-local-inference)
 and [Running with no internet](#running-with-no-internet) for what the
 on-device fallback uses instead, which is plain CPU ONNX, not the Hailo
 accelerator).
+
+**Why there's a UPS HAT: none of this hardware has a battery of its own.**
+A Pi, a USB camera, a GPS modem and a USB-connected ESP32 all draw
+continuously from mains — cut the power and they don't degrade gracefully,
+they just stop, mid-frame, mid-write. The Waveshare UPS HAT (E) (I²C fuel
+gauge at `0x2d`, 4×21700 cells, rated 5V/6A out, ~4–5hr on a charge) sits
+between the wall and everything hanging off the Pi's own rails
+specifically so a site power cut is not the same event as the gate going
+dark. Installed and wired in; a live pull-the-power endurance test hasn't
+been run on this hardware yet, so the 4–5hr figure is the component's
+rated capacity, not a number we've personally timed — flagged that way on
+purpose, the same as everywhere else in this document that draws the line
+between "designed for" and "watched happen."
+
+**A power cut and a network outage are, in practice, the same failure on
+a real site** — the router usually shares the circuit that just went
+down. That's exactly the case [Running with no internet](#running-with-no-internet)
+is built for: on UPS power with no backend reachable, the gate keeps
+reading badges from its local worker cache, keeps ruling PPE on-device
+with the same model and the same verdict logic the backend uses, and
+queues every decision to be synced the moment either the mains or the
+network — usually both — comes back. The UPS's job is narrow and specific:
+buy the minutes-to-hours that chain needs to keep working instead of the
+checkpoint simply switching off.
 
 **Five ESP32 boards**, all attached and — as of this round — all
 **tested live**, not just flashed and assumed working:
@@ -894,8 +931,10 @@ runs on, so it could report a setting as fine while the gate ran with
 something else entirely) — fixed once identified, and now loads the same
 `.env` the checkpoint app does.
 
-**Not yet exercised on this hardware:** the UPS HAT's fuel gauge and
-battery-backup behaviour, and reflashing the two sensor-node and two
+**Not yet exercised on this hardware:** a timed, live power-cut test of
+the UPS HAT's battery backup (installed, wired, and rated for ~4–5hr — see
+above — but not personally clocked on this bench), the UPS's I²C fuel
+gauge readout specifically, and reflashing the two sensor-node and two
 camera sketches with `arduino-cli` specifically (the gate master sketch
 has been, twice — see above). Reflashing over USB on this bench has not
 been perfectly reliable: two separate uploads dropped mid-write and
