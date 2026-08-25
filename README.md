@@ -30,7 +30,7 @@ section to get it running.
 
 ## For judges
 
-**Live site:** [traditions-lit-determines-has.trycloudflare.com](https://traditions-lit-determines-has.trycloudflare.com)
+**Live site:** [resistance-exclusion-divorce-expo.trycloudflare.com](https://resistance-exclusion-divorce-expo.trycloudflare.com)
 
 **Demo logins** — two accounts, created specifically for judging so no
 real person's password is anywhere in this repo. Both work through the
@@ -42,7 +42,7 @@ link above right now.
 | Operator (a worker's own view) | `judge-worker@safetyfirst.demo` | `JudgeDemo2026!` |
 
 No login at all is needed to see the guest experience — "Try it" on the
-homepage, or [Gate Control](https://traditions-lit-determines-has.trycloudflare.com/visit-site.html)
+homepage, or [Gate Control](https://resistance-exclusion-divorce-expo.trycloudflare.com/visit-site.html)
 directly. What each role can actually see is laid out in
 [Roles & access](#roles--access).
 
