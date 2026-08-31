@@ -66,3 +66,11 @@ backend/instance/
 # while it is running.
 pi_app/checkpoint.log
 pi_app/.checkpoint.lock
+
+# Dev-only Reticle/Vite toolchain (frontend/package.json). Never part of
+# the deployed app — production still serves frontend/*.html unbuilt, the
+# way backend/app.py and the Dockerfile always have. node_modules is never
+# committed on principle; vite-dev.log is this machine's own dev-server
+# output.
+frontend/node_modules/
+frontend/vite-dev.log
